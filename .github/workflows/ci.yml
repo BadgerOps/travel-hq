@@ -1,0 +1,42 @@
+name: CI
+
+# The test gate. Runs on every PR (including forks) and on push to master.
+# This job needs NO secrets, so it is safe to run for fork PRs -- it is also
+# invoked as a reusable workflow (`workflow_call`) by deploy.yml, so the
+# deploy workflow's own test job doesn't duplicate these steps.
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # Server suite on @cloudflare/vitest-pool-workers: workerd is
+      # downloaded as a package dependency and runs fine on a stock
+      # ubuntu-latest runner -- no extra setup (no Docker, no additional
+      # runner permissions) is required beyond `npm ci`.
+      - run: npm test
+
+      # The architecture test (raw-SQL confinement) runs under its own node
+      # config, so `npm test` (the workers pool) does not include it. Run it
+      # explicitly here: it is the guard that keeps a future route from
+      # bypassing the adversarially-reviewed tenancy layer, and must gate CI.
+      - run: npx vitest run -c vitest.arch.config.ts
+
+      - run: npm run test:client
+
+      - run: npm run build

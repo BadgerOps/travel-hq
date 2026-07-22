@@ -1,0 +1,76 @@
+name: Deploy
+
+# Fork-safe deploy. Runs the test gate first (reusing ci.yml via
+# `workflow_call`, so there is one copy of the test steps), then deploys --
+# but ONLY for same-repo PRs (testing) and pushes to master (production).
+#
+# SECURITY: this is a PUBLIC repo. `CLOUDFLARE_API_TOKEN` /
+# `CLOUDFLARE_ACCOUNT_ID` are referenced ONLY inside the deploy-testing and
+# deploy-production jobs below -- never in the `test` job, and never at
+# workflow/env level. A pull_request from a fork always runs `test` only:
+# the `if:` on deploy-testing requires
+# `github.event.pull_request.head.repo.full_name == github.repository`,
+# which is false for a fork, so the job (and the secrets it references) is
+# skipped entirely for fork PRs.
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# Cancel an in-progress deploy for the same ref so overlapping pushes/PR
+# updates don't race each other's `wrangler deploy`.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  deploy-testing:
+    needs: test
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      # Migrations apply BEFORE deploy so the Worker never runs against an
+      # unmigrated D1.
+      - run: npx wrangler d1 migrations apply travel-hq-testing --env testing --remote
+
+      - run: npx wrangler deploy --env testing
+
+  deploy-production:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: npx wrangler d1 migrations apply travel-hq-production --env production --remote
+
+      - run: npx wrangler deploy --env production

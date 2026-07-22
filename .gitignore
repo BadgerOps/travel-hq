@@ -1,0 +1,13 @@
+node_modules/
+dist/
+result
+result-*
+.direnv/
+*.tsbuildinfo
+.superpowers/
+.dev-secrets/
+*.db
+*.db-wal
+*.db-shm
+.wrangler/
+.dev.vars

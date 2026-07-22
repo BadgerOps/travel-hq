@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/nocturne-8f927071-1ed7-411b-9402-596424195b73/styles.css">
+<script src="_ds/nocturne-8f927071-1ed7-411b-9402-596424195b73/_ds_bundle.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+body{margin:0;background:#0c0d15;font-family:var(--font-body,Inter,sans-serif)}
+a{color:var(--color-accent)}a:hover{color:var(--color-accent-300)}
+.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(233,233,237,.07);scroll-margin-top:16px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:var(--color-accent-800);color:var(--color-accent-100);border-radius:4px;text-decoration:none}
+.dv-tname{font:600 13px/1.2 Inter,sans-serif;color:var(--color-text)}
+.dv-opts{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}
+.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(233,233,237,.1);color:var(--color-text);border-radius:5px;text-decoration:none}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11.5px/1.4 Inter,sans-serif;color:rgba(233,233,237,.55);max-width:640px}
+.dv-card{max-width:100%;background:var(--color-bg);border:1px solid rgba(233,233,237,.1);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.5);overflow:hidden}
+.dv-opt:target .dv-oid{background:var(--color-accent);color:#161826}
+.dv-next{margin:22px 0 0;font:12px/1.5 Inter,sans-serif;color:rgba(233,233,237,.45)}
+.av{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;font-size:10px;font-weight:600;flex:none}
+.av-b{background:var(--color-accent-700);color:var(--color-accent-100)}
+.av-a{background:var(--color-accent-2-800);color:var(--color-accent-2-200)}
+.av-m{background:var(--color-neutral-700);color:var(--color-neutral-100)}
+.av-f{background:var(--color-section-glow);color:var(--color-accent-200)}
+.frule{height:1px;border:0;background:linear-gradient(to right,transparent,var(--color-divider) 48px,var(--color-divider) calc(100% - 48px),transparent)}
+</style>
+</helmet>
+
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Home riff on <a class="dv-oid" href="#1a">1a</a> (countdowns, greeting, trip photos, mini-itinerary, ranked actions) + email import flow</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Home v2 — greeting header, countdown badges, photo trip cards with a day-by-day teaser, ranked "next best" queue. Drop real photos onto the placeholders</div>
+<div class="dv-card" style="width:1240px">
+<div style="display:flex;align-items:center;gap:28px;padding:14px 28px;border-bottom:1px solid var(--color-divider)">
+  <div style="display:flex;align-items:center;gap:10px;margin-right:auto"><i class="ph-fill ph-paper-plane-tilt" style="color:var(--color-accent);font-size:20px"></i><span style="font-weight:500;font-size:16px">Travel HQ</span></div>
+  <span style="font-size:13.5px;color:var(--color-accent)">Today</span>
+  <span style="font-size:13.5px;color:var(--color-neutral-400)">Trips</span>
+  <span style="font-size:13.5px;color:var(--color-neutral-400)">Checklist</span>
+  <span style="font-size:13.5px;color:var(--color-neutral-400)">People</span>
+  <span style="font-size:13.5px;color:var(--color-neutral-600)">Cards · soon</span>
+  <button class="btn btn-secondary" style="font-size:12.5px;padding:6px 12px"><i class="ph ph-tray-arrow-down"></i> Import</button>
+  <span class="av av-b">B</span>
+</div>
+<div style="padding:26px 28px 34px">
+  <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:22px">
+    <div><h3 style="margin:0 0 4px">Good morning, Badger</h3><p style="font-size:13px;color:var(--color-neutral-400);margin:0">Friday, October 9 · travel day — everyone's in Guerneville by tonight</p></div>
+    <span class="tag tag-accent" style="margin-left:auto">Wedding trip · today</span>
+  </div>
+  <div style="display:flex;gap:24px;align-items:stretch">
+    <div style="flex:1.5;min-width:0;border-radius:var(--radius-lg);padding:22px 24px;background:linear-gradient(135deg,var(--color-section) 0%,#1a1c33 55%,var(--color-bg) 100%);border:1px solid var(--color-accent-800)">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px"><h6 style="color:var(--color-accent-300);margin:0">Next up · in 40 min</h6><span style="margin-left:auto;font-size:11px;color:var(--color-neutral-400)">then 3 more today</span></div>
+      <div style="display:flex;gap:14px;align-items:center">
+        <i class="ph ph-airplane-takeoff" style="font-size:30px;color:var(--color-accent)"></i>
+        <div><div style="font-size:18px;font-weight:500">DL 2214 boards 9:05 AM · gate B7</div><div style="font-size:12.5px;color:var(--color-neutral-300)">BOI → STS · 9:40 AM MDT → 12:55 PM PDT · conf ••••X4T2</div></div>
+        <div style="margin-left:auto;display:flex;gap:5px"><span class="av av-b">B</span><span class="av av-m">M</span><span class="av av-f">F</span></div>
+      </div>
+      <hr class="frule" style="margin:16px 0">
+      <div style="display:grid;gap:8px;font-size:12.5px;color:var(--color-neutral-300)">
+        <div style="display:flex;gap:10px;align-items:center"><span style="width:58px;color:var(--color-neutral-500);text-align:right">1:15 PM</span><i class="ph ph-car" style="color:var(--color-accent)"></i>Hertz pickup · STS<span class="av av-b" style="margin-left:auto;width:17px;height:17px;font-size:8px">B</span></div>
+        <div style="display:flex;gap:10px;align-items:center"><span style="width:58px;color:var(--color-neutral-500);text-align:right">3:00 PM</span><i class="ph ph-bed" style="color:var(--color-accent)"></i>Check in · Dawn Ranch Lodge<span style="margin-left:auto;display:flex;gap:3px"><span class="av av-b" style="width:17px;height:17px;font-size:8px">B</span><span class="av av-m" style="width:17px;height:17px;font-size:8px">M</span><span class="av av-f" style="width:17px;height:17px;font-size:8px">F</span></span></div>
+        <div style="display:flex;gap:10px;align-items:center"><span style="width:58px;color:var(--color-neutral-500);text-align:right">8:20 PM</span><i class="ph ph-airplane-landing" style="color:var(--color-accent-2)"></i>Alex lands · DL 2688<span style="margin-left:auto;display:flex;gap:3px"><span class="av av-a" style="width:17px;height:17px;font-size:8px">A</span><span class="av av-b" style="width:17px;height:17px;font-size:8px">B</span></span></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:18px"><button class="btn btn-primary">Open day view <i class="ph ph-arrow-right"></i></button><button class="btn btn-secondary">Trip details</button></div>
+    </div>
+    <div class="card" style="flex:1;min-width:0">
+      <span class="card-kicker">Next best actions</span>
+      <div style="display:grid;gap:2px;margin-top:4px">
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 2px"><span style="width:22px;height:22px;border-radius:var(--radius-sm);display:grid;place-items:center;background:var(--color-accent-800);color:var(--color-accent-200);font-size:11px;font-weight:600;flex:none">1</span><div style="min-width:0"><div style="font-size:13px;font-weight:500">Check in for DL 2214</div><div style="font-size:11px;color:var(--color-neutral-500)">Delta app · opened 8:40 AM</div></div><span class="tag tag-accent" style="margin-left:auto;padding:2px 8px">now</span></div>
+        <hr class="frule" style="margin:0">
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 2px"><span style="width:22px;height:22px;border-radius:var(--radius-sm);display:grid;place-items:center;background:var(--color-neutral-800);color:var(--color-neutral-200);font-size:11px;font-weight:600;flex:none">2</span><div style="min-width:0"><div style="font-size:13px;font-weight:500">Book return flight STS → BOI</div><div style="font-size:11px;color:var(--color-neutral-500)">Sunday · prices rising</div></div><span style="margin-left:auto;font-size:11px;color:var(--color-neutral-500)">2 days</span></div>
+        <hr class="frule" style="margin:0">
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 2px"><span style="width:22px;height:22px;border-radius:var(--radius-sm);display:grid;place-items:center;background:var(--color-neutral-800);color:var(--color-neutral-200);font-size:11px;font-weight:600;flex:none">3</span><div style="min-width:0"><div style="font-size:13px;font-weight:500">Renew Finn's passport</div><div style="font-size:11px;color:var(--color-neutral-500)">Expires Feb 2027 · Kauai needs 6-mo validity</div></div><span style="margin-left:auto;font-size:11px;color:#d9b98a">132 days</span></div>
+        <hr class="frule" style="margin:0">
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 2px"><span style="width:22px;height:22px;border-radius:var(--radius-sm);display:grid;place-items:center;background:var(--color-neutral-800);color:var(--color-neutral-200);font-size:11px;font-weight:600;flex:none">4</span><div style="min-width:0"><div style="font-size:13px;font-weight:500">Pick Kauai dates</div><div style="font-size:11px;color:var(--color-neutral-500)">Companion cert expires Jan 31, 2027</div></div><span style="margin-left:auto;font-size:11px;color:var(--color-neutral-500)">114 days</span></div>
+      </div>
+      <button class="btn btn-ghost" style="justify-content:flex-start;font-size:12.5px">Full checklist <i class="ph ph-arrow-right"></i></button>
+    </div>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:14px;margin:30px 0 14px"><h4 style="margin:0">Trips</h4><button class="btn btn-ghost" style="margin-left:auto;font-size:13px"><i class="ph ph-plus"></i> New trip</button></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="position:relative;height:150px">
+        <div style="position:absolute;inset:0;background:var(--color-neutral-900)"><x-import component-from-global-scope="image-slot" from="./image-slot.js" id="trip-guerneville" shape="rect" placeholder="Drop a Guerneville photo" hint-size="100%,150px" style="width:100%;height:100%"></x-import></div>
+        <span class="tag tag-accent" style="position:absolute;top:12px;right:12px;pointer-events:none">Today</span>
+      </div>
+      <div style="padding:var(--space-4) var(--space-4) var(--space-4);display:grid;gap:8px">
+        <div style="display:flex;align-items:baseline;gap:10px"><div class="card-title">Mary &amp; Winter Wedding</div><span style="margin-left:auto;font-size:11px;color:var(--color-neutral-500)">Oct 9–11</span></div>
+        <div class="card-meta"><i class="ph ph-map-pin"></i> Guerneville, CA<span style="margin-left:8px;display:flex;gap:4px"><span class="av av-b" style="width:18px;height:18px;font-size:9px">B</span><span class="av av-a" style="width:18px;height:18px;font-size:9px">A</span><span class="av av-m" style="width:18px;height:18px;font-size:9px">M</span><span class="av av-f" style="width:18px;height:18px;font-size:9px">F</span></span></div>
+        <div style="display:grid;gap:5px;font-size:12px;color:var(--color-neutral-400);margin-top:2px">
+          <div style="display:flex;gap:10px"><span style="width:44px;color:var(--color-neutral-600);flex:none">Fri 9</span>Fly out · rental · check in · Alex lands 8:20</div>
+          <div style="display:flex;gap:10px"><span style="width:44px;color:var(--color-neutral-600);flex:none">Sat 10</span>Wedding — ceremony 4:00 PM, Highlands meadow</div>
+          <div style="display:flex;gap:10px"><span style="width:44px;color:var(--color-neutral-600);flex:none">Sun 11</span>Check out · return flight <span style="color:#d9b98a">not booked</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="position:relative;height:150px">
+        <div style="position:absolute;inset:0;background:var(--color-neutral-900)"><x-import component-from-global-scope="image-slot" from="./image-slot.js" id="trip-kauai" shape="rect" placeholder="Drop a Kauai photo" hint-size="100%,150px" style="width:100%;height:100%"></x-import></div>
+        <span class="tag tag-neutral" style="position:absolute;top:12px;right:12px;pointer-events:none">In 162 days</span>
+      </div>
+      <div style="padding:var(--space-4);display:grid;gap:8px">
+        <div style="display:flex;align-items:baseline;gap:10px"><div class="card-title">Spring Break — Kauai</div><span style="margin-left:auto;font-size:11px;color:var(--color-neutral-500)">Mar 20–28, 2027</span></div>
+        <div class="card-meta"><i class="ph ph-map-pin"></i> Poipu, HI · draft — dates penciled in</div>
+        <div style="display:grid;gap:5px;font-size:12px;color:var(--color-neutral-400);margin-top:2px">
+          <div style="display:flex;gap:10px;align-items:center"><i class="ph ph-ticket" style="color:var(--color-accent)"></i>Companion certificate — book by Jan 31 <span class="tag tag-neutral" style="margin-left:auto;padding:2px 8px">114 days</span></div>
+          <div style="display:flex;gap:10px;align-items:center"><i class="ph ph-identification-card" style="color:#d9b98a"></i>Finn's passport renewal blocks this trip</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="2b">
+<div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a>Import a booking — forward or paste a confirmation email; the parser proposes a draft you review before it touches the trip. Nothing writes silently</div>
+<div class="dv-card" style="width:1240px">
+<div style="padding:26px 28px 32px">
+  <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:20px">
+    <div><h3 style="margin:0 0 4px">Import bookings</h3><p style="font-size:13px;color:var(--color-neutral-400);margin:0">Three ways in — everything lands as a draft for review</p></div>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <span class="tag tag-outline" style="padding:6px 12px"><i class="ph ph-envelope-simple" style="margin-right:6px"></i>Forward to trips@hq.badger.lan</span>
+      <span class="tag" style="padding:6px 12px;border:1px solid var(--color-divider);color:var(--color-neutral-400)"><i class="ph ph-clipboard-text" style="margin-right:6px"></i>Paste email</span>
+      <span class="tag" style="padding:6px 12px;border:1px solid var(--color-divider);color:var(--color-neutral-400)"><i class="ph ph-file-arrow-up" style="margin-right:6px"></i>Upload .eml / PDF</span>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1.15fr;gap:22px;align-items:start">
+    <div>
+      <h6 style="color:var(--color-neutral-500);margin-bottom:10px">Pasted email</h6>
+      <div style="border:1px solid var(--color-divider);border-radius:var(--radius-md);background:var(--color-surface);padding:16px 18px;font-size:12px;line-height:1.7;color:var(--color-neutral-400)">
+        <div style="display:flex;gap:8px;font-size:11px;color:var(--color-neutral-500);margin-bottom:10px;flex-wrap:wrap"><span style="color:var(--color-neutral-300)">From: DeltaAirLines@t.delta.com</span><span>·</span><span>Subject: Your Flight Receipt — SANTA ROSA</span></div>
+        <p style="margin:0 0 8px">Thank you for your purchase. Confirmation #: <mark style="background:var(--color-accent-900);color:var(--color-accent-200);padding:0 4px;border-radius:3px">HMX4T2</mark></p>
+        <p style="margin:0 0 8px">Flight <mark style="background:var(--color-accent-900);color:var(--color-accent-200);padding:0 4px;border-radius:3px">DL 2214</mark> · Fri, <mark style="background:var(--color-accent-900);color:var(--color-accent-200);padding:0 4px;border-radius:3px">09OCT26</mark><br>Depart: <mark style="background:var(--color-accent-900);color:var(--color-accent-200);padding:0 4px;border-radius:3px">BOISE 9:40am</mark> → Arrive: <mark style="background:var(--color-accent-900);color:var(--color-accent-200);padding:0 4px;border-radius:3px">SANTA ROSA 12:55pm</mark> (via SLC)</p>
+        <p style="margin:0 0 8px">Passengers: <mark style="background:var(--color-accent-2-900);color:var(--color-accent-2-200);padding:0 4px;border-radius:3px">WRIGHT/BADGER</mark>, <mark style="background:var(--color-accent-2-900);color:var(--color-accent-2-200);padding:0 4px;border-radius:3px">WRIGHT/MAYA</mark>, <mark style="background:var(--color-accent-2-900);color:var(--color-accent-2-200);padding:0 4px;border-radius:3px">WRIGHT/FINN</mark></p>
+        <p style="margin:0">Total: <mark style="background:var(--color-accent-900);color:var(--color-accent-200);padding:0 4px;border-radius:3px">$684.30</mark> · Seats 14A, 14B, 14C…</p>
+      </div>
+      <p style="font-size:11.5px;color:var(--color-neutral-500);margin-top:10px"><i class="ph ph-highlighter"></i> Highlights show what the parser matched — click a value on the right to see its source</p>
+    </div>
+    <div>
+      <h6 style="color:var(--color-neutral-500);margin-bottom:10px">Parsed draft · review before saving</h6>
+      <div style="border:1px solid var(--color-accent-800);border-radius:var(--radius-md);background:var(--color-surface);padding:18px 20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <i class="ph ph-airplane-takeoff" style="font-size:20px;color:var(--color-accent)"></i>
+          <div style="font-size:15px;font-weight:500">Flight · Delta 2214 · BOI → STS</div>
+          <span class="tag tag-accent" style="margin-left:auto;padding:3px 9px">Draft</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;font-size:12.5px">
+          <div><div style="font-size:10.5px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Departs</div>Fri Oct 9 · 9:40 AM <span style="color:var(--color-neutral-500)">MDT · from BOI</span></div>
+          <div><div style="font-size:10.5px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Arrives</div>Fri Oct 9 · 12:55 PM <span style="color:var(--color-neutral-500)">PDT · at STS</span></div>
+          <div><div style="font-size:10.5px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Confirmation</div>HMX4T2 <span style="color:var(--color-neutral-500)">· stored masked</span></div>
+          <div><div style="font-size:10.5px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Cost</div>$684.30</div>
+        </div>
+        <hr class="frule" style="margin:14px 0">
+        <div style="font-size:10.5px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Matched travelers</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="tag tag-outline" style="padding:5px 11px"><span class="av av-b" style="width:15px;height:15px;font-size:8px;margin-right:6px">B</span>Badger <i class="ph ph-check" style="margin-left:6px;font-size:11px"></i></span>
+          <span class="tag tag-outline" style="padding:5px 11px"><span class="av av-m" style="width:15px;height:15px;font-size:8px;margin-right:6px">M</span>Maya <i class="ph ph-check" style="margin-left:6px;font-size:11px"></i></span>
+          <span class="tag tag-outline" style="padding:5px 11px"><span class="av av-f" style="width:15px;height:15px;font-size:8px;margin-right:6px">F</span>Finn <i class="ph ph-check" style="margin-left:6px;font-size:11px"></i></span>
+        </div>
+        <hr class="frule" style="margin:14px 0">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="font-size:10.5px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.06em">Attach to trip</div>
+          <span class="tag tag-accent" style="padding:4px 10px">Mary &amp; Winter Wedding <span style="opacity:.7;margin-left:5px">auto-matched by dates</span></span>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px">
+          <button class="btn btn-ghost" style="font-size:13px"><i class="ph ph-pencil-simple"></i> Edit fields</button>
+          <button class="btn btn-secondary">Discard</button>
+          <button class="btn btn-primary"><i class="ph ph-check"></i> Add to trip</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;margin-top:12px;padding:11px 14px;border-radius:var(--radius-md);border:1px dashed var(--color-neutral-800);font-size:12px;color:var(--color-neutral-400)">
+        <i class="ph ph-envelope-open" style="font-size:17px;color:var(--color-neutral-500)"></i>2 more emails waiting — Dawn Ranch confirmation, Hertz receipt<button class="btn btn-ghost" style="margin-left:auto;font-size:12px">Review next <i class="ph ph-arrow-right"></i></button>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "make <a class="dv-oid" href="#2a">2a</a> the real home and build it responsive" · "show what a low-confidence parse looks like in <a class="dv-oid" href="#2b">2b</a>" · "add the import inbox as a nav-level page"</p>
+</section>
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Travel HQ — trips-first redesign · first pass</span></div>
+<div style="max-width:760px;margin:0 0 26px;font-size:12.5px;line-height:1.6;color:rgba(233,233,237,.6)">
+<p style="margin:0 0 8px"><strong style="color:var(--color-text)">Assumptions:</strong> family of four — Badger <span class="av av-b" style="width:18px;height:18px;font-size:9px">B</span>, Alex <span class="av av-a" style="width:18px;height:18px;font-size:9px">A</span> (spouse), Maya <span class="av av-m" style="width:18px;height:18px;font-size:9px">M</span> (9), Finn <span class="av av-f" style="width:18px;height:18px;font-size:9px">F</span> (6). Sample data: the real Guerneville wedding trip (Oct 9–11), where Alex takes a later flight and only Badger is on the rental car — that split is what makes the per-person views judgeable — plus an invented Kauai draft trip. Timezones always shown at both ends of a flight.</p>
+<p style="margin:0"><strong style="color:var(--color-text)">Per your answers:</strong> home <em>is</em> the today view when a trip is live (<a class="dv-oid" href="#1a">1a</a>) · trip detail hub (<a class="dv-oid" href="#1b">1b</a>) · two shapes for the day-by-day centerpiece: shared agenda with avatar chips (<a class="dv-oid" href="#1c">1c</a>) vs. column-per-person grid (<a class="dv-oid" href="#1d">1d</a>) · phone day-of view for a parent (<a class="dv-oid" href="#1e">1e</a>) and a kid's no-login view (<a class="dv-oid" href="#1f">1f</a>) · the kind-morphing booking form (<a class="dv-oid" href="#1g">1g</a>).</p>
+</div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Home — during an active trip the top of home is "today"; trips + map + cross-trip checklist below</div>
+<div class="dv-card" style="width:1240px">
+<div style="display:flex;align-items:center;gap:28px;padding:14px 28px;border-bottom:1px solid var(--color-divider)">
+  <div style="display:flex;align-items:center;gap:10px;margin-right:auto">
+    <i class="ph-fill ph-paper-plane-tilt" style="color:var(--color-accent);font-size:20px"></i>
+    <span style="font-weight:500;font-size:16px">Travel HQ</span>
+  </div>
+  <span style="font-size:13.5px;color:var(--color-accent)">Today</span>
+  <span style="font-size:13.5px;color:var(--color-neutral-400)">Trips</span>
+  <span style="font-size:13.5px;color:var(--color-neutral-400)">Checklist</span>
+  <span style="font-size:13.5px;color:var(--color-neutral-400)">People</span>
+  <span style="font-size:13.5px;color:var(--color-neutral-600)">Cards · soon</span>
+  <span class="av av-b">B</span>
+</div>
+<div style="padding:30px 28px 34px">
+  <div style="display:flex;gap:24px;align-items:stretch">
+    <div style="flex:1.5;min-width:0;border-radius:var(--radius-lg);padding:24px 26px;background:linear-gradient(135deg,var(--color-section) 0%,#1a1c33 55%,var(--color-bg) 100%);border:1px solid var(--color-accent-800)">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <h6 style="color:var(--color-accent-300);margin:0">Friday, October 9 · Travel day</h6>
+        <span class="tag tag-accent" style="margin-left:auto">Day 1 of 3</span>
+      </div>
+      <h3 style="margin:10px 0 2px">Mary &amp; Winter Wedding</h3>
+      <p style="font-size:13px;color:var(--color-neutral-400);margin:0 0 18px"><i class="ph ph-map-pin"></i> Guerneville, CA · everyone travels today</p>
+      <div style="display:grid;gap:10px">
+        <div style="display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--color-bg) 55%,transparent)">
+          <i class="ph ph-airplane-takeoff" style="font-size:20px;color:var(--color-accent)"></i>
+          <div style="min-width:0"><div style="font-size:14px;font-weight:500">DL 2214 · BOI → STS</div><div style="font-size:12px;color:var(--color-neutral-400)">Boards 9:05 AM · departs 9:40 AM MDT → 12:55 PM PDT</div></div>
+          <div style="margin-left:auto;display:flex;gap:5px"><span class="av av-b">B</span><span class="av av-m">M</span><span class="av av-f">F</span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--color-bg) 55%,transparent)">
+          <i class="ph ph-car" style="font-size:20px;color:var(--color-accent)"></i>
+          <div style="min-width:0"><div style="font-size:14px;font-weight:500">Hertz pickup · STS airport</div><div style="font-size:12px;color:var(--color-neutral-400)">1:15 PM PDT · conf ••••K9Q2</div></div>
+          <div style="margin-left:auto;display:flex;gap:5px"><span class="av av-b">B</span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--color-bg) 55%,transparent)">
+          <i class="ph ph-airplane-landing" style="font-size:20px;color:var(--color-accent-2)"></i>
+          <div style="min-width:0"><div style="font-size:14px;font-weight:500">Alex lands · DL 2688</div><div style="font-size:12px;color:var(--color-neutral-400)">5:10 PM MDT → 8:20 PM PDT · pick up at STS</div></div>
+          <div style="margin-left:auto;display:flex;gap:5px"><span class="av av-a">A</span></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <button class="btn btn-primary">Open day view <i class="ph ph-arrow-right"></i></button>
+        <button class="btn btn-secondary">Trip details</button>
+      </div>
+    </div>
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:14px">
+      <div class="card" style="flex:1">
+        <span class="card-kicker">Across trips · you owe</span>
+        <div style="display:grid;gap:2px;margin-top:4px">
+          <label style="display:flex;align-items:center;gap:10px;padding:8px 2px;font-size:13px;cursor:pointer"><span style="width:15px;height:15px;border-radius:4px;border:1.5px solid var(--color-accent-600);flex:none"></span>Check in — Delta app opens 8:40 AM<span style="margin-left:auto;display:flex;gap:6px;align-items:center"><span class="tag tag-accent" style="padding:2px 8px">today</span><span class="av av-b" style="width:18px;height:18px;font-size:9px">B</span></span></label>
+          <hr class="frule" style="margin:0">
+          <label style="display:flex;align-items:center;gap:10px;padding:8px 2px;font-size:13px;cursor:pointer"><span style="width:15px;height:15px;border-radius:4px;border:1.5px solid var(--color-divider);flex:none"></span>Pack kids' bags — carry-on only<span style="margin-left:auto;display:flex;gap:6px;align-items:center"><span style="font-size:11px;color:var(--color-neutral-500)">today</span><span class="av av-a" style="width:18px;height:18px;font-size:9px">A</span></span></label>
+          <hr class="frule" style="margin:0">
+          <label style="display:flex;align-items:center;gap:10px;padding:8px 2px;font-size:13px;cursor:pointer"><span style="width:15px;height:15px;border-radius:4px;border:1.5px solid var(--color-divider);flex:none"></span>Renew Finn's passport<span style="margin-left:auto;display:flex;gap:6px;align-items:center"><span style="font-size:11px;color:var(--color-neutral-500)">before Kauai</span><span class="av av-f" style="width:18px;height:18px;font-size:9px">F</span></span></label>
+          <hr class="frule" style="margin:0">
+          <label style="display:flex;align-items:center;gap:10px;padding:8px 2px;font-size:13px;cursor:pointer"><span style="width:15px;height:15px;border-radius:4px;border:1.5px solid var(--color-divider);flex:none"></span>Book return flight STS → BOI<span style="margin-left:auto;display:flex;gap:6px;align-items:center"><span style="font-size:11px;color:var(--color-neutral-500)">Oct 11</span><span class="av av-b" style="width:18px;height:18px;font-size:9px">B</span></span></label>
+        </div>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden;min-height:150px;position:relative">
+        <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 30% 40%,var(--color-neutral-900) 0%,var(--color-bg) 70%)">
+          <svg viewBox="0 0 400 150" style="width:100%;height:100%;display:block">
+            <g stroke="var(--color-neutral-800)" stroke-width="1" fill="none"><path d="M0 40 Q120 25 220 45 T400 35"></path><path d="M0 85 Q140 70 250 92 T400 80"></path><path d="M0 125 Q130 112 240 128 T400 120"></path></g>
+            <path d="M310 48 Q220 30 128 96" stroke="var(--color-accent)" stroke-width="1.5" fill="none" stroke-dasharray="4 5"></path>
+            <circle cx="310" cy="48" r="4" fill="var(--color-accent)"></circle>
+            <circle cx="128" cy="96" r="4" fill="var(--color-accent)"></circle>
+            <circle cx="60" cy="118" r="3.5" fill="var(--color-neutral-600)"></circle>
+          </svg>
+        </div>
+        <div style="position:relative;padding:10px 14px;font-size:11px;color:var(--color-neutral-400);display:flex;justify-content:space-between"><span>BOI → Guerneville</span><span style="color:var(--color-neutral-600)">map placeholder</span></div>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:14px;margin:30px 0 14px">
+    <h4 style="margin:0">Trips</h4>
+    <button class="btn btn-ghost" style="margin-left:auto;font-size:13px"><i class="ph ph-plus"></i> New trip</button>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div class="card" style="gap:var(--space-3)">
+      <div style="display:flex;align-items:center;gap:10px"><span class="card-kicker">Oct 9–11 · in 0 days</span><span class="tag tag-accent" style="margin-left:auto">Active</span></div>
+      <div class="card-title">Mary &amp; Winter Wedding</div>
+      <div class="card-meta"><i class="ph ph-map-pin"></i> Guerneville, CA<span style="margin-left:10px;display:flex;gap:4px"><span class="av av-b" style="width:18px;height:18px;font-size:9px">B</span><span class="av av-a" style="width:18px;height:18px;font-size:9px">A</span><span class="av av-m" style="width:18px;height:18px;font-size:9px">M</span><span class="av av-f" style="width:18px;height:18px;font-size:9px">F</span></span></div>
+      <div style="height:4px;border-radius:999px;background:var(--color-neutral-900);overflow:hidden"><span style="display:block;height:100%;width:70%;background:var(--color-accent)"></span></div>
+      <div class="card-meta">6 booked · 1 to go — return flight</div>
+    </div>
+    <div class="card" style="gap:var(--space-3)">
+      <div style="display:flex;align-items:center;gap:10px"><span class="card-kicker" style="color:var(--color-neutral-500)">Mar 20–28, 2027</span><span class="tag tag-neutral" style="margin-left:auto">Draft</span></div>
+      <div class="card-title">Spring Break — Kauai</div>
+      <div class="card-meta"><i class="ph ph-map-pin"></i> Poipu, HI<span style="margin-left:10px">use Delta companion certificate</span></div>
+      <div style="height:4px;border-radius:999px;background:var(--color-neutral-900);overflow:hidden"><span style="display:block;height:100%;width:8%;background:var(--color-neutral-600)"></span></div>
+      <div class="card-meta">0 booked · dates penciled in</div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Trip detail — the hub: bookings grouped by kind, travelers + docs, per-trip checklist</div>
+<div class="dv-card" style="width:1240px">
+<div style="display:flex;align-items:center;gap:28px;padding:14px 28px;border-bottom:1px solid var(--color-divider)">
+  <div style="display:flex;align-items:center;gap:10px;margin-right:auto"><i class="ph-fill ph-paper-plane-tilt" style="color:var(--color-accent);font-size:20px"></i><span style="font-weight:500;font-size:16px">Travel HQ</span></div>
+  <span style="font-size:13.5px;color:var(--color-neutral-400)">Today</span>
+  <span style="font-size:13.5px;color:var(--color-accent)">Trips</span>
+  <span style="font-size:13.5px;color:var(--color-neutral-400)">Checklist</span>
+  <span style="font-size:13.5px;color:var(--color-neutral-400)">People</span>
+  <span class="av av-b">B</span>
+</div>
+<div style="padding:26px 28px 34px">
+  <div style="font-size:12px;color:var(--color-neutral-500);margin-bottom:14px">Trips <i class="ph ph-caret-right" style="font-size:10px"></i> Mary &amp; Winter Wedding</div>
+  <div style="display:flex;align-items:flex-start;gap:18px;margin-bottom:6px">
+    <div>
+      <h2 style="margin:0 0 6px">Mary &amp; Winter Wedding</h2>
+      <p style="font-size:13.5px;color:var(--color-neutral-400);margin:0"><i class="ph ph-calendar-blank"></i> Fri Oct 9 – Sun Oct 11, 2026 &nbsp;·&nbsp; <i class="ph ph-map-pin"></i> Guerneville, CA</p>
+    </div>
+    <span class="tag tag-accent" style="margin-top:6px">Active</span>
+    <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
+      <div style="display:flex;gap:5px;margin-right:8px"><span class="av av-b">B</span><span class="av av-a">A</span><span class="av av-m">M</span><span class="av av-f">F</span></div>
+      <button class="btn btn-primary"><i class="ph ph-plus"></i> Add booking</button>
+      <button class="btn btn-secondary btn-icon"><i class="ph ph-pencil-simple"></i></button>
+    </div>
+  </div>
+  <div class="seg" style="margin:16px 0 24px">
+    <label class="seg-opt"><input type="radio" name="tdtab" checked>Overview</label>
+    <label class="seg-opt"><input type="radio" name="tdtab">Day by day</label>
+    <label class="seg-opt"><input type="radio" name="tdtab">Travelers</label>
+    <label class="seg-opt"><input type="radio" name="tdtab">Checklist</label>
+  </div>
+  <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:24px;align-items:start">
+    <div style="display:grid;gap:22px">
+      <div>
+        <h6 style="color:var(--color-neutral-500);margin-bottom:10px">Flights</h6>
+        <div style="display:grid;gap:8px">
+          <div style="display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+            <i class="ph ph-airplane-takeoff" style="font-size:19px;color:var(--color-accent)"></i>
+            <div style="min-width:0"><div style="font-size:14px;font-weight:500">Delta 2214 · BOI → STS <span style="font-weight:400;color:var(--color-neutral-500)">via SLC</span></div><div style="font-size:12px;color:var(--color-neutral-400)">Fri Oct 9 · 9:40 AM MDT → 12:55 PM PDT · conf ••••X4T2</div></div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:10px"><span style="display:flex;gap:4px"><span class="av av-b" style="width:19px;height:19px;font-size:9px">B</span><span class="av av-m" style="width:19px;height:19px;font-size:9px">M</span><span class="av av-f" style="width:19px;height:19px;font-size:9px">F</span></span><span style="font-size:12px;color:var(--color-neutral-400)">$684</span><span class="tag tag-accent" style="padding:2px 8px">Booked</span></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+            <i class="ph ph-airplane-takeoff" style="font-size:19px;color:var(--color-accent)"></i>
+            <div style="min-width:0"><div style="font-size:14px;font-weight:500">Delta 2688 · BOI → STS</div><div style="font-size:12px;color:var(--color-neutral-400)">Fri Oct 9 · 5:10 PM MDT → 8:20 PM PDT · conf ••••M8R1</div></div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:10px"><span class="av av-a" style="width:19px;height:19px;font-size:9px">A</span><span style="font-size:12px;color:var(--color-neutral-400)">18,500 SkyMiles</span><span class="tag tag-accent" style="padding:2px 8px">Booked</span></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:var(--radius-md);background:transparent;border:1px dashed var(--color-neutral-800)">
+            <i class="ph ph-airplane-landing" style="font-size:19px;color:var(--color-neutral-500)"></i>
+            <div style="min-width:0"><div style="font-size:14px;font-weight:500;color:var(--color-neutral-400)">Return · STS → BOI</div><div style="font-size:12px;color:var(--color-neutral-500)">Sun Oct 11 · not booked yet</div></div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:10px"><span class="tag tag-neutral" style="padding:2px 8px">Planned</span><button class="btn btn-ghost" style="font-size:12.5px">Book <i class="ph ph-arrow-right"></i></button></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h6 style="color:var(--color-neutral-500);margin-bottom:10px">Stay &amp; car</h6>
+        <div style="display:grid;gap:8px">
+          <div style="display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+            <i class="ph ph-bed" style="font-size:19px;color:var(--color-accent)"></i>
+            <div style="min-width:0"><div style="font-size:14px;font-weight:500">Dawn Ranch Lodge</div><div style="font-size:12px;color:var(--color-neutral-400)">Check-in Fri 3:00 PM → out Sun 11:00 AM · 2 nights · conf ••••D7WN</div></div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:10px"><span style="display:flex;gap:4px"><span class="av av-b" style="width:19px;height:19px;font-size:9px">B</span><span class="av av-a" style="width:19px;height:19px;font-size:9px">A</span><span class="av av-m" style="width:19px;height:19px;font-size:9px">M</span><span class="av av-f" style="width:19px;height:19px;font-size:9px">F</span></span><span style="font-size:12px;color:var(--color-neutral-400)">$612</span><span class="tag tag-accent" style="padding:2px 8px">Booked</span></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+            <i class="ph ph-car" style="font-size:19px;color:var(--color-accent)"></i>
+            <div style="min-width:0"><div style="font-size:14px;font-weight:500">Hertz · midsize SUV</div><div style="font-size:12px;color:var(--color-neutral-400)">STS airport · Fri 1:15 PM → Sun 1:00 PM · conf ••••K9Q2</div></div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:10px"><span class="av av-b" style="width:19px;height:19px;font-size:9px">B</span><span style="font-size:12px;color:var(--color-neutral-400)">$188</span><span class="tag tag-accent" style="padding:2px 8px">Booked</span></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h6 style="color:var(--color-neutral-500);margin-bottom:10px">Events</h6>
+        <div style="display:grid;gap:8px">
+          <div style="display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+            <i class="ph ph-fork-knife" style="font-size:19px;color:var(--color-accent-2)"></i>
+            <div style="min-width:0"><div style="font-size:14px;font-weight:500">Welcome dinner</div><div style="font-size:12px;color:var(--color-neutral-400)">Fri 6:30 PM · Boon Eat + Drink, Guerneville</div></div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:10px"><span style="display:flex;gap:4px"><span class="av av-b" style="width:19px;height:19px;font-size:9px">B</span><span class="av av-a" style="width:19px;height:19px;font-size:9px">A</span><span class="av av-m" style="width:19px;height:19px;font-size:9px">M</span><span class="av av-f" style="width:19px;height:19px;font-size:9px">F</span></span><span class="tag tag-accent" style="padding:2px 8px">Booked</span></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:var(--radius-md);background:var(--color-surface)">
+            <i class="ph ph-confetti" style="font-size:19px;color:var(--color-accent-2)"></i>
+            <div style="min-width:0"><div style="font-size:14px;font-weight:500">Ceremony &amp; reception</div><div style="font-size:12px;color:var(--color-neutral-400)">Sat 4:00 PM · Highlands Resort meadow</div></div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:10px"><span style="display:flex;gap:4px"><span class="av av-b" style="width:19px;height:19px;font-size:9px">B</span><span class="av av-a" style="width:19px;height:19px;font-size:9px">A</span><span class="av av-m" style="width:19px;height:19px;font-size:9px">M</span><span class="av av-f" style="width:19px;height:19px;font-size:9px">F</span></span><span class="tag tag-accent" style="padding:2px 8px">Booked</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;gap:14px">
+      <div class="card">
+        <span class="card-kicker">Travelers</span>
+        <div style="display:grid;gap:2px;margin-top:2px">
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 0"><span class="av av-b">B</span><div style="min-width:0"><div style="font-size:13.5px;font-weight:500">Badger</div><div style="font-size:11px;color:var(--color-neutral-500)">KTN ••••8842 · passport ok</div></div><i class="ph ph-check-circle" style="margin-left:auto;color:var(--color-accent-400)"></i></div>
+          <hr class="frule" style="margin:0">
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 0"><span class="av av-a">A</span><div style="min-width:0"><div style="font-size:13.5px;font-weight:500">Alex</div><div style="font-size:11px;color:var(--color-neutral-500)">KTN ••••3317 · passport ok</div></div><i class="ph ph-check-circle" style="margin-left:auto;color:var(--color-accent-400)"></i></div>
+          <hr class="frule" style="margin:0">
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 0"><span class="av av-m">M</span><div style="min-width:0"><div style="font-size:13.5px;font-weight:500">Maya · 9</div><div style="font-size:11px;color:var(--color-neutral-500)">passport ok until 2029</div></div><i class="ph ph-check-circle" style="margin-left:auto;color:var(--color-accent-400)"></i></div>
+          <hr class="frule" style="margin:0">
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 0"><span class="av av-f">F</span><div style="min-width:0"><div style="font-size:13.5px;font-weight:500">Finn · 6</div><div style="font-size:11px;color:#d9b98a">passport expires Feb 2027</div></div><i class="ph ph-warning-circle" style="margin-left:auto;color:#d9b98a"></i></div>
+        </div>
+        <button class="btn btn-ghost" style="justify-content:flex-start;font-size:12.5px">Manage documents <i class="ph ph-arrow-right"></i></button>
+      </div>
+      <div class="card">
+        <span class="card-kicker">Checklist · 3 of 7 done</span>
+        <div style="display:grid;gap:2px;margin-top:2px">
+          <label style="display:flex;align-items:center;gap:10px;padding:7px 0;font-size:13px;color:var(--color-neutral-600);cursor:pointer"><i class="ph-fill ph-check-square" style="font-size:17px;color:var(--color-accent-600)"></i><s>Book Dawn Ranch Lodge</s></label>
+          <label style="display:flex;align-items:center;gap:10px;padding:7px 0;font-size:13px;color:var(--color-neutral-600);cursor:pointer"><i class="ph-fill ph-check-square" style="font-size:17px;color:var(--color-accent-600)"></i><s>RSVP + meal choices</s></label>
+          <label style="display:flex;align-items:center;gap:10px;padding:7px 0;font-size:13px;cursor:pointer"><i class="ph ph-square" style="font-size:17px;color:var(--color-neutral-500)"></i>Book return flight<span style="margin-left:auto;font-size:11px;color:var(--color-neutral-500)">by Oct 5</span></label>
+          <label style="display:flex;align-items:center;gap:10px;padding:7px 0;font-size:13px;cursor:pointer"><i class="ph ph-square" style="font-size:17px;color:var(--color-neutral-500)"></i>Wedding gift — registry<span style="margin-left:auto;display:flex;gap:6px;align-items:center"><span class="av av-a" style="width:18px;height:18px;font-size:9px">A</span></span></label>
+          <label style="display:flex;align-items:center;gap:10px;padding:7px 0;font-size:13px;cursor:pointer"><i class="ph ph-square" style="font-size:17px;color:var(--color-neutral-500)"></i>Kids' wedding outfits<span style="margin-left:auto;display:flex;gap:6px;align-items:center"><span class="av av-a" style="width:18px;height:18px;font-size:9px">A</span></span></label>
+        </div>
+        <button class="btn btn-ghost" style="justify-content:flex-start;font-size:12.5px"><i class="ph ph-plus"></i> Add item</button>
+      </div>
+      <div class="card">
+        <span class="card-kicker">Trip cost so far</span>
+        <div style="font-size:22px;font-weight:500;letter-spacing:-0.02em">$1,484 <span style="font-size:12px;color:var(--color-neutral-500);font-weight:400">+ 18,500 SkyMiles</span></div>
+        <div class="card-meta">return flight not yet included</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Day by day · shape A — one shared agenda, avatar chips per item, filter chips to isolate a person</div>
+<div class="dv-card" style="width:1180px">
+<div style="padding:26px 28px 32px">
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:4px">
+    <div><div style="font-size:12px;color:var(--color-neutral-500);margin-bottom:4px">Mary &amp; Winter Wedding · day by day</div><h3 style="margin:0">Friday, October 9</h3></div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+      <button class="btn btn-secondary btn-icon"><i class="ph ph-caret-left"></i></button>
+      <div class="seg"><label class="seg-opt"><input type="radio" name="dayA" checked>Fri 9</label><label class="seg-opt"><input type="radio" name="dayA">Sat 10</label><label class="seg-opt"><input type="radio" name="dayA">Sun 11</label></div>
+      <button class="btn btn-secondary btn-icon"><i class="ph ph-caret-right"></i></button>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;margin:16px 0 22px">
+    <span class="tag tag-outline" style="padding:5px 12px;cursor:pointer">Everyone</span>
+    <span class="tag tag-neutral" style="padding:5px 12px;cursor:pointer;background:transparent;border:1px solid var(--color-divider);color:var(--color-neutral-400)"><span class="av av-b" style="width:15px;height:15px;font-size:8px;margin-right:6px">B</span>Badger</span>
+    <span class="tag tag-neutral" style="padding:5px 12px;cursor:pointer;background:transparent;border:1px solid var(--color-divider);color:var(--color-neutral-400)"><span class="av av-a" style="width:15px;height:15px;font-size:8px;margin-right:6px">A</span>Alex</span>
+    <span class="tag tag-neutral" style="padding:5px 12px;cursor:pointer;background:transparent;border:1px solid var(--color-divider);color:var(--color-neutral-400)"><span class="av av-m" style="width:15px;height:15px;font-size:8px;margin-right:6px">M</span>Maya</span>
+    <span class="tag tag-neutral" style="padding:5px 12px;cursor:pointer;background:transparent;border:1px solid var(--color-divider);color:var(--color-neutral-400)"><span class="av av-f" style="width:15px;height:15px;font-size:8px;margin-right:6px">F</span>Finn</span>
+  </div>
+  <div style="display:grid;grid-template-columns:150px 1fr;row-gap:0;position:relative">
+    <div style="grid-column:1;padding:14px 18px 14px 0;text-align:right"><div style="font-size:14px;font-weight:500">9:40 AM <span style="font-size:10.5px;color:var(--color-neutral-500)">MDT</span></div><div style="font-size:11px;color:var(--color-neutral-500)">lands 12:55 PM PDT</div></div>
+    <div style="grid-column:2;border-left:1px solid var(--color-accent-800);padding:10px 0 10px 22px;position:relative"><span style="position:absolute;left:-5px;top:22px;width:9px;height:9px;border-radius:50%;background:var(--color-accent)"></span>
+      <div style="display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:var(--radius-md);background:var(--color-surface);max-width:760px"><i class="ph ph-airplane-takeoff" style="font-size:19px;color:var(--color-accent)"></i><div><div style="font-size:14px;font-weight:500">Fly BOI → STS · Delta 2214</div><div style="font-size:12px;color:var(--color-neutral-400)">Boards 9:05 · gate B7 · conf ••••X4T2</div></div><div style="margin-left:auto;display:flex;gap:4px"><span class="av av-b">B</span><span class="av av-m">M</span><span class="av av-f">F</span></div></div>
+    </div>
+    <div style="grid-column:1;padding:14px 18px 14px 0;text-align:right"><div style="font-size:14px;font-weight:500">1:15 PM <span style="font-size:10.5px;color:var(--color-neutral-500)">PDT</span></div></div>
+    <div style="grid-column:2;border-left:1px solid var(--color-accent-800);padding:10px 0 10px 22px;position:relative"><span style="position:absolute;left:-5px;top:22px;width:9px;height:9px;border-radius:50%;background:var(--color-accent)"></span>
+      <div style="display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:var(--radius-md);background:var(--color-surface);max-width:760px"><i class="ph ph-car" style="font-size:19px;color:var(--color-accent)"></i><div><div style="font-size:14px;font-weight:500">Pick up rental · Hertz STS</div><div style="font-size:12px;color:var(--color-neutral-400)">Midsize SUV · conf ••••K9Q2</div></div><div style="margin-left:auto;display:flex;gap:4px"><span class="av av-b">B</span></div></div>
+    </div>
+    <div style="grid-column:1;padding:14px 18px 14px 0;text-align:right"><div style="font-size:14px;font-weight:500">3:00 PM <span style="font-size:10.5px;color:var(--color-neutral-500)">PDT</span></div></div>
+    <div style="grid-column:2;border-left:1px solid var(--color-accent-800);padding:10px 0 10px 22px;position:relative"><span style="position:absolute;left:-5px;top:22px;width:9px;height:9px;border-radius:50%;background:var(--color-accent)"></span>
+      <div style="display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:var(--radius-md);background:var(--color-surface);max-width:760px"><i class="ph ph-bed" style="font-size:19px;color:var(--color-accent)"></i><div><div style="font-size:14px;font-weight:500">Check in · Dawn Ranch Lodge</div><div style="font-size:12px;color:var(--color-neutral-400)">Cabin 12 · conf ••••D7WN</div></div><div style="margin-left:auto;display:flex;gap:4px"><span class="av av-b">B</span><span class="av av-m">M</span><span class="av av-f">F</span></div></div>
+    </div>
+    <div style="grid-column:1;padding:14px 18px 14px 0;text-align:right"><div style="font-size:14px;font-weight:500">8:20 PM <span style="font-size:10.5px;color:var(--color-neutral-500)">PDT</span></div><div style="font-size:11px;color:var(--color-neutral-500)">left BOI 5:10 MDT</div></div>
+    <div style="grid-column:2;border-left:1px solid var(--color-accent-800);padding:10px 0 10px 22px;position:relative"><span style="position:absolute;left:-5px;top:22px;width:9px;height:9px;border-radius:50%;background:var(--color-accent-2)"></span>
+      <div style="display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:var(--radius-md);background:var(--color-surface);max-width:760px"><i class="ph ph-airplane-landing" style="font-size:19px;color:var(--color-accent-2)"></i><div><div style="font-size:14px;font-weight:500">Alex lands · Delta 2688</div><div style="font-size:12px;color:var(--color-neutral-400)">Badger picks up at STS arrivals</div></div><div style="margin-left:auto;display:flex;gap:4px"><span class="av av-a">A</span><span class="av av-b">B</span></div></div>
+    </div>
+    <div style="grid-column:1;padding:14px 18px 14px 0;text-align:right"><div style="font-size:14px;font-weight:500">9:00 PM <span style="font-size:10.5px;color:var(--color-neutral-500)">PDT</span></div></div>
+    <div style="grid-column:2;border-left:1px solid var(--color-accent-800);padding:10px 0 14px 22px;position:relative"><span style="position:absolute;left:-5px;top:22px;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--color-neutral-600);background:var(--color-bg)"></span>
+      <div style="display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:var(--radius-md);border:1px dashed var(--color-neutral-800);max-width:760px"><i class="ph ph-fork-knife" style="font-size:19px;color:var(--color-neutral-500)"></i><div><div style="font-size:14px;font-weight:500;color:var(--color-neutral-300)">Late dinner — nothing booked</div><div style="font-size:12px;color:var(--color-neutral-500)">Boon closes 9:30 · Guerneville Taco Truck till 10</div></div><div style="margin-left:auto;display:flex;gap:4px"><span class="av av-b">B</span><span class="av av-a">A</span><span class="av av-m">M</span><span class="av av-f">F</span></div></div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1d">
+<div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Day by day · shape B — a column per person; shared events span the full width. Answers "show me Finn's Tuesday" at a glance</div>
+<div class="dv-card" style="width:1180px">
+<div style="padding:26px 28px 32px">
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:22px">
+    <div><div style="font-size:12px;color:var(--color-neutral-500);margin-bottom:4px">Mary &amp; Winter Wedding · day by day</div><h3 style="margin:0">Friday, October 9</h3></div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+      <button class="btn btn-secondary btn-icon"><i class="ph ph-caret-left"></i></button>
+      <span style="font-size:13px;color:var(--color-neutral-400)">Day 1 of 3</span>
+      <button class="btn btn-secondary btn-icon"><i class="ph ph-caret-right"></i></button>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+    <div style="display:flex;align-items:center;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--color-divider)"><span class="av av-b">B</span><span style="font-size:13.5px;font-weight:500">Badger</span></div>
+    <div style="display:flex;align-items:center;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--color-divider)"><span class="av av-a">A</span><span style="font-size:13.5px;font-weight:500">Alex</span></div>
+    <div style="display:flex;align-items:center;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--color-divider)"><span class="av av-m">M</span><span style="font-size:13.5px;font-weight:500">Maya</span></div>
+    <div style="display:flex;align-items:center;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--color-divider)"><span class="av av-f">F</span><span style="font-size:13.5px;font-weight:500">Finn</span></div>
+    <div style="grid-column:1/4;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)"><div style="display:flex;gap:10px;align-items:center"><i class="ph ph-airplane-takeoff" style="color:var(--color-accent);font-size:17px"></i><span style="font-size:13px;font-weight:500">9:40 AM MDT · DL 2214 → STS 12:55 PM PDT</span></div></div>
+    <div style="padding:12px 14px;border-radius:var(--radius-md);border:1px dashed var(--color-neutral-800);color:var(--color-neutral-500);font-size:12px">Works until 3 — flies tonight</div>
+    <div style="grid-column:1/2;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)"><div style="display:flex;gap:10px;align-items:center"><i class="ph ph-car" style="color:var(--color-accent);font-size:17px"></i><span style="font-size:13px;font-weight:500">1:15 PM · Hertz pickup</span></div></div>
+    <div style="grid-column:2/3"></div>
+    <div style="grid-column:3/5;padding:12px 14px;border-radius:var(--radius-md);border:1px dashed var(--color-neutral-800);color:var(--color-neutral-500);font-size:12px">Lunch stop with Dad — In-N-Out Rohnert Park</div>
+    <div style="grid-column:1/2;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)"><div style="display:flex;gap:10px;align-items:center"><i class="ph ph-bed" style="color:var(--color-accent);font-size:17px"></i><span style="font-size:13px;font-weight:500">3:00 PM · check in Dawn Ranch</span></div></div>
+    <div style="grid-column:2/3;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)"><div style="display:flex;gap:10px;align-items:center"><i class="ph ph-airplane-takeoff" style="color:var(--color-accent-2);font-size:17px"></i><span style="font-size:13px;font-weight:500">5:10 PM MDT · DL 2688 → STS 8:20 PM PDT</span></div></div>
+    <div style="grid-column:3/5;padding:12px 14px;border-radius:var(--radius-md);border:1px dashed var(--color-neutral-800);color:var(--color-neutral-500);font-size:12px">Pool time at the lodge</div>
+    <div style="grid-column:1/2;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)"><div style="display:flex;gap:10px;align-items:center"><i class="ph ph-car" style="color:var(--color-accent);font-size:17px"></i><span style="font-size:13px;font-weight:500">8:20 PM · pick up Alex at STS</span></div></div>
+    <div style="grid-column:2/3;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)"><div style="display:flex;gap:10px;align-items:center"><i class="ph ph-airplane-landing" style="color:var(--color-accent-2);font-size:17px"></i><span style="font-size:13px;font-weight:500">8:20 PM PDT · lands STS</span></div></div>
+    <div style="grid-column:3/5;padding:12px 14px;border-radius:var(--radius-md);border:1px dashed var(--color-neutral-800);color:var(--color-neutral-500);font-size:12px">With Dad for airport run</div>
+    <div style="grid-column:1/5;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)"><div style="display:flex;gap:10px;align-items:center"><i class="ph ph-fork-knife" style="color:var(--color-accent-2);font-size:17px"></i><span style="font-size:13px;font-weight:500">9:00 PM · late family dinner — nothing booked yet</span><span class="tag tag-neutral" style="margin-left:auto;padding:2px 8px">Planned</span></div></div>
+  </div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1e">
+<div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a>Phone · parent day-of view — "what's next" first, person filter one thumb away</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="394px,860px">
+<div style="min-height:100%;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);padding:64px 18px 90px">
+  <div style="display:flex;align-items:center;gap:10px;padding:6px 0 2px">
+    <div><div style="font-size:11px;color:var(--color-accent-300);text-transform:uppercase;letter-spacing:.08em">Fri, Oct 9 · Day 1 of 3</div><div style="font-size:19px;font-weight:500;letter-spacing:-0.015em">Mary &amp; Winter Wedding</div></div>
+    <span class="av av-b" style="margin-left:auto;width:28px;height:28px;font-size:11px">B</span>
+  </div>
+  <div style="display:flex;gap:6px;margin:14px 0 16px;overflow:hidden">
+    <span class="tag tag-outline" style="padding:6px 13px">Everyone</span>
+    <span class="tag" style="padding:6px 13px;border:1px solid var(--color-divider);color:var(--color-neutral-400)">Me</span>
+    <span class="tag" style="padding:6px 13px;border:1px solid var(--color-divider);color:var(--color-neutral-400)">Alex</span>
+    <span class="tag" style="padding:6px 13px;border:1px solid var(--color-divider);color:var(--color-neutral-400)">Kids</span>
+  </div>
+  <div style="border-radius:var(--radius-lg);padding:18px;background:linear-gradient(140deg,var(--color-section),#1a1c33 70%);border:1px solid var(--color-accent-800);margin-bottom:18px">
+    <div style="font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-300);margin-bottom:8px">Next up · in 40 min</div>
+    <div style="display:flex;gap:12px;align-items:center">
+      <i class="ph ph-airplane-takeoff" style="font-size:26px;color:var(--color-accent)"></i>
+      <div><div style="font-size:17px;font-weight:500">DL 2214 boards 9:05 AM</div><div style="font-size:12.5px;color:var(--color-neutral-300)">Gate B7 · BOI → STS · seats 14A–C</div></div>
+    </div>
+    <div style="display:flex;gap:5px;margin-top:12px;align-items:center"><span class="av av-b" style="width:20px;height:20px;font-size:9px">B</span><span class="av av-m" style="width:20px;height:20px;font-size:9px">M</span><span class="av av-f" style="width:20px;height:20px;font-size:9px">F</span><span style="font-size:11px;color:var(--color-neutral-400);margin-left:4px">you + kids</span><button class="btn btn-primary" style="margin-left:auto;font-size:12px;padding:5px 12px">Conf #</button></div>
+  </div>
+  <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-500);margin-bottom:10px">Then</div>
+  <div style="display:grid;gap:9px">
+    <div style="display:flex;gap:12px;align-items:center;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)"><div style="width:52px;text-align:right;flex:none"><div style="font-size:13px;font-weight:500">1:15</div><div style="font-size:9.5px;color:var(--color-neutral-500)">PM PDT</div></div><i class="ph ph-car" style="color:var(--color-accent);font-size:18px"></i><div style="min-width:0"><div style="font-size:13.5px;font-weight:500">Hertz pickup · STS</div><div style="font-size:11.5px;color:var(--color-neutral-400)">••••K9Q2</div></div><span class="av av-b" style="margin-left:auto;width:19px;height:19px;font-size:9px">B</span></div>
+    <div style="display:flex;gap:12px;align-items:center;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)"><div style="width:52px;text-align:right;flex:none"><div style="font-size:13px;font-weight:500">3:00</div><div style="font-size:9.5px;color:var(--color-neutral-500)">PM PDT</div></div><i class="ph ph-bed" style="color:var(--color-accent);font-size:18px"></i><div style="min-width:0"><div style="font-size:13.5px;font-weight:500">Check in · Dawn Ranch</div><div style="font-size:11.5px;color:var(--color-neutral-400)">Cabin 12 · ••••D7WN</div></div><div style="margin-left:auto;display:flex;gap:3px"><span class="av av-b" style="width:19px;height:19px;font-size:9px">B</span><span class="av av-m" style="width:19px;height:19px;font-size:9px">M</span><span class="av av-f" style="width:19px;height:19px;font-size:9px">F</span></div></div>
+    <div style="display:flex;gap:12px;align-items:center;padding:12px 14px;border-radius:var(--radius-md);background:var(--color-surface)"><div style="width:52px;text-align:right;flex:none"><div style="font-size:13px;font-weight:500">8:20</div><div style="font-size:9.5px;color:var(--color-neutral-500)">PM PDT</div></div><i class="ph ph-airplane-landing" style="color:var(--color-accent-2);font-size:18px"></i><div style="min-width:0"><div style="font-size:13.5px;font-weight:500">Alex lands · DL 2688</div><div style="font-size:11.5px;color:var(--color-neutral-400)">Pick up at arrivals</div></div><div style="margin-left:auto;display:flex;gap:3px"><span class="av av-a" style="width:19px;height:19px;font-size:9px">A</span><span class="av av-b" style="width:19px;height:19px;font-size:9px">B</span></div></div>
+    <div style="display:flex;gap:12px;align-items:center;padding:12px 14px;border-radius:var(--radius-md);border:1px dashed var(--color-neutral-800)"><div style="width:52px;text-align:right;flex:none"><div style="font-size:13px;font-weight:500;color:var(--color-neutral-400)">9:00</div><div style="font-size:9.5px;color:var(--color-neutral-500)">PM PDT</div></div><i class="ph ph-fork-knife" style="color:var(--color-neutral-500);font-size:18px"></i><div style="min-width:0"><div style="font-size:13.5px;font-weight:500;color:var(--color-neutral-300)">Dinner — nothing booked</div><div style="font-size:11.5px;color:var(--color-neutral-500)">Taco truck till 10</div></div></div>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-around;padding:12px 8px 26px;background:color-mix(in srgb,var(--color-bg) 88%,transparent);backdrop-filter:blur(10px);border-top:1px solid var(--color-divider)">
+    <div style="text-align:center;color:var(--color-accent)"><i class="ph-fill ph-sun" style="font-size:21px"></i><div style="font-size:9.5px;margin-top:2px">Today</div></div>
+    <div style="text-align:center;color:var(--color-neutral-500)"><i class="ph ph-suitcase" style="font-size:21px"></i><div style="font-size:9.5px;margin-top:2px">Trips</div></div>
+    <div style="text-align:center;color:var(--color-neutral-500)"><i class="ph ph-list-checks" style="font-size:21px"></i><div style="font-size:9.5px;margin-top:2px">Checklist</div></div>
+    <div style="text-align:center;color:var(--color-neutral-500)"><i class="ph ph-users" style="font-size:21px"></i><div style="font-size:9.5px;margin-top:2px">People</div></div>
+  </div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1f">
+<div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a>Phone · kid's view — a shareable no-login "your day" page; big type, no confirmation numbers, no costs</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="394px,860px">
+<div style="min-height:100%;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);padding:66px 20px 40px">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+    <span class="av av-f" style="width:44px;height:44px;font-size:17px">F</span>
+    <div><div style="font-size:22px;font-weight:500;letter-spacing:-0.015em">Finn's Friday</div><div style="font-size:13px;color:var(--color-neutral-400)">Today we fly to California</div></div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;margin:14px 0 20px;font-size:12.5px;color:var(--color-neutral-400)"><i class="ph ph-map-pin" style="color:var(--color-accent)"></i>Boise → Guerneville · with Dad and Maya</div>
+  <div style="display:grid;gap:12px">
+    <div style="border-radius:var(--radius-lg);padding:18px;background:linear-gradient(140deg,var(--color-section),#1a1c33 70%);border:1px solid var(--color-accent-800)">
+      <div style="display:flex;gap:14px;align-items:center">
+        <i class="ph ph-airplane-takeoff" style="font-size:34px;color:var(--color-accent)"></i>
+        <div><div style="font-size:12px;color:var(--color-accent-300);text-transform:uppercase;letter-spacing:.08em">Happening now</div><div style="font-size:19px;font-weight:500">Airplane ride!</div><div style="font-size:13.5px;color:var(--color-neutral-300)">We land at 12:55 — about 2 more hours</div></div>
+      </div>
+      <div style="margin-top:14px;height:6px;border-radius:999px;background:var(--color-neutral-900);overflow:hidden"><span style="display:block;height:100%;width:58%;background:var(--color-accent)"></span></div>
+    </div>
+    <div style="display:flex;gap:14px;align-items:center;padding:16px;border-radius:var(--radius-md);background:var(--color-surface)"><i class="ph ph-hamburger" style="font-size:26px;color:var(--color-accent-2)"></i><div><div style="font-size:16px;font-weight:500">Lunch stop</div><div style="font-size:13px;color:var(--color-neutral-400)">Burgers on the drive, around 1:45</div></div></div>
+    <div style="display:flex;gap:14px;align-items:center;padding:16px;border-radius:var(--radius-md);background:var(--color-surface)"><i class="ph ph-house-line" style="font-size:26px;color:var(--color-accent)"></i><div><div style="font-size:16px;font-weight:500">Our cabin in the redwoods</div><div style="font-size:13px;color:var(--color-neutral-400)">We get there about 3:00 · pool time after</div></div></div>
+    <div style="display:flex;gap:14px;align-items:center;padding:16px;border-radius:var(--radius-md);background:var(--color-surface)"><i class="ph ph-airplane-landing" style="font-size:26px;color:var(--color-accent-2)"></i><div><div style="font-size:16px;font-weight:500">Mom lands at 8:20</div><div style="font-size:13px;color:var(--color-neutral-400)">We pick her up at the airport</div></div></div>
+    <div style="display:flex;gap:14px;align-items:center;padding:16px;border-radius:var(--radius-md);border:1px dashed var(--color-neutral-800)"><i class="ph ph-taco" style="font-size:26px;color:var(--color-neutral-500)"></i><div><div style="font-size:16px;font-weight:500;color:var(--color-neutral-300)">Late taco dinner</div><div style="font-size:13px;color:var(--color-neutral-500)">Then bed — big wedding tomorrow</div></div></div>
+  </div>
+  <div style="margin-top:22px;text-align:center;font-size:11.5px;color:var(--color-neutral-600)">Shared by Dad · updates live</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1g">
+<div class="dv-olabel"><a class="dv-oid" href="#1g">1g</a>Add booking — one form, the middle section morphs by kind (flight shown); "who's on it" is per-booking, not per-trip</div>
+<div class="dv-card" style="width:480px">
+<div style="padding:22px 24px 26px">
+  <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:16px"><h4 style="margin:0">Add booking</h4><span style="font-size:12px;color:var(--color-neutral-500)">Mary &amp; Winter Wedding</span><i class="ph ph-x" style="margin-left:auto;color:var(--color-neutral-500)"></i></div>
+  <div class="seg" style="width:100%;margin-bottom:18px">
+    <label class="seg-opt" style="flex:1;justify-content:center"><input type="radio" name="bkind" checked><i class="ph ph-airplane-takeoff"></i> Flight</label>
+    <label class="seg-opt" style="flex:1;justify-content:center"><input type="radio" name="bkind"><i class="ph ph-bed"></i> Stay</label>
+    <label class="seg-opt" style="flex:1;justify-content:center"><input type="radio" name="bkind"><i class="ph ph-car"></i> Car</label>
+    <label class="seg-opt" style="flex:1;justify-content:center"><input type="radio" name="bkind"><i class="ph ph-ticket"></i> Activity</label>
+  </div>
+  <div style="display:grid;gap:14px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="field"><label>Airline &amp; flight</label><input class="input" value="Delta 2214"></div>
+      <div class="field"><label>Confirmation #</label><input class="input" placeholder="ABC123"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:end">
+      <div class="field"><label>From</label><input class="input" value="BOI · Boise"></div>
+      <i class="ph ph-arrow-right" style="color:var(--color-neutral-500);padding-bottom:10px"></i>
+      <div class="field"><label>To</label><input class="input" value="STS · Santa Rosa"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="field"><label>Departs <span style="color:var(--color-neutral-600)">· MDT, from airport</span></label><input class="input" value="Oct 9, 9:40 AM"></div>
+      <div class="field"><label>Arrives <span style="color:var(--color-neutral-600)">· PDT</span></label><input class="input" value="Oct 9, 12:55 PM"></div>
+    </div>
+    <div class="field"><label>Who's on it</label>
+      <div style="display:flex;gap:8px">
+        <span class="tag tag-outline" style="padding:6px 12px;cursor:pointer"><span class="av av-b" style="width:15px;height:15px;font-size:8px;margin-right:6px">B</span>Badger</span>
+        <span class="tag" style="padding:6px 12px;cursor:pointer;border:1px solid var(--color-divider);color:var(--color-neutral-400)"><span class="av av-a" style="width:15px;height:15px;font-size:8px;margin-right:6px">A</span>Alex</span>
+        <span class="tag tag-outline" style="padding:6px 12px;cursor:pointer"><span class="av av-m" style="width:15px;height:15px;font-size:8px;margin-right:6px">M</span>Maya</span>
+        <span class="tag tag-outline" style="padding:6px 12px;cursor:pointer"><span class="av av-f" style="width:15px;height:15px;font-size:8px;margin-right:6px">F</span>Finn</span>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="field"><label>Cost</label><input class="input" value="$684.30"></div>
+      <div class="field"><label>Status</label><div class="seg" style="width:100%"><label class="seg-opt" style="flex:1;justify-content:center"><input type="radio" name="bstat">Planned</label><label class="seg-opt" style="flex:1;justify-content:center"><input type="radio" name="bstat" checked>Booked</label></div></div>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px"><button class="btn btn-secondary">Cancel</button><button class="btn btn-primary">Save booking</button></div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "commit to <a class="dv-oid" href="#1c">1c</a> as the day view and build it as a working responsive prototype" · "riff on the today hero in <a class="dv-oid" href="#1a">1a</a>" · "show Saturday (wedding day) in both day-view shapes" · "design the empty state / first-run"</p>
+</section>
+
+</x-dc>
+</body>
+</html>

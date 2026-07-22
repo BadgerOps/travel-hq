@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="stylesheet" href="_ds/nocturne-8f927071-1ed7-411b-9402-596424195b73/styles.css">
+<script src="_ds/nocturne-8f927071-1ed7-411b-9402-596424195b73/_ds_bundle.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+body{margin:0;background:var(--color-bg);font-family:var(--font-body,Inter,sans-serif)}
+a{color:var(--color-accent)}a:hover{color:var(--color-accent-300)}
+.av{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;font-size:10px;font-weight:600;flex:none}
+.av-b{background:var(--color-accent-700);color:var(--color-accent-100)}
+.av-a{background:var(--color-accent-2-800);color:var(--color-accent-2-200)}
+.av-m{background:var(--color-neutral-700);color:var(--color-neutral-100)}
+.av-f{background:var(--color-section-glow);color:var(--color-accent-200)}
+.frule{height:1px;border:0;background:linear-gradient(to right,transparent,var(--color-divider) 48px,var(--color-divider) calc(100% - 48px),transparent)}
+@keyframes toast-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;color:var(--color-text)">
+<div style="display:flex;align-items:center;gap:22px;padding:14px 28px;border-bottom:1px solid var(--color-divider);flex-wrap:wrap">
+  <div style="display:flex;align-items:center;gap:10px;margin-right:auto;cursor:pointer" onClick="{{ goHome }}"><i class="ph-fill ph-paper-plane-tilt" style="color:var(--color-accent);font-size:20px"></i><span style="font-weight:500;font-size:16px">Travel HQ</span></div>
+  <span onClick="{{ goHome }}" style="font-size:13.5px;cursor:pointer;color:{{ navTodayColor }}" style-hover="color:var(--color-accent-300)">Today</span>
+  <span onClick="{{ toastTrips }}" style="font-size:13.5px;color:var(--color-neutral-400);cursor:pointer" style-hover="color:var(--color-accent-300)">Trips</span>
+  <span onClick="{{ toastChecklist }}" style="font-size:13.5px;color:var(--color-neutral-400);cursor:pointer" style-hover="color:var(--color-accent-300)">Checklist</span>
+  <span onClick="{{ toastPeople }}" style="font-size:13.5px;color:var(--color-neutral-400);cursor:pointer" style-hover="color:var(--color-accent-300)">People</span>
+  <sc-if value="{{ showPhase2Nav }}" hint-placeholder-val="{{ true }}"><span style="font-size:13.5px;color:var(--color-neutral-600)">Cards · soon</span></sc-if>
+  <button class="btn btn-secondary" style="font-size:12.5px;padding:6px 12px;border-color:{{ importBtnBorder }}" onClick="{{ goImport }}"><i class="ph ph-tray-arrow-down"></i> Import{{ importBadge }}</button>
+  <span class="av av-b">B</span>
+</div>
+
+<sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+<div style="max-width:1240px;margin:0 auto;padding:26px 28px 60px">
+  <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:22px;flex-wrap:wrap">
+    <div><h3 style="margin:0 0 4px">Good morning, Badger</h3><p style="font-size:13px;color:var(--color-neutral-400);margin:0">{{ heroSubline }}</p></div>
+    <span class="tag tag-accent" style="margin-left:auto">{{ heroTag }}</span>
+  </div>
+  <div style="display:flex;gap:24px;align-items:stretch;flex-wrap:wrap">
+    <sc-if value="{{ tripActive }}" hint-placeholder-val="{{ true }}">
+    <div style="flex:1.5 1 480px;min-width:0;border-radius:var(--radius-lg);padding:22px 24px;background:linear-gradient(135deg,var(--color-section) 0%,#1a1c33 55%,var(--color-bg) 100%);border:1px solid var(--color-accent-800)">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px"><h6 style="color:var(--color-accent-300);margin:0">Next up · in 40 min</h6><span style="margin-left:auto;font-size:11px;color:var(--color-neutral-400)">then 3 more today</span></div>
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <i class="ph ph-airplane-takeoff" style="font-size:30px;color:var(--color-accent)"></i>
+        <div><div style="font-size:18px;font-weight:500">DL 2214 boards 9:05 AM · gate B7</div><div style="font-size:12.5px;color:var(--color-neutral-300)">BOI → STS · 9:40 AM MDT → 12:55 PM PDT · conf <span onClick="{{ revealConf }}" style="cursor:pointer;border-bottom:1px dotted var(--color-neutral-500)">{{ confText }}</span></div></div>
+        <div style="margin-left:auto;display:flex;gap:5px"><span class="av av-b">B</span><span class="av av-m">M</span><span class="av av-f">F</span></div>
+      </div>
+      <hr class="frule" style="margin:16px 0">
+      <div style="display:grid;gap:8px;font-size:12.5px;color:var(--color-neutral-300)">
+        <div style="display:flex;gap:10px;align-items:center"><span style="width:58px;color:var(--color-neutral-500);text-align:right;flex:none">1:15 PM</span><i class="ph ph-car" style="color:var(--color-accent)"></i>Hertz pickup · STS<span class="av av-b" style="margin-left:auto;width:17px;height:17px;font-size:8px">B</span></div>
+        <div style="display:flex;gap:10px;align-items:center"><span style="width:58px;color:var(--color-neutral-500);text-align:right;flex:none">3:00 PM</span><i class="ph ph-bed" style="color:var(--color-accent)"></i>Check in · Dawn Ranch Lodge<span style="margin-left:auto;display:flex;gap:3px"><span class="av av-b" style="width:17px;height:17px;font-size:8px">B</span><span class="av av-m" style="width:17px;height:17px;font-size:8px">M</span><span class="av av-f" style="width:17px;height:17px;font-size:8px">F</span></span></div>
+        <div style="display:flex;gap:10px;align-items:center"><span style="width:58px;color:var(--color-neutral-500);text-align:right;flex:none">8:20 PM</span><i class="ph ph-airplane-landing" style="color:var(--color-accent-2)"></i>Alex lands · DL 2688<span style="margin-left:auto;display:flex;gap:3px"><span class="av av-a" style="width:17px;height:17px;font-size:8px">A</span><span class="av av-b" style="width:17px;height:17px;font-size:8px">B</span></span></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:18px"><button class="btn btn-primary" onClick="{{ toastDayView }}">Open day view <i class="ph ph-arrow-right"></i></button><button class="btn btn-secondary" onClick="{{ toastTrips }}">Trip details</button></div>
+    </div>
+    </sc-if>
+    <sc-if value="{{ tripIdle }}" hint-placeholder-val="{{ false }}">
+    <div style="flex:1.5 1 480px;min-width:0;border-radius:var(--radius-lg);padding:22px 24px;background:linear-gradient(135deg,#1a1c33 0%,var(--color-bg) 70%);border:1px solid var(--color-divider)">
+      <h6 style="color:var(--color-neutral-500);margin:0 0 14px">Next trip · in 12 days</h6>
+      <div style="display:flex;gap:14px;align-items:center">
+        <i class="ph ph-confetti" style="font-size:30px;color:var(--color-accent)"></i>
+        <div><div style="font-size:18px;font-weight:500">Mary &amp; Winter Wedding</div><div style="font-size:12.5px;color:var(--color-neutral-400)">Oct 9–11 · Guerneville, CA · 6 booked, 1 to go</div></div>
+      </div>
+      <hr class="frule" style="margin:16px 0">
+      <div style="font-size:12.5px;color:var(--color-neutral-400)">Still open before you leave: return flight, kids' outfits, wedding gift. The countdown flips to a live day view on travel day.</div>
+      <div style="display:flex;gap:10px;margin-top:18px"><button class="btn btn-primary" onClick="{{ toastTrips }}">Trip details <i class="ph ph-arrow-right"></i></button></div>
+    </div>
+    </sc-if>
+    <div class="card" style="flex:1 1 340px;min-width:0">
+      <span class="card-kicker">Next best actions</span>
+      <div style="display:grid;gap:2px;margin-top:4px">
+        <sc-for list="{{ actions }}" as="a" hint-placeholder-count="4">
+          <div>
+          <div onClick="{{ a.toggle }}" style="display:flex;align-items:center;gap:12px;padding:9px 4px;cursor:pointer;border-radius:var(--radius-sm);opacity:{{ a.opacity }}" style-hover="background:color-mix(in srgb,var(--color-text) 5%,transparent)">
+            <span style="width:22px;height:22px;border-radius:var(--radius-sm);display:grid;place-items:center;background:{{ a.numBg }};color:{{ a.numColor }};font-size:11px;font-weight:600;flex:none"><i class="{{ a.numIcon }}" style="font-size:12px;display:{{ a.iconDisplay }}"></i><span style="display:{{ a.numDisplay }}">{{ a.num }}</span></span>
+            <div style="min-width:0"><div style="font-size:13px;font-weight:500;text-decoration:{{ a.deco }}">{{ a.title }}</div><div style="font-size:11px;color:var(--color-neutral-500)">{{ a.sub }}</div></div>
+            <span style="margin-left:auto;font-size:11px;color:{{ a.badgeColor }};flex:none">{{ a.badge }}</span>
+          </div>
+          <hr class="frule" style="margin:0;display:{{ a.ruleDisplay }}">
+          </div>
+        </sc-for>
+      </div>
+      <button class="btn btn-ghost" style="justify-content:flex-start;font-size:12.5px" onClick="{{ toastChecklist }}">Full checklist <i class="ph ph-arrow-right"></i></button>
+    </div>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:14px;margin:30px 0 14px"><h4 style="margin:0">Trips</h4><button class="btn btn-ghost" style="margin-left:auto;font-size:13px" onClick="{{ toastNewTrip }}"><i class="ph ph-plus"></i> New trip</button></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px">
+    <div class="card" style="padding:0;overflow:hidden;cursor:pointer" style-hover="box-shadow:var(--shadow-sm)" onClick="{{ toastTrips }}">
+      <div style="position:relative;height:150px">
+        <div style="position:absolute;inset:0;background:var(--color-neutral-900)"><x-import component-from-global-scope="image-slot" from="./image-slot.js" id="trip-guerneville" shape="rect" placeholder="Drop a Guerneville photo" hint-size="100%,150px" style="width:100%;height:100%"></x-import></div>
+        <span class="tag tag-accent" style="position:absolute;top:12px;right:12px;pointer-events:none">{{ gTag }}</span>
+      </div>
+      <div style="padding:var(--space-4);display:grid;gap:8px">
+        <div style="display:flex;align-items:baseline;gap:10px"><div class="card-title">Mary &amp; Winter Wedding</div><span style="margin-left:auto;font-size:11px;color:var(--color-neutral-500)">Oct 9–11</span></div>
+        <div class="card-meta"><i class="ph ph-map-pin"></i> Guerneville, CA<span style="margin-left:8px;display:flex;gap:4px"><span class="av av-b" style="width:18px;height:18px;font-size:9px">B</span><span class="av av-a" style="width:18px;height:18px;font-size:9px">A</span><span class="av av-m" style="width:18px;height:18px;font-size:9px">M</span><span class="av av-f" style="width:18px;height:18px;font-size:9px">F</span></span><span style="margin-left:auto">{{ gBookedLine }}</span></div>
+        <div style="display:grid;gap:5px;font-size:12px;color:var(--color-neutral-400);margin-top:2px">
+          <div style="display:flex;gap:10px"><span style="width:44px;color:var(--color-neutral-600);flex:none">Fri 9</span><span>Fly out · rental · check in · Alex lands 8:20</span></div>
+          <div style="display:flex;gap:10px"><span style="width:44px;color:var(--color-neutral-600);flex:none">Sat 10</span><span>Wedding — ceremony 4:00 PM, Highlands meadow</span></div>
+          <div style="display:flex;gap:10px"><span style="width:44px;color:var(--color-neutral-600);flex:none">Sun 11</span><span>Check out · return flight <span style="color:#d9b98a">not booked</span></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;cursor:pointer" style-hover="box-shadow:var(--shadow-sm)" onClick="{{ toastTrips }}">
+      <div style="position:relative;height:150px">
+        <div style="position:absolute;inset:0;background:var(--color-neutral-900)"><x-import component-from-global-scope="image-slot" from="./image-slot.js" id="trip-kauai" shape="rect" placeholder="Drop a Kauai photo" hint-size="100%,150px" style="width:100%;height:100%"></x-import></div>
+        <span class="tag tag-neutral" style="position:absolute;top:12px;right:12px;pointer-events:none">In 162 days</span>
+      </div>
+      <div style="padding:var(--space-4);display:grid;gap:8px">
+        <div style="display:flex;align-items:baseline;gap:10px"><div class="card-title">Spring Break — Kauai</div><span style="margin-left:auto;font-size:11px;color:var(--color-neutral-500)">Mar 20–28, 2027</span></div>
+        <div class="card-meta"><i class="ph ph-map-pin"></i> Poipu, HI · draft — dates penciled in</div>
+        <div style="display:grid;gap:5px;font-size:12px;color:var(--color-neutral-400);margin-top:2px">
+          <div style="display:flex;gap:10px;align-items:center"><i class="ph ph-ticket" style="color:var(--color-accent)"></i><span>Companion certificate — book by Jan 31</span><span class="tag tag-neutral" style="margin-left:auto;padding:2px 8px">114 days</span></div>
+          <div style="display:flex;gap:10px;align-items:center"><i class="ph ph-identification-card" style="color:#d9b98a"></i><span>Finn's passport renewal blocks this trip</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isImport }}" hint-placeholder-val="{{ false }}">
+<div style="max-width:1240px;margin:0 auto;padding:26px 28px 60px">
+  <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:20px;flex-wrap:wrap">
+    <div><h3 style="margin:0 0 4px">Import bookings</h3><p style="font-size:13px;color:var(--color-neutral-400);margin:0">Everything lands as a draft for review — nothing writes silently</p></div>
+    <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+      <span onClick="{{ tabPaste }}" class="tag {{ pasteTagCls }}" style="padding:6px 12px;cursor:pointer;border:1px solid {{ pasteBorder }};color:{{ pasteColor }}"><i class="ph ph-clipboard-text" style="margin-right:6px"></i>Paste email</span>
+      <span onClick="{{ tabForward }}" class="tag" style="padding:6px 12px;cursor:pointer;border:1px solid {{ fwdBorder }};color:{{ fwdColor }}"><i class="ph ph-envelope-simple" style="margin-right:6px"></i>Forward to inbox</span>
+      <span onClick="{{ tabUpload }}" class="tag" style="padding:6px 12px;cursor:pointer;border:1px solid {{ upBorder }};color:{{ upColor }}"><i class="ph ph-file-arrow-up" style="margin-right:6px"></i>Upload .eml / PDF</span>
+    </div>
+  </div>
+  <sc-if value="{{ tabIsPaste }}" hint-placeholder-val="{{ true }}">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:22px;align-items:start">
+    <div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px"><h6 style="color:var(--color-neutral-500);margin:0">Confirmation email</h6><button class="btn btn-ghost" style="margin-left:auto;font-size:12px" onClick="{{ loadSample }}"><i class="ph ph-envelope-open"></i> {{ sampleBtnLabel }}</button></div>
+      <textarea class="input" style="min-height:280px;font-size:12.5px;line-height:1.7" placeholder="Paste the full text of a booking confirmation email here — airline, hotel, rental car…" value="{{ emailText }}" onChange="{{ onEmail }}"></textarea>
+      <div style="display:flex;gap:10px;margin-top:12px;align-items:center">
+        <button class="btn btn-primary" onClick="{{ parseNow }}"><i class="ph ph-magic-wand"></i> Parse email</button>
+        <span style="font-size:11.5px;color:var(--color-neutral-500)">{{ queueHint }}</span>
+      </div>
+    </div>
+    <div>
+      <h6 style="color:var(--color-neutral-500);margin-bottom:10px">Parsed draft · review before saving</h6>
+      <sc-if value="{{ hasDraft }}" hint-placeholder-val="{{ false }}">
+      <div style="border:1px solid {{ draftBorder }};border-radius:var(--radius-md);background:var(--color-surface);padding:18px 20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <i class="{{ draftIcon }}" style="font-size:20px;color:var(--color-accent)"></i>
+          <div style="font-size:15px;font-weight:500">{{ draftTitle }}</div>
+          <span class="tag {{ draftTagCls }}" style="margin-left:auto;padding:3px 9px">{{ draftTagLabel }}</span>
+        </div>
+        <div style="font-size:11.5px;color:{{ confNoteColor }};margin:0 0 14px">{{ confidenceNote }}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;font-size:12.5px">
+          <div><div style="font-size:10.5px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">{{ f1Label }}</div>{{ f1Value }} <span style="color:var(--color-neutral-500)">{{ f1Note }}</span></div>
+          <div><div style="font-size:10.5px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">{{ f2Label }}</div>{{ f2Value }} <span style="color:var(--color-neutral-500)">{{ f2Note }}</span></div>
+          <div><div style="font-size:10.5px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Confirmation</div>{{ draftConf }} <span style="color:var(--color-neutral-500)">· stored masked</span></div>
+          <div><div style="font-size:10.5px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Cost</div>{{ draftCost }}</div>
+        </div>
+        <hr class="frule" style="margin:14px 0">
+        <div style="font-size:10.5px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Who's on it — tap to toggle</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <sc-for list="{{ draftTravelers }}" as="t" hint-placeholder-count="4">
+            <span onClick="{{ t.toggle }}" class="tag {{ t.cls }}" style="padding:5px 11px;cursor:pointer;border:1px solid {{ t.border }};color:{{ t.color }}"><span class="av {{ t.avCls }}" style="width:15px;height:15px;font-size:8px;margin-right:6px">{{ t.initial }}</span>{{ t.name }}<i class="ph ph-check" style="margin-left:6px;font-size:11px;display:{{ t.checkDisplay }}"></i></span>
+          </sc-for>
+        </div>
+        <hr class="frule" style="margin:14px 0">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="font-size:10.5px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.06em">Attach to trip</div>
+          <span class="tag tag-accent" style="padding:4px 10px">Mary &amp; Winter Wedding <span style="opacity:.7;margin-left:5px">{{ tripMatchNote }}</span></span>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px;flex-wrap:wrap">
+          <button class="btn btn-secondary" onClick="{{ discard }}">Discard</button>
+          <button class="btn btn-primary" onClick="{{ addToTrip }}"><i class="ph ph-check"></i> Add to trip</button>
+        </div>
+      </div>
+      </sc-if>
+      <sc-if value="{{ noDraft }}" hint-placeholder-val="{{ true }}">
+      <div style="border:1px dashed var(--color-neutral-800);border-radius:var(--radius-md);padding:40px 24px;text-align:center;color:var(--color-neutral-500);font-size:13px">
+        <i class="ph ph-magic-wand" style="font-size:26px;display:block;margin-bottom:10px;color:var(--color-neutral-600)"></i>
+        Paste an email (or load a waiting one) and hit <strong style="color:var(--color-neutral-300)">Parse</strong>.<br>Try pasting anything — unrecognized senders come back as a low-confidence draft you fill in by hand.
+      </div>
+      </sc-if>
+      <sc-if value="{{ hasAdded }}" hint-placeholder-val="{{ false }}">
+      <div style="margin-top:14px">
+        <h6 style="color:var(--color-neutral-500);margin-bottom:8px">Added this session</h6>
+        <div style="display:grid;gap:6px">
+          <sc-for list="{{ addedList }}" as="ad" hint-placeholder-count="1">
+            <div style="display:flex;gap:10px;align-items:center;padding:9px 13px;border-radius:var(--radius-md);background:var(--color-surface);font-size:12.5px"><i class="ph ph-check-circle" style="color:var(--color-accent-400);font-size:16px"></i>{{ ad.title }}<span style="margin-left:auto;font-size:11px;color:var(--color-neutral-500)">→ {{ ad.trip }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+    </div>
+  </div>
+  </sc-if>
+  <sc-if value="{{ tabIsForward }}" hint-placeholder-val="{{ false }}">
+  <div style="max-width:560px;border:1px solid var(--color-divider);border-radius:var(--radius-md);background:var(--color-surface);padding:24px">
+    <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px"><i class="ph ph-envelope-simple" style="font-size:24px;color:var(--color-accent)"></i><h5 style="margin:0">Forward confirmations to your instance</h5></div>
+    <p style="font-size:13px;color:var(--color-neutral-400)">Forward any booking email to the address below. It shows up in the paste tab's queue as a waiting email, parsed into a draft for review.</p>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:14px"><code style="font-size:13.5px;padding:8px 14px;border-radius:var(--radius-md);background:var(--color-bg);border:1px solid var(--color-divider);color:var(--color-accent-300)">trips@hq.badger.lan</code><button class="btn btn-secondary" style="font-size:12px" onClick="{{ toastCopied }}"><i class="ph ph-copy"></i> Copy</button></div>
+    <p style="font-size:11.5px;color:var(--color-neutral-500);margin:14px 0 0">LAN-only today — this address works once mail-in lands (backlog, phase 3). Auto-forward rules from Gmail work too.</p>
+  </div>
+  </sc-if>
+  <sc-if value="{{ tabIsUpload }}" hint-placeholder-val="{{ false }}">
+  <div style="max-width:560px;border:1px dashed var(--color-neutral-700);border-radius:var(--radius-md);padding:44px 24px;text-align:center;color:var(--color-neutral-400);font-size:13.5px;cursor:pointer" style-hover="border-color:var(--color-accent-600)" onClick="{{ toastUpload }}">
+    <i class="ph ph-file-arrow-up" style="font-size:30px;display:block;margin-bottom:10px;color:var(--color-neutral-500)"></i>
+    Drop a .eml or PDF confirmation here<br><span style="font-size:11.5px;color:var(--color-neutral-500)">or click to browse · parsed the same way, always a draft first</span>
+  </div>
+  </sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+<div style="position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--color-surface);border:1px solid var(--color-accent-800);box-shadow:var(--shadow-md);border-radius:var(--radius-md);padding:11px 18px;font-size:13px;display:flex;gap:10px;align-items:center;animation:toast-in .18s ease;z-index:50;max-width:90vw"><i class="ph ph-info" style="color:var(--color-accent)"></i>{{ toast }}</div>
+</sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;tripActive&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Home&quot;},&quot;showPhase2Nav&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Home&quot;}}">
+class Component extends DCLogic {
+  state = {
+    view: 'home', tab: 'paste', emailText: '', draft: null, qi: 0,
+    added: [], done: {}, toast: '', confRevealed: false
+  };
+  people = [
+    { id: 'b', name: 'Badger', initial: 'B', avCls: 'av-b' },
+    { id: 'a', name: 'Alex', initial: 'A', avCls: 'av-a' },
+    { id: 'm', name: 'Maya', initial: 'M', avCls: 'av-m' },
+    { id: 'f', name: 'Finn', initial: 'F', avCls: 'av-f' }
+  ];
+  samples = [
+    {
+      label: 'Dawn Ranch confirmation',
+      email: "From: reservations@dawnranch.com\nSubject: Reservation Confirmed \u2014 Dawn Ranch Lodge\n\nHi Badger, your stay is confirmed!\nConfirmation number: D7WN88\nCheck-in: Friday, October 9, 2026, 3:00 PM\nCheck-out: Sunday, October 11, 2026, 11:00 AM\nCabin 12 \u00b7 2 adults, 2 children\nTotal: $612.40 (incl. tax)",
+      draft: { kind: 'stay', icon: 'ph ph-bed', title: 'Stay \u00b7 Dawn Ranch Lodge \u00b7 2 nights',
+        f1: ['Check-in', 'Fri Oct 9 \u00b7 3:00 PM', 'PDT'], f2: ['Check-out', 'Sun Oct 11 \u00b7 11:00 AM', 'PDT'],
+        conf: 'D7WN88', cost: '$612.40', on: { b: 1, a: 1, m: 1, f: 1 }, confidence: 'high',
+        match: 'auto-matched by dates' }
+    },
+    {
+      label: 'Hertz receipt',
+      email: "From: reservations@hertz.com\nSubject: Your Hertz Reservation \u2014 STS\n\nConfirmation: K9Q288\nPickup: Santa Rosa Airport (STS), Fri Oct 9, 1:15 PM\nReturn: Sun Oct 11, 1:00 PM\nVehicle: Midsize SUV\nRenter: BADGER WRIGHT\nEstimated total: $188.10",
+      draft: { kind: 'car', icon: 'ph ph-car', title: 'Car \u00b7 Hertz \u00b7 midsize SUV',
+        f1: ['Pickup', 'Fri Oct 9 \u00b7 1:15 PM', 'PDT \u00b7 STS airport'], f2: ['Drop-off', 'Sun Oct 11 \u00b7 1:00 PM', 'PDT \u00b7 STS airport'],
+        conf: 'K9Q288', cost: '$188.10', on: { b: 1 }, confidence: 'high',
+        match: 'auto-matched by dates' }
+    }
+  ];
+  deltaDraft() {
+    return { kind: 'flight', icon: 'ph ph-airplane-takeoff', title: 'Flight \u00b7 Delta 2214 \u00b7 BOI \u2192 STS',
+      f1: ['Departs', 'Fri Oct 9 \u00b7 9:40 AM', 'MDT \u00b7 from BOI'], f2: ['Arrives', 'Fri Oct 9 \u00b7 12:55 PM', 'PDT \u00b7 at STS'],
+      conf: 'HMX4T2', cost: '$684.30', on: { b: 1, m: 1, f: 1 }, confidence: 'high',
+      match: 'auto-matched by dates' };
+  }
+  say(msg) {
+    clearTimeout(this._tt);
+    this.setState({ toast: msg });
+    this._tt = setTimeout(() => this.setState({ toast: '' }), 2600);
+  }
+  parse() {
+    const txt = this.state.emailText || '';
+    if (!txt.trim()) { this.say('Paste an email first \u2014 or load a waiting one.'); return; }
+    let draft;
+    if (/dawn ranch|check-in/i.test(txt)) draft = this.samples[0].draft;
+    else if (/hertz|rental|vehicle/i.test(txt)) draft = this.samples[1].draft;
+    else if (/delta|dl\s?\d|flight/i.test(txt)) draft = this.deltaDraft();
+    else {
+      const conf = (txt.match(/\b[A-Z0-9]{6}\b/) || [])[0] || '\u2014';
+      const cost = (txt.match(/\$\d[\d,]*(\.\d\d)?/) || [])[0] || '\u2014';
+      draft = { kind: 'other', icon: 'ph ph-question', title: 'Unrecognized booking \u2014 fill in the rest',
+        f1: ['Starts', '\u2014', ''], f2: ['Ends', '\u2014', ''],
+        conf, cost, on: {}, confidence: 'low', match: 'pick a trip' };
+    }
+    this.setState({ draft: JSON.parse(JSON.stringify(draft)) });
+  }
+  renderVals() {
+    const s = this.state;
+    const set = (p) => this.setState(p);
+    const baseActions = [
+      { id: 'checkin', title: 'Check in for DL 2214', sub: 'Delta app \u00b7 opened 8:40 AM', badge: 'now', badgeColor: 'var(--color-accent-300)' },
+      { id: 'return', title: 'Book return flight STS \u2192 BOI', sub: 'Sunday \u00b7 prices rising', badge: '2 days', badgeColor: 'var(--color-neutral-500)' },
+      { id: 'passport', title: "Renew Finn's passport", sub: 'Expires Feb 2027 \u00b7 Kauai needs 6-mo validity', badge: '132 days', badgeColor: '#d9b98a' },
+      { id: 'kauai', title: 'Pick Kauai dates', sub: 'Companion cert expires Jan 31, 2027', badge: '114 days', badgeColor: 'var(--color-neutral-500)' }
+    ];
+    const actions = baseActions.map((a, i) => {
+      const done = !!s.done[a.id];
+      return { ...a, num: String(i + 1), opacity: done ? '0.45' : '1', deco: done ? 'line-through' : 'none',
+        numBg: done ? 'var(--color-accent-900)' : (i === 0 ? 'var(--color-accent-800)' : 'var(--color-neutral-800)'),
+        numColor: done ? 'var(--color-accent-300)' : (i === 0 ? 'var(--color-accent-200)' : 'var(--color-neutral-200)'),
+        numIcon: 'ph ph-check', iconDisplay: done ? 'block' : 'none', numDisplay: done ? 'none' : 'block',
+        ruleDisplay: i === baseActions.length - 1 ? 'none' : 'block',
+        toggle: () => set({ done: { ...s.done, [a.id]: !done } }) };
+    });
+    const d = s.draft;
+    const travelers = this.people.map((p) => {
+      const on = d && !!d.on[p.id];
+      return { ...p, cls: on ? 'tag-outline' : '', border: on ? 'var(--color-accent)' : 'var(--color-divider)',
+        color: on ? 'var(--color-accent)' : 'var(--color-neutral-400)', checkDisplay: on ? 'inline' : 'none',
+        toggle: () => { const nd = { ...d, on: { ...d.on, [p.id]: on ? 0 : 1 } }; set({ draft: nd }); } };
+    });
+    const low = d && d.confidence === 'low';
+    const queueLeft = this.samples.length - s.qi;
+    const tripActive = this.props.tripActive ?? true;
+    const doneCount = Object.values(s.done).filter(Boolean).length;
+    const tab = s.tab;
+    const tagOff = 'var(--color-divider)';
+    return {
+      isHome: s.view === 'home', isImport: s.view === 'import',
+      tripActive, tripIdle: !tripActive,
+      showPhase2Nav: this.props.showPhase2Nav ?? true,
+      navTodayColor: s.view === 'home' ? 'var(--color-accent)' : 'var(--color-neutral-400)',
+      importBtnBorder: s.view === 'import' ? 'var(--color-accent)' : 'var(--color-divider)',
+      importBadge: s.added.length ? ` \u00b7 ${s.added.length}` : '',
+      heroSubline: tripActive ? "Friday, October 9 \u00b7 travel day \u2014 everyone's in Guerneville by tonight" : 'Sunday, September 27 \u00b7 12 days until the wedding trip',
+      heroTag: tripActive ? 'Wedding trip \u00b7 today' : 'Wedding trip \u00b7 12 days',
+      gTag: tripActive ? 'Today' : 'In 12 days',
+      gBookedLine: `${6 + s.added.length} booked \u00b7 1 to go`,
+      confText: s.confRevealed ? 'HMX4T2 (reveal logged)' : '\u2022\u2022\u2022\u2022X4T2',
+      revealConf: () => { set({ confRevealed: !s.confRevealed }); if (!s.confRevealed) this.say('Reveal logged \u2014 sensitive fields stay masked until tapped.'); },
+      actions,
+      goHome: () => set({ view: 'home' }),
+      goImport: () => set({ view: 'import' }),
+      toastTrips: () => this.say('Trip detail is design 1b on the exploration canvas \u2014 next build pass.'),
+      toastChecklist: () => this.say(`Cross-trip checklist \u2014 next build pass. ${doneCount ? doneCount + ' done this session.' : ''}`),
+      toastPeople: () => this.say('People & documents \u2014 next build pass (masking + expiry warnings).'),
+      toastDayView: () => this.say('Day view \u2014 pick shape 1c or 1d on the canvas and I\u2019ll build it in.'),
+      toastNewTrip: () => this.say('New trip form \u2014 next build pass.'),
+      toastCopied: () => this.say('Address copied.'),
+      toastUpload: () => this.say('File parsing lands with the backend \u2014 same draft-review flow.'),
+      tabPaste: () => set({ tab: 'paste' }), tabForward: () => set({ tab: 'forward' }), tabUpload: () => set({ tab: 'upload' }),
+      tabIsPaste: tab === 'paste', tabIsForward: tab === 'forward', tabIsUpload: tab === 'upload',
+      pasteTagCls: tab === 'paste' ? 'tag-outline' : '', pasteBorder: tab === 'paste' ? 'var(--color-accent)' : tagOff, pasteColor: tab === 'paste' ? 'var(--color-accent)' : 'var(--color-neutral-400)',
+      fwdBorder: tab === 'forward' ? 'var(--color-accent)' : tagOff, fwdColor: tab === 'forward' ? 'var(--color-accent)' : 'var(--color-neutral-400)',
+      upBorder: tab === 'upload' ? 'var(--color-accent)' : tagOff, upColor: tab === 'upload' ? 'var(--color-accent)' : 'var(--color-neutral-400)',
+      emailText: s.emailText,
+      onEmail: (e) => set({ emailText: e.target.value }),
+      parseNow: () => this.parse(),
+      loadSample: () => {
+        if (!queueLeft) { this.say('Queue is empty \u2014 paste your own email to try the low-confidence path.'); return; }
+        set({ emailText: this.samples[s.qi].email, draft: null });
+      },
+      sampleBtnLabel: queueLeft ? `Load waiting email (${queueLeft})` : 'Queue empty',
+      queueHint: queueLeft ? `${queueLeft} forwarded email${queueLeft > 1 ? 's' : ''} waiting \u2014 Dawn Ranch, Hertz` : 'No emails waiting',
+      hasDraft: !!d, noDraft: !d,
+      draftBorder: low ? '#8a6d3b' : 'var(--color-accent-800)',
+      draftIcon: d ? d.icon : '', draftTitle: d ? d.title : '',
+      draftTagCls: low ? 'tag-neutral' : 'tag-accent', draftTagLabel: low ? 'Low confidence' : 'Draft',
+      confidenceNote: d ? (low ? 'Sender not recognized \u2014 check every field before saving.' : 'Parsed from the email \u2014 highlighted fields matched known patterns.') : '',
+      confNoteColor: low ? '#d9b98a' : 'var(--color-neutral-500)',
+      f1Label: d ? d.f1[0] : '', f1Value: d ? d.f1[1] : '', f1Note: d ? d.f1[2] : '',
+      f2Label: d ? d.f2[0] : '', f2Value: d ? d.f2[1] : '', f2Note: d ? d.f2[2] : '',
+      draftConf: d ? d.conf : '', draftCost: d ? d.cost : '',
+      draftTravelers: travelers, tripMatchNote: d ? d.match : '',
+      discard: () => { set({ draft: null }); this.say('Draft discarded \u2014 the email is untouched.'); },
+      addToTrip: () => {
+        const usedSample = this.samples[s.qi] && s.emailText === this.samples[s.qi].email;
+        set({ added: [...s.added, { title: d.title, trip: 'Mary & Winter Wedding' }], draft: null, emailText: '', qi: usedSample ? s.qi + 1 : s.qi });
+        this.say(`Added \u201c${d.title}\u201d as a booking on Mary & Winter Wedding.`);
+      },
+      hasAdded: s.added.length > 0, addedList: s.added,
+      toast: s.toast, hasToast: !!s.toast
+    };
+  }
+}
+</script>
+</body>
+</html>

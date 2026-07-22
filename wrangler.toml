@@ -1,0 +1,59 @@
+name = "travel-hq"
+main = "src/server/worker.ts"
+compatibility_date = "2025-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+# The Vite build output. not_found_handling = "single-page-application" makes
+# any unmatched path fall back to index.html so wouter client routes (e.g.
+# /trips) resolve instead of 404ing -- but ONLY for browser navigations
+# (requests with Sec-Fetch-Mode: navigate); verified empirically against the
+# installed wrangler 4.113.0 with `wrangler dev` (see task-B-report.md).
+# Non-navigation requests (fetch()/XHR, which is how the SPA calls /api) fall
+# through to the Worker by default, matching the documented behaviour at
+# https://developers.cloudflare.com/workers/static-assets/routing/single-page-application/.
+# BUT a direct browser navigation to /api/* (e.g. pasting the URL) would also
+# get the SPA shell instead of reaching the Worker -- confirmed by testing
+# `curl -H "Sec-Fetch-Mode: navigate" /api/me` before adding the line below,
+# which returned index.html, not JSON. run_worker_first pins /api/* (and
+# /healthz) to the Worker regardless of navigation mode, per
+# https://developers.cloudflare.com/workers/static-assets/routing/worker-script/.
+[assets]
+directory = "dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/healthz"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "travel-hq-dev"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# Workers AI ([ai] binding) is deferred to Plan C (ingest/extraction).
+
+# --- testing (PR preview target; its own D1) --------------------------------
+[env.testing]
+[env.testing.assets]
+directory = "dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/healthz"]
+
+[[env.testing.d1_databases]]
+binding = "DB"
+database_name = "travel-hq-testing"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+
+# --- production (deployed from master; its own D1) --------------------------
+[env.production]
+[env.production.assets]
+directory = "dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/healthz"]
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "travel-hq-production"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+

@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["@cloudflare/workers-types"]
+  },
+  "//": "src/client/api/types.ts type-only-imports the server's repo modules to share domain types; those modules' class bodies (D1Database-typed constructors) are pulled into this program as a result. workers-types supplies the D1Database name; skipLibCheck (above) keeps its ambient globals from fighting the DOM lib's Request/Response.",
+  "include": ["src/client"]
+}

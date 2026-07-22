@@ -1,0 +1,49 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import { env } from "cloudflare:test";
+import { BookingRepo } from "../../../src/server/repos/booking.js";
+import { RollupRepo } from "../../../src/server/repos/rollup.js";
+import { Keyring } from "../../../src/server/crypto/envelope.js";
+import { NotFoundError } from "../../../src/server/repos/base.js";
+import type { HouseholdContext } from "../../../src/server/repos/base.js";
+
+const ring = new Keyring("server-v1", { "server-v1": crypto.getRandomValues(new Uint8Array(32)) });
+const ctxA: HouseholdContext = { householdId: "hh-a", userId: "u1", role: "owner" };
+
+beforeEach(async () => {
+  await env.DB.exec("DELETE FROM booking");
+  await env.DB.exec("DELETE FROM trip");
+  await env.DB.exec("DELETE FROM household");
+  const now = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO household (id,name,created_at) VALUES (?,?,?)").bind("hh-a", "A", now).run();
+  await env.DB.prepare("INSERT INTO trip (id,household_id,title,created_at) VALUES (?,?,?,?)").bind("t1", "hh-a", "Trip", now).run();
+});
+
+describe("RollupRepo", () => {
+  it("sums booked and planned but excludes draft from the total", async () => {
+    const bookings = new BookingRepo(env.DB, ctxA, ring);
+    await bookings.create({ tripId: "t1", kind: "other", title: "Booked", costCents: 20000, status: "booked", details: {} });
+    await bookings.create({ tripId: "t1", kind: "other", title: "Planned", costCents: 5000, status: "planned", details: {} });
+    await bookings.create({ tripId: "t1", kind: "other", title: "Draft", costCents: 50000, status: "draft", details: {} });
+    const roll = await new RollupRepo(env.DB, ctxA).forTrip("t1");
+    expect(roll.totalCents).toBe(25000);
+    expect(roll.draftCount).toBe(1);
+  });
+
+  it("aggregates points by program for booked/planned only", async () => {
+    const bookings = new BookingRepo(env.DB, ctxA, ring);
+    await bookings.create({ tripId: "t1", kind: "other", title: "P1", pointsUsed: 1000, pointsProgram: "UR", status: "booked", details: {} });
+    await bookings.create({ tripId: "t1", kind: "other", title: "P2", pointsUsed: 500, pointsProgram: "UR", status: "planned", details: {} });
+    const roll = await new RollupRepo(env.DB, ctxA).forTrip("t1");
+    expect(roll.points).toEqual([{ program: "UR", used: 1500 }]);
+  });
+
+  it("returns zeroes for a trip with no bookings", async () => {
+    const roll = await new RollupRepo(env.DB, ctxA).forTrip("t1");
+    expect(roll.totalCents).toBe(0);
+    expect(roll.points).toEqual([]);
+  });
+
+  it("404s for an unknown trip", async () => {
+    await expect(new RollupRepo(env.DB, ctxA).forTrip("nope")).rejects.toThrow(NotFoundError);
+  });
+});
