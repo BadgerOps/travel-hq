@@ -63,12 +63,14 @@
           packages = [
             pkgs.nodejs_22
             pkgs.typescript-language-server
+            # Cloudflare CLI: `wrangler dev`, `wrangler d1 ...`, `wrangler secret ...`.
+            pkgs.wrangler
             # Used to refresh npmDepsHash above after dependency changes.
             pkgs.prefetch-npm-deps
           ];
 
           shellHook = ''
-            echo "travel-hq dev shell — node $(node -v)"
+            echo "travel-hq dev shell — node $(node -v), wrangler $(wrangler --version 2>/dev/null | head -1)"
             echo ""
             echo "  npm install && npm run build"
             echo "  npm run dev            # wrangler dev — API + SPA on http://localhost:8787"
