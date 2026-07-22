@@ -37,6 +37,14 @@ directory = "dist"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*", "/healthz"]
 
+# No Cloudflare Access application exists for the testing Worker yet, so the
+# auth vars are unset and every /api request on testing 500s (fail-closed --
+# resolveVerifier refuses to run without them). Create a second Access app
+# scoped to the testing Worker's hostname and put its AUD tag here.
+# [env.testing.vars]
+# CF_ACCESS_TEAM_DOMAIN = "https://badgerops.cloudflareaccess.com"
+# CF_ACCESS_AUD = "<the testing Access app's AUD tag>"
+
 [[env.testing.d1_databases]]
 binding = "DB"
 database_name = "travel-hq-testing"
@@ -56,4 +64,17 @@ binding = "DB"
 database_name = "travel-hq-production"
 database_id = "9035fd50-6e50-401c-8e46-8ddc66a5467c"
 migrations_dir = "migrations"
+
+# Cloudflare Access config for human auth. NOT secrets (the AUD tag is an
+# identifier, not a credential), so they live here rather than in
+# `wrangler secret put`. TEAM DOMAIN MUST INCLUDE THE https:// SCHEME --
+# auth.ts uses it verbatim as both the JWKS fetch base URL and the JWT
+# `issuer` claim, and Access mints tokens with the scheme included.
+# The AUD is the "Application Audience (AUD) Tag" from the Access app
+# (Zero Trust -> Access -> Applications -> travel-hq-production ->
+# Additional settings -> AUD tag) -- 64 hex chars, NOT the application's
+# UUID id from the dashboard URL.
+[env.production.vars]
+CF_ACCESS_TEAM_DOMAIN = "https://badgerops.cloudflareaccess.com"
+CF_ACCESS_AUD = "8827163cf52568219746a23c957628c4fc3b284d5383b4a78d12abc71f38d8ce"
 

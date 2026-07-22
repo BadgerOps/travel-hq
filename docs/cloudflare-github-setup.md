@@ -65,19 +65,23 @@ returns 500 (fail-closed — never an auth bypass). Set them **per environment**
    Access → Applications → Add a self-hosted app) for each environment's
    hostname (the testing and production Workers). Add an Allow policy for your
    household's identities (e.g. the family's emails / your IdP).
-2. From each Access application, note its **AUD tag** and your **team domain**
-   (`<team>.cloudflareaccess.com`). Set them on the matching Worker environment
-   — these are not secret, so `[vars]` in the env block works, or `wrangler
-   secret put`:
-   ```bash
-   # e.g. as vars in the [env.testing]/[env.production] blocks of wrangler.toml,
-   # or:
-   wrangler secret put CF_ACCESS_TEAM_DOMAIN --env testing      # <team>.cloudflareaccess.com
-   wrangler secret put CF_ACCESS_AUD --env testing              # the testing Access app's AUD
-   wrangler secret put CF_ACCESS_TEAM_DOMAIN --env production
-   wrangler secret put CF_ACCESS_AUD --env production            # the production Access app's AUD
-   ```
-   Use each environment's own Access application and AUD.
+2. From each Access application, note its **AUD tag** and your **team domain**.
+   Two traps here:
+   - **`CF_ACCESS_TEAM_DOMAIN` must include the `https://` scheme** — the
+     full value is `https://<team>.cloudflareaccess.com`. The Worker uses it
+     verbatim as both the JWKS fetch URL base and the JWT `issuer` claim, and
+     Access mints tokens with the scheme included; without it every request
+     fails with a 401.
+   - The **AUD tag** is the 64-hex-character "Application Audience (AUD) Tag"
+     under the app's **Additional settings → AUD tag** — NOT the application's
+     UUID id that appears in the dashboard URL. A UUID there will never match
+     the JWT's `aud` claim.
+
+   Neither value is secret (the AUD is an identifier, not a credential), so
+   they live as **committed `[vars]`** in the `[env.testing]`/`[env.production]`
+   blocks of `wrangler.toml` — the production values are already there. Set the
+   testing ones the same way once a testing Access app exists. Use each
+   environment's own Access application and AUD.
 
 > **Do not add a Bypass policy** to the Access application — a Bypass mints no
 > JWT, so the Worker fails closed with a confusing 401/500 that looks like a
