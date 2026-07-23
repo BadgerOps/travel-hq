@@ -74,6 +74,15 @@ describe("api client", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/import/emails/e1", expect.anything());
   });
 
+  it("fetches ingest activity and the reveal audit trail (issue #8)", async () => {
+    const fetchMock = mockFetch(200, []);
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    await api.settings.ingestActivity();
+    expect(fetchMock).toHaveBeenCalledWith("/api/settings/ingest-activity", expect.anything());
+    await api.audit.reveals();
+    expect(fetchMock).toHaveBeenCalledWith("/api/audit/reveals", expect.anything());
+  });
+
   it("url-encodes path parameters", async () => {
     const fetchMock = mockFetch(200, []);
     const api = createApi({ fetch: fetchMock, baseUrl: "" });

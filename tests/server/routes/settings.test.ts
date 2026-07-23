@@ -28,6 +28,7 @@ function putJson(a: ReturnType<typeof createApp>, body: BodyInit) {
 }
 
 beforeEach(async () => {
+  await env.DB.exec("DELETE FROM inbound_email");
   await env.DB.exec("DELETE FROM household_settings");
   await env.DB.exec("DELETE FROM household");
   const now = new Date().toISOString();
@@ -127,5 +128,84 @@ describe("/api/settings", () => {
     const otherApp = appAs({ ...identity, userId: "u2", householdId: "hh-b" });
     const body = (await (await request(otherApp, "/api/settings")).json()) as Record<string, unknown>;
     expect(body).toEqual({ forwardAddress: null, senderAllowlist: [], aiModel: DEFAULT_AI_MODEL });
+  });
+});
+
+describe("GET /api/settings/ingest-activity (issue #8)", () => {
+  async function seedEmail(
+    id: string,
+    householdId: string,
+    over: Partial<{ status: string; error: string | null; subject: string | null; receivedAt: string }> = {},
+  ) {
+    await env.DB.prepare(
+      `INSERT INTO inbound_email (id, household_id, from_address, to_address, subject, raw, status, error, received_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        id,
+        householdId,
+        "airline@airline.com",
+        "trips@badgerops.foo",
+        over.subject === undefined ? "Your flight" : over.subject,
+        "RAW MESSAGE TEXT — must never appear in the feed",
+        over.status ?? "extracted",
+        over.error ?? null,
+        over.receivedAt ?? new Date().toISOString(),
+      )
+      .run();
+  }
+
+  it("answers recent activity newest-first with outcome and reason, never raw", async () => {
+    await seedEmail("e-old", "hh-a", { status: "extracted", receivedAt: "2026-07-20T10:00:00.000Z" });
+    await seedEmail("e-new", "hh-a", {
+      status: "rejected",
+      error: "sender is not on the household allowlist",
+      receivedAt: "2026-07-22T10:00:00.000Z",
+    });
+
+    const res = await request(app, "/api/settings/ingest-activity");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>[];
+    expect(body.map((e) => e.id)).toEqual(["e-new", "e-old"]);
+    expect(body[0]).toEqual({
+      id: "e-new",
+      from: "airline@airline.com",
+      subject: "Your flight",
+      status: "rejected",
+      error: "sender is not on the household allowlist",
+      receivedAt: "2026-07-22T10:00:00.000Z",
+    });
+    // The raw message text stays behind GET /api/import/emails/:emailId.
+    expect(JSON.stringify(body)).not.toContain("RAW MESSAGE TEXT");
+  });
+
+  it("respects a limit query and rejects a malformed one with 400", async () => {
+    await seedEmail("e-1", "hh-a", { receivedAt: "2026-07-20T10:00:00.000Z" });
+    await seedEmail("e-2", "hh-a", { receivedAt: "2026-07-21T10:00:00.000Z" });
+
+    const limited = (await (await request(app, "/api/settings/ingest-activity?limit=1")).json()) as {
+      id: string;
+    }[];
+    expect(limited.map((e) => e.id)).toEqual(["e-2"]);
+
+    expect((await request(app, "/api/settings/ingest-activity?limit=0")).status).toBe(400);
+    expect((await request(app, "/api/settings/ingest-activity?limit=101")).status).toBe(400);
+    expect((await request(app, "/api/settings/ingest-activity?limit=banana")).status).toBe(400);
+  });
+
+  it("blocks a viewer with 403 but allows an adult", async () => {
+    const viewerApp = appAs({ ...identity, role: "viewer" });
+    const viewerRes = await request(viewerApp, "/api/settings/ingest-activity");
+    expect(viewerRes.status).toBe(403);
+    expect(await viewerRes.json()).toEqual({ error: "Forbidden" });
+
+    const adultApp = appAs({ ...identity, userId: "u2", role: "adult" });
+    expect((await request(adultApp, "/api/settings/ingest-activity")).status).toBe(200);
+  });
+
+  it("is tenant-scoped: another household's mail never appears", async () => {
+    await seedEmail("e-b", "hh-b");
+    const res = await request(app, "/api/settings/ingest-activity");
+    expect(await res.json()).toEqual([]);
   });
 });

@@ -13,12 +13,48 @@ const SETTINGS = {
   aiModel: "@cf/meta/llama-3.1-8b-instruct",
 };
 
-function makeApi(over: Record<string, unknown> = {}) {
+const ACTIVITY = [
+  {
+    id: "e-new",
+    from: "noreply@airline.com",
+    subject: "Your flight is confirmed",
+    status: "extracted" as const,
+    error: null,
+    receivedAt: "2026-07-22T10:00:00.000Z",
+  },
+  {
+    id: "e-old",
+    from: "mallory@evil.com",
+    subject: null,
+    status: "rejected" as const,
+    error: "sender is not on the household allowlist",
+    receivedAt: "2026-07-20T09:00:00.000Z",
+  },
+];
+
+const REVEALS = [
+  {
+    id: "ra-1",
+    userId: "u2",
+    userEmail: "adult@example.com",
+    personId: "p-ava",
+    personName: "Ava",
+    field: "passport_number" as const,
+    revealedAt: "2026-07-21T18:30:00.000Z",
+  },
+];
+
+function makeApi(over: Record<string, unknown> = {}, auditOver: Record<string, unknown> = {}) {
   return {
     settings: {
       get: vi.fn(async () => SETTINGS),
       update: vi.fn(async (input: Record<string, unknown>) => ({ ...SETTINGS, ...input })),
+      ingestActivity: vi.fn(async () => []),
       ...over,
+    },
+    audit: {
+      reveals: vi.fn(async () => []),
+      ...auditOver,
     },
   };
 }
@@ -138,11 +174,60 @@ describe("Settings", () => {
     expect(model).toHaveValue("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
   });
 
-  it("renders the ingest-activity placeholder with an honest empty state", async () => {
+  it("renders an honest empty state when nothing has been ingested", async () => {
     renderSettings();
     await screen.findByLabelText("Forward address");
     const section = screen.getByRole("region", { name: /recent ingest activity/i });
     expect(section).toBeInTheDocument();
-    expect(screen.getByText(/nothing ingested yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/nothing ingested yet/i)).toBeInTheDocument();
+  });
+
+  it("renders recent ingest activity with outcome labels and failure reasons", async () => {
+    const api = makeApi({ ingestActivity: vi.fn(async () => ACTIVITY) });
+    renderSettings(api);
+    expect(await screen.findByText("Your flight is confirmed")).toBeInTheDocument();
+    expect(screen.getByText("Extracted")).toBeInTheDocument();
+    expect(screen.getByText("(no subject)")).toBeInTheDocument();
+    expect(screen.getByText("Rejected")).toBeInTheDocument();
+    expect(screen.getByText("sender is not on the household allowlist")).toBeInTheDocument();
+    expect(screen.getByText(/from mallory@evil\.com/)).toBeInTheDocument();
+    expect(screen.queryByText(/nothing ingested yet/i)).not.toBeInTheDocument();
+  });
+
+  it("reports a failed activity load without hiding the settings form", async () => {
+    const api = makeApi({
+      ingestActivity: vi.fn(async () => {
+        throw new ApiError("/api/settings/ingest-activity failed: boom", 500);
+      }),
+    });
+    renderSettings(api);
+    expect(await screen.findByLabelText("Forward address")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/something went wrong/i);
+    expect(screen.queryByText(/nothing ingested yet/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the owner the sensitive-data access log: who revealed what, when", async () => {
+    const api = makeApi({}, { reveals: vi.fn(async () => REVEALS) });
+    renderSettings(api, "owner");
+    const section = await screen.findByRole("region", { name: /sensitive data access log/i });
+    expect(section).toBeInTheDocument();
+    expect(await screen.findByText("adult@example.com")).toBeInTheDocument();
+    expect(screen.getByText(/revealed the passport number of/i)).toBeInTheDocument();
+    expect(screen.getByText("Ava")).toBeInTheDocument();
+    expect(screen.getByText(/2026-07-21 18:30 UTC/)).toBeInTheDocument();
+    expect(api.audit.reveals).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells the owner when nothing has been revealed", async () => {
+    renderSettings(makeApi(), "owner");
+    expect(await screen.findByText(/no document numbers have been revealed/i)).toBeInTheDocument();
+  });
+
+  it("never offers the access log to an adult, and never even asks the server", async () => {
+    const api = makeApi({}, { reveals: vi.fn(async () => REVEALS) });
+    renderSettings(api, "adult");
+    await screen.findByLabelText("Forward address");
+    expect(screen.queryByRole("region", { name: /sensitive data access log/i })).not.toBeInTheDocument();
+    expect(api.audit.reveals).not.toHaveBeenCalled();
   });
 });

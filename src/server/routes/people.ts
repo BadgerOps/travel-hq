@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { PersonRepo, DOCUMENT_FIELDS } from "../repos/person.js";
 import type { DocumentField, UpdatePersonInput } from "../repos/person.js";
+import { RevealAuditRepo } from "../repos/reveal-audit.js";
+import { logEvent } from "../logging.js";
 import type { AppEnv } from "../index.js";
 
 const createPersonSchema = z.object({
@@ -98,24 +100,34 @@ people.get("/:id/reveal/:field", async (c) => {
   }
 
   const identity = c.get("identity");
+  const personId = c.req.param("id");
   const repo = new PersonRepo(c.get("db"), identity, c.get("ring"));
   // A viewer role (ForbiddenError, I3) or an unknown/cross-household person
   // id (NotFoundError, I5) throw here and are mapped by app.onError before
-  // the log line below ever runs -- a denied or nonexistent reveal is not a
-  // reveal to log.
-  const value = await repo.revealDocument(c.req.param("id"), field as DocumentField);
+  // the audit write below ever runs -- a denied or nonexistent reveal is not
+  // a reveal to record.
+  const value = await repo.revealDocument(personId, field as DocumentField);
 
-  // The spec requires document reveals to be logged.
-  console.info(
-    JSON.stringify({
-      event: "document_reveal",
-      at: new Date().toISOString(),
-      user: identity.email,
-      household: identity.householdId,
-      person: c.req.param("id"),
-      field,
-    }),
-  );
+  // The spec requires document reveals to be logged; #8 makes that durable.
+  // The audit row is written BEFORE the value is returned, so a failed write
+  // (500 via app.onError) means the response never carries an unaudited
+  // plaintext. Who-in-human-terms (the email) lives HERE, in the database,
+  // where the owner-only /api/audit/reveals route serves it.
+  await new RevealAuditRepo(c.get("db"), identity).record({
+    userEmail: identity.email,
+    personId,
+    field: field as DocumentField,
+  });
+
+  // The structured log line carries ids and the outcome only -- userId, not
+  // email: an address identifies a person and must not land in logs (#8).
+  logEvent("document_reveal", {
+    requestId: c.get("requestId"),
+    userId: identity.userId,
+    householdId: identity.householdId,
+    personId,
+    field,
+  });
 
   return c.json({ value });
 });

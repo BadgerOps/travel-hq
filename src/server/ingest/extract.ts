@@ -8,6 +8,7 @@ import { InboundEmailRepo } from "../repos/inbound-email.js";
 import type { InboundEmail } from "../repos/inbound-email.js";
 import { DraftBookingRepo } from "../repos/draft-booking.js";
 import type { CreateDraftBookingInput, DraftBookingSource } from "../repos/draft-booking.js";
+import { logEvent, errorMessage } from "../logging.js";
 
 /**
  * The slice of the Workers AI binding extraction uses, spelled structurally
@@ -77,9 +78,12 @@ export async function extractInboundEmail(ctx: ExtractionContext, email: Inbound
       source = "ics";
     } else {
       if (!ctx.ai) {
-        console.warn(
-          `[extract] no AI binding and no calendar part; leaving inbound email ${email.id} queued as received`,
-        );
+        logEvent("email_ingest", {
+          outcome: "left_queued",
+          householdId: ctx.householdId,
+          emailId: email.id,
+          reason: "no AI binding and no calendar part; the row stays received",
+        });
         return;
       }
       bookings = await runModel(ctx.ai, ctx.aiModel, parsed);
@@ -102,13 +106,34 @@ export async function extractInboundEmail(ctx: ExtractionContext, email: Inbound
 
     await drafts.createMany(inputs);
     await emails.markExtracted(email.id);
+    // The one terminal outcome line for a message that made it all the way
+    // (#8): ingest itself stays silent on the received→ path so each inbound
+    // email logs exactly one outcome. Counts and ids only — never subjects,
+    // addresses, or extracted values.
+    logEvent("email_ingest", {
+      outcome: "extracted",
+      householdId: ctx.householdId,
+      emailId: email.id,
+      source,
+      drafts: inputs.length,
+    });
   } catch (err) {
-    console.error(`[extract] extraction failed for inbound email ${email.id}`, err);
+    const reason = describeError(err);
+    logEvent("email_ingest", {
+      outcome: "extraction_failed",
+      householdId: ctx.householdId,
+      emailId: email.id,
+      reason,
+    });
     try {
-      await emails.markFailed(email.id, describeError(err));
+      await emails.markFailed(email.id, reason);
     } catch (markErr) {
       // Best-effort by contract: the email row simply stays `received`.
-      console.error(`[extract] could not mark inbound email ${email.id} failed`, markErr);
+      logEvent("email_ingest_error", {
+        householdId: ctx.householdId,
+        emailId: email.id,
+        reason: `could not mark the row failed: ${errorMessage(markErr)}`,
+      });
     }
   }
 }
@@ -222,6 +247,5 @@ export function buildExtractionPrompt(email: ParsedEmail): { system: string; use
 }
 
 function describeError(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  return `Extraction failed: ${message}`.slice(0, MAX_ERROR_CHARS);
+  return `Extraction failed: ${errorMessage(err)}`.slice(0, MAX_ERROR_CHARS);
 }

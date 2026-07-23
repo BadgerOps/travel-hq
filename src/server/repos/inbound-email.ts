@@ -1,4 +1,4 @@
-import { TenantRepo, NotFoundError, ValidationError } from "./base.js";
+import { TenantRepo, ForbiddenError, NotFoundError, ValidationError } from "./base.js";
 import type { HouseholdContext } from "./base.js";
 import { newId } from "../ids.js";
 
@@ -39,6 +39,17 @@ export type InboundEmail = {
   /** When the ingest handler stored the row (ISO 8601). */
   receivedAt: string;
 };
+
+/**
+ * The Settings page's "recent ingest activity" slice (#8): sender, subject,
+ * outcome, and the human-readable reason — deliberately NOT the whole
+ * InboundEmail. `raw` is the full message text and belongs behind the
+ * explicit GET /api/import/emails/:emailId route, never in a list feed.
+ */
+export type InboundEmailActivity = Pick<
+  InboundEmail,
+  "id" | "from" | "subject" | "status" | "error" | "receivedAt"
+>;
 
 export type CreateInboundEmailInput = {
   from: string;
@@ -132,6 +143,38 @@ export class InboundEmailRepo extends TenantRepo {
       status,
     );
     return rows.map(toInboundEmail);
+  }
+
+  /**
+   * Newest first, capped — the Settings page's ingest activity feed (#8).
+   * Owner/adult only, unlike list()/findById(): this feed exists to debug
+   * the household's ingest CONFIGURATION and includes mail rejected at the
+   * door — unverified senders' addresses and the reasons they were refused —
+   * which is exactly the class of information HouseholdSettingsRepo gates
+   * behind requireOwnerOrAdult. The import queue's reads stay viewer-visible
+   * because they only ever show verified, accepted mail.
+   */
+  async listActivity(limit = 20): Promise<InboundEmailActivity[]> {
+    if (this.ctx.role === "viewer") {
+      throw new ForbiddenError("Viewers may not access ingest activity");
+    }
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new ValidationError("listActivity requires an integer limit between 1 and 100");
+    }
+    const rows = await this.all<Omit<Row, "to_address" | "message_id" | "raw">>(
+      `SELECT id, from_address, subject, status, error, received_at
+         FROM inbound_email WHERE {scope}
+        ORDER BY received_at DESC, id DESC LIMIT ?2`,
+      limit,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      from: r.from_address,
+      subject: r.subject,
+      status: r.status,
+      error: r.error,
+      receivedAt: r.received_at,
+    }));
   }
 
   async findById(id: string): Promise<InboundEmail | undefined> {
