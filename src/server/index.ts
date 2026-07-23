@@ -10,7 +10,10 @@ import { bookings } from "./routes/bookings.js";
 import { checklist } from "./routes/checklist.js";
 import { cards } from "./routes/cards.js";
 import { settings } from "./routes/settings.js";
+import { inboundEmails } from "./routes/inbound-emails.js";
 import { mapError } from "./routes/errors.js";
+import { createAnthropicClient } from "./ingest/providers.js";
+import type { AnthropicClientFactory } from "./ingest/providers.js";
 
 export type AppBindings = {
   DB: D1Database;
@@ -32,6 +35,7 @@ export type AppEnv = {
     db: D1Database;
     ring: Keyring;
     identity: Identity;
+    anthropicClientFactory: AnthropicClientFactory;
   };
 };
 
@@ -43,6 +47,7 @@ export type AppEnv = {
 export type AppOverrides = {
   verify?: (req: Request, env: AppBindings) => Promise<Identity>;
   ring?: Keyring;
+  anthropicClientFactory?: AnthropicClientFactory;
 };
 
 // The Access verifier caches JWKS; cache it per env object so that survives
@@ -82,6 +87,7 @@ export function createApp(overrides: AppOverrides = {}) {
     const env = c.env;
     c.set("db", env.DB);
     c.set("ring", overrides.ring ?? loadKeyring(env.ENCRYPTION_KEY));
+    c.set("anthropicClientFactory", overrides.anthropicClientFactory ?? createAnthropicClient);
     const verify = overrides.verify ? (req: Request) => overrides.verify!(req, env) : verifierFor(env);
     // A real verify() rejects only with AuthError; app.onError maps it to 401.
     c.set("identity", await verify(c.req.raw));
@@ -99,6 +105,7 @@ export function createApp(overrides: AppOverrides = {}) {
   app.route("/api/checklist", checklist);
   app.route("/api/cards", cards);
   app.route("/api/settings", settings);
+  app.route("/api/inbound-emails", inboundEmails);
 
   app.get("/healthz", (c) => c.text("ok"));
 

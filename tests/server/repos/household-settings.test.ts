@@ -7,9 +7,11 @@ import {
 } from "../../../src/server/repos/household-settings.js";
 import { ForbiddenError, ValidationError } from "../../../src/server/repos/base.js";
 import type { HouseholdContext } from "../../../src/server/repos/base.js";
+import { Keyring } from "../../../src/server/crypto/envelope.js";
 
 const ctxA: HouseholdContext = { householdId: "hh-a", userId: "u1", role: "owner" };
 const ctxB: HouseholdContext = { householdId: "hh-b", userId: "u2", role: "adult" };
+const ring = new Keyring("test-v1", { "test-v1": crypto.getRandomValues(new Uint8Array(32)) });
 
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM household_settings");
@@ -22,11 +24,6 @@ beforeEach(async () => {
 describe("HouseholdSettingsRepo", () => {
   it("returns the defaults when the household has no row yet", async () => {
     const settings = await new HouseholdSettingsRepo(env.DB, ctxA).getSettings();
-    expect(settings).toEqual({
-      forwardAddress: null,
-      senderAllowlist: [],
-      aiModel: DEFAULT_AI_MODEL,
-    });
     expect(settings).toEqual(defaultHouseholdSettings());
   });
 
@@ -41,7 +38,7 @@ describe("HouseholdSettingsRepo", () => {
       senderAllowlist: ["badger@example.com", "airline.com"],
       aiModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     });
-    expect(await repo.getSettings()).toEqual({
+    expect(await repo.getSettings()).toMatchObject({
       forwardAddress: "trips@badgerops.foo",
       senderAllowlist: ["badger@example.com", "airline.com"],
       aiModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
@@ -125,6 +122,53 @@ describe("HouseholdSettingsRepo", () => {
     await expect(repo.updateSettings({ aiModel: "   " })).rejects.toThrow(ValidationError);
   });
 
+  it("enforces provider, instructions, encrypted key tri-state, and the mask trap", async () => {
+    const repo = new HouseholdSettingsRepo(env.DB, ctxA, ring);
+    await expect(
+      repo.updateSettings({ aiProvider: "bogus" as never }),
+    ).rejects.toThrow(ValidationError);
+    await expect(
+      repo.updateSettings({ aiProvider: "anthropic" }),
+    ).rejects.toThrow(/API key/i);
+    await expect(
+      repo.updateSettings({ extractionInstructions: "x".repeat(2_001) }),
+    ).rejects.toThrow(ValidationError);
+
+    const saved = await repo.updateSettings({
+      aiProvider: "anthropic",
+      anthropicApiKey: "sk-ant-household-secret",
+      extractionInstructions: "Prefer the traveler's local airport.",
+    });
+    expect(saved).toMatchObject({
+      aiProvider: "anthropic",
+      anthropicKeyConfigured: true,
+      extractionInstructions: "Prefer the traveler's local airport.",
+    });
+    expect(saved).not.toHaveProperty("anthropicApiKey");
+
+    const before = await env.DB.prepare(
+      "SELECT anthropic_api_key FROM household_settings WHERE household_id = ?",
+    ).bind("hh-a").first<{ anthropic_api_key: string }>();
+    expect(before?.anthropic_api_key).toMatch(/^v1\./);
+    expect(before?.anthropic_api_key).not.toContain("household-secret");
+
+    await expect(
+      repo.updateSettings({ anthropicApiKey: "Configured ••••" }),
+    ).rejects.toThrow(ValidationError);
+    const after = await env.DB.prepare(
+      "SELECT anthropic_api_key FROM household_settings WHERE household_id = ?",
+    ).bind("hh-a").first<{ anthropic_api_key: string }>();
+    expect(after).toEqual(before);
+
+    await repo.updateSettings({ extractionInstructions: "Keep this", aiModel: "@cf/new" });
+    expect((await repo.getSettings()).anthropicKeyConfigured).toBe(true);
+    const cleared = await repo.updateSettings({
+      aiProvider: "workers-ai",
+      anthropicApiKey: null,
+    });
+    expect(cleared.anthropicKeyConfigured).toBe(false);
+  });
+
   it("rejects a forward address another household already claimed", async () => {
     await new HouseholdSettingsRepo(env.DB, ctxA).updateSettings({
       forwardAddress: "trips@badgerops.foo",
@@ -156,7 +200,7 @@ describe("HouseholdSettingsRepo", () => {
         env.DB,
         "trips@badgerops.foo",
       );
-      expect(match).toEqual({
+      expect(match).toMatchObject({
         householdId: "hh-a",
         settings: {
           forwardAddress: "trips@badgerops.foo",

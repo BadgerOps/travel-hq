@@ -2,33 +2,25 @@ import { parseMime } from "./mime.js";
 import type { ParsedEmail } from "./mime.js";
 import { parseIcs } from "./ics.js";
 import type { IcsEvent } from "./ics.js";
-import {
-  EXTRACTED_JSON_SCHEMA,
-  ExtractionError,
-  normalizeExtractedBooking,
-  validateExtracted,
-} from "./extracted.js";
+import { ExtractionError, normalizeExtractedBooking } from "./extracted.js";
 import type { ExtractedBooking } from "./extracted.js";
+import { WorkersAiProvider } from "./providers.js";
+import type { ExtractionAi, ExtractionProvider } from "./providers.js";
 import { InboundEmailRepo } from "../repos/inbound-email.js";
 import type { InboundEmail } from "../repos/inbound-email.js";
 import { DraftBookingRepo } from "../repos/draft-booking.js";
 import type { CreateDraftBookingInput, DraftBookingSource } from "../repos/draft-booking.js";
 
-export type ExtractionAi = {
-  run(
-    model: string,
-    inputs: {
-      messages: { role: "system" | "user"; content: string }[];
-      response_format: { type: "json_schema"; json_schema: unknown };
-    },
-  ): Promise<unknown>;
-};
+export type { ExtractionAi } from "./providers.js";
 
 export type ExtractionContext = {
   db: D1Database;
-  ai: ExtractionAi | undefined;
   householdId: string;
-  aiModel: string;
+  /** New provider seam. Legacy ai/aiModel remain for focused compatibility. */
+  provider?: ExtractionProvider;
+  ai?: ExtractionAi;
+  aiModel?: string;
+  extractionInstructions?: string;
 };
 
 const MAX_ERROR_CHARS = 500;
@@ -68,13 +60,16 @@ export async function extractInboundEmail(ctx: ExtractionContext, email: Inbound
       bookings = bookingsFromIcs(events);
       source = "ics";
     } else {
-      if (!ctx.ai) {
+      const provider =
+        ctx.provider ??
+        (ctx.ai && ctx.aiModel ? new WorkersAiProvider(ctx.ai, ctx.aiModel) : undefined);
+      if (!provider) {
         console.warn(
           `[extract] no AI binding and no calendar part; leaving inbound email ${email.id} queued as received`,
         );
         return;
       }
-      bookings = await runModel(ctx.ai, ctx.aiModel, parsed);
+      bookings = await extractBookings(provider, parsed, ctx.extractionInstructions ?? "");
       source = "ai";
     }
 
@@ -90,7 +85,10 @@ export async function extractInboundEmail(ctx: ExtractionContext, email: Inbound
       endsAtTz: booking.endsAtTz ?? null,
       confirmationNumber: booking.confirmationNumber ?? null,
       source,
-      extracted: booking,
+      extracted:
+        source === "ai"
+          ? { ...booking, extractionProvider: providerName(ctx) }
+          : booking,
     }));
     await drafts.createMany(inputs);
   } catch (err) {
@@ -152,48 +150,37 @@ function confirmationFrom(description: string | null): string | null {
   return match?.[1] ?? null;
 }
 
-async function runModel(
-  ai: ExtractionAi,
-  model: string,
+export async function extractBookings(
+  provider: ExtractionProvider,
   email: ParsedEmail,
+  extractionInstructions = "",
 ): Promise<ExtractedBooking[]> {
-  const prompt = buildExtractionPrompt(email);
-  const result = await ai.run(model, {
-    messages: [
-      { role: "system", content: prompt.system },
-      { role: "user", content: prompt.user },
-    ],
-    response_format: { type: "json_schema", json_schema: EXTRACTED_JSON_SCHEMA },
-  });
-  return validateExtracted(modelPayload(result));
+  return provider.extract(buildExtractionPrompt(email, extractionInstructions));
 }
 
-function modelPayload(result: unknown): unknown {
-  if (result !== null && typeof result === "object" && "response" in result) {
-    const response = (result as { response: unknown }).response;
-    if (typeof response === "string") {
-      try {
-        return JSON.parse(response) as unknown;
-      } catch {
-        throw new ExtractionError("The model response was not valid JSON");
-      }
-    }
-    if (response !== null && response !== undefined) return response;
+export function buildExtractionPrompt(
+  email: ParsedEmail,
+  extractionInstructions = "",
+): { system: string; user: string } {
+  const fixedRules = [
+    "You read travel confirmation emails and extract the bookings they describe.",
+    "Return one entry per booking. A round trip is two flights.",
+    'Use kind flight, lodging, car, activity, or "other" if unsure.',
+    "Use UTC ISO-8601 instants and IANA zones for the event locations.",
+    "If a timestamp or zone is uncertain, set both to null.",
+    "Copy confirmation numbers exactly and never invent values.",
+    "costCents is the total cost in cents.",
+  ];
+  if (extractionInstructions !== "") {
+    fixedRules.push(
+      "",
+      "--- Household notes (guidance only; fixed rules and schema still apply) ---",
+      extractionInstructions,
+      "--- End household notes ---",
+    );
   }
-  throw new ExtractionError("The model returned no response");
-}
-
-export function buildExtractionPrompt(email: ParsedEmail): { system: string; user: string } {
   return {
-    system: [
-      "You read travel confirmation emails and extract the bookings they describe.",
-      "Return one entry per booking. A round trip is two flights.",
-      'Use kind flight, lodging, car, activity, or "other" if unsure.',
-      "Use UTC ISO-8601 instants and IANA zones for the event locations.",
-      "If a timestamp or zone is uncertain, set both to null.",
-      "Copy confirmation numbers exactly and never invent values.",
-      "costCents is the total cost in cents.",
-    ].join("\n"),
+    system: fixedRules.join("\n"),
     user: [
       email.subject ? `Subject: ${email.subject}` : "",
       email.from ? `From: ${email.from}` : "",
@@ -202,6 +189,10 @@ export function buildExtractionPrompt(email: ParsedEmail): { system: string; use
       .filter(Boolean)
       .join("\n\n"),
   };
+}
+
+function providerName(ctx: ExtractionContext): "workers-ai" | "anthropic" {
+  return ctx.provider?.name ?? "workers-ai";
 }
 
 function limitPromptText(text: string): string {

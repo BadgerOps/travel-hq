@@ -163,7 +163,7 @@ describe("extractInboundEmail", () => {
         source: "ai",
         kind: "lodging",
         title: "Dawn Ranch",
-        extracted: { costCents: 61240 },
+        extracted: { costCents: 61240, extractionProvider: "workers-ai" },
       },
     ]);
   });
@@ -242,6 +242,21 @@ describe("extractInboundEmail", () => {
 });
 
 describe("buildExtractionPrompt", () => {
+  it("appends household notes after fixed rules in a delimited section", () => {
+    const prompt = buildExtractionPrompt({
+      from: "sender@example.com",
+      subject: "Confirmation",
+      textBody: "Body",
+      calendars: [],
+    }, "Prefer Boise departures.");
+    expect(prompt.system).toContain("Copy confirmation numbers exactly");
+    expect(prompt.system).toContain("Household notes");
+    expect(prompt.system).toContain("Prefer Boise departures.");
+    expect(prompt.system.indexOf("Household notes")).toBeGreaterThan(
+      prompt.system.indexOf("Copy confirmation numbers exactly"),
+    );
+  });
+
   it("bounds large forwarded emails while preserving their tail", () => {
     const prompt = buildExtractionPrompt({
       from: "sender@example.com",

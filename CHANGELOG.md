@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 - 2026-07-23
+
+- Added configurable Workers AI and Anthropic extraction providers, encrypted
+  per-household Anthropic keys, model selection, and household prompt guidance.
+- Added a paste-based extraction dry run and a metadata-only recent ingest
+  activity feed to Settings.
+- Added runtime fallback to Workers AI when saved Anthropic credentials cannot
+  be used, while recording the provider that produced each AI draft.
+
 ## 0.2.0 - 2026-07-23
 
 - Added `.ics`-first inbound-email extraction with a Workers AI JSON-mode

@@ -6,6 +6,16 @@ import type { AppBindings } from "../../../src/server/index.js";
 import type { Identity } from "../../../src/server/auth.js";
 import { DEFAULT_AI_MODEL } from "../../../src/server/repos/household-settings.js";
 
+const SAFE_DEFAULTS = {
+  forwardAddress: null,
+  senderAllowlist: [],
+  aiModel: DEFAULT_AI_MODEL,
+  aiProvider: "workers-ai",
+  anthropicModel: "claude-opus-4-8",
+  anthropicKeyConfigured: false,
+  extractionInstructions: "",
+};
+
 const ring = new Keyring("server-v1", { "server-v1": crypto.getRandomValues(new Uint8Array(32)) });
 const identity: Identity = { userId: "u1", email: "badger@example.com", householdId: "hh-a", role: "owner" };
 const testEnv = { DB: env.DB } as unknown as AppBindings;
@@ -40,11 +50,7 @@ describe("/api/settings", () => {
   it("GET answers the defaults (default model, empty allowlist) when no row exists", async () => {
     const res = await request(app, "/api/settings");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      forwardAddress: null,
-      senderAllowlist: [],
-      aiModel: DEFAULT_AI_MODEL,
-    });
+    expect(await res.json()).toEqual(SAFE_DEFAULTS);
   });
 
   it("PUT round-trips the allowlist and model, and GET reflects them", async () => {
@@ -58,7 +64,7 @@ describe("/api/settings", () => {
     );
     expect(put.status).toBe(200);
     const body = (await (await request(app, "/api/settings")).json()) as Record<string, unknown>;
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       forwardAddress: "trips@badgerops.foo",
       senderAllowlist: ["badger@example.com", "airline.com"],
       aiModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
@@ -126,6 +132,34 @@ describe("/api/settings", () => {
     await putJson(app, JSON.stringify({ forwardAddress: "trips@badgerops.foo", senderAllowlist: ["a@b.com"] }));
     const otherApp = appAs({ ...identity, userId: "u2", householdId: "hh-b" });
     const body = (await (await request(otherApp, "/api/settings")).json()) as Record<string, unknown>;
-    expect(body).toEqual({ forwardAddress: null, senderAllowlist: [], aiModel: DEFAULT_AI_MODEL });
+    expect(body).toEqual(SAFE_DEFAULTS);
+  });
+
+  it("stores an Anthropic key write-only and rejects masked replacement without mutation", async () => {
+    const put = await putJson(app, JSON.stringify({
+      aiProvider: "anthropic",
+      anthropicModel: "claude-sonnet-5",
+      anthropicApiKey: "sk-ant-route-secret",
+      extractionInstructions: "Use Boise as the usual origin.",
+    }));
+    expect(put.status).toBe(200);
+    const safe = await put.json() as Record<string, unknown>;
+    expect(safe).toMatchObject({
+      aiProvider: "anthropic",
+      anthropicModel: "claude-sonnet-5",
+      anthropicKeyConfigured: true,
+    });
+    expect(JSON.stringify(safe)).not.toContain("sk-ant-route-secret");
+    expect(safe).not.toHaveProperty("anthropicApiKey");
+
+    const before = await env.DB.prepare(
+      "SELECT anthropic_api_key FROM household_settings WHERE household_id = ?",
+    ).bind("hh-a").first<{ anthropic_api_key: string }>();
+    const rejected = await putJson(app, JSON.stringify({ anthropicApiKey: "Configured ••••" }));
+    expect(rejected.status).toBe(400);
+    const after = await env.DB.prepare(
+      "SELECT anthropic_api_key FROM household_settings WHERE household_id = ?",
+    ).bind("hh-a").first<{ anthropic_api_key: string }>();
+    expect(after).toEqual(before);
   });
 });

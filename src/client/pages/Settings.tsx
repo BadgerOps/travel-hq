@@ -1,37 +1,54 @@
 import { useEffect, useState } from "react";
-import { FloppyDisk, Robot } from "@phosphor-icons/react";
+import { FloppyDisk, Flask, Key, Robot, Trash } from "@phosphor-icons/react";
 import { api as defaultApi, ApiError } from "../api/client.js";
-import type { HouseholdSettings } from "../api/types.js";
+import type {
+  AiProvider,
+  ExtractedBooking,
+  HouseholdSettings,
+  InboundEmailMetadata,
+} from "../api/types.js";
 import { errorMessage } from "../lib/errors.js";
 import { useCanWrite } from "../api/identity.js";
+import { DraftBookingCard } from "../components/DraftBookingCard.js";
 
-/**
- * The agent-configuration page: the household's forward address, sender
- * allowlist, and Workers AI model — the three values the email ingest
- * pipeline reads. GET /api/settings answers with the defaults applied (the
- * default model, an empty allowlist), so this form never has to know what
- * the defaults are.
- *
- * Role-gating: the server answers 403 for a viewer on the GET as well as
- * the PUT, so a viewer gets the access card below, not a read-only form.
- * useCanWrite() additionally hides the save affordance while the identity
- * is a known viewer — same "no button that can only 403" rule as
- * MaskedValue and the checklist toggles.
- */
-export function Settings({
-  api = defaultApi,
-}: {
-  api?: typeof defaultApi;
-}) {
+const WORKERS_MODELS = [
+  "@cf/meta/llama-3.1-8b-instruct",
+  "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+  "@cf/mistralai/mistral-small-3.1-24b-instruct",
+] as const;
+const ANTHROPIC_MODELS = [
+  "claude-opus-4-8",
+  "claude-sonnet-5",
+  "claude-haiku-4-5",
+] as const;
+const CUSTOM_MODEL = "__custom__";
+const MAX_INSTRUCTIONS = 2_000;
+
+type KeyMode = "unchanged" | "replace" | "remove";
+
+export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
   const [settings, setSettings] = useState<HouseholdSettings | null>(null);
   const [forwardAddress, setForwardAddress] = useState("");
   const [allowlistText, setAllowlistText] = useState("");
   const [aiModel, setAiModel] = useState("");
+  const [aiProvider, setAiProvider] = useState<AiProvider>("workers-ai");
+  const [anthropicModel, setAnthropicModel] = useState<string>(ANTHROPIC_MODELS[0]);
+  const [anthropicKeyConfigured, setAnthropicKeyConfigured] = useState(false);
+  const [anthropicApiKey, setAnthropicApiKey] = useState("");
+  const [keyMode, setKeyMode] = useState<KeyMode>("replace");
+  const [extractionInstructions, setExtractionInstructions] = useState("");
+  const [activity, setActivity] = useState<InboundEmailMetadata[]>([]);
+  const [activityError, setActivityError] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [testSubject, setTestSubject] = useState("");
+  const [testText, setTestText] = useState("");
+  const [testBusy, setTestBusy] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testBookings, setTestBookings] = useState<ExtractedBooking[]>([]);
   const canWrite = useCanWrite();
 
   useEffect(() => {
@@ -43,16 +60,32 @@ export function Settings({
         setForwardAddress(s.forwardAddress ?? "");
         setAllowlistText(s.senderAllowlist.join("\n"));
         setAiModel(s.aiModel);
+        setAiProvider(s.aiProvider ?? "workers-ai");
+        setAnthropicModel(s.anthropicModel ?? ANTHROPIC_MODELS[0]);
+        setAnthropicKeyConfigured(s.anthropicKeyConfigured ?? false);
+        setKeyMode(s.anthropicKeyConfigured ? "unchanged" : "replace");
+        setExtractionInstructions(s.extractionInstructions ?? "");
       },
       (err: unknown) => {
         if (cancelled) return;
-        // 403 is not a fault: it means the caller is a viewer and settings
-        // are owner/adult only. Everything else is a real failed load and
-        // must not render like an unconfigured household.
         if (err instanceof ApiError && err.status === 403) setForbidden(true);
         else setLoadFailed(errorMessage(err));
       },
     );
+
+    const listActivity = api.inboundEmails?.list;
+    if (listActivity) {
+      listActivity().then(
+        (rows) => {
+          if (!cancelled) setActivity(rows);
+        },
+        (err: unknown) => {
+          if (!cancelled && !(err instanceof ApiError && err.status === 403)) {
+            setActivityError(errorMessage(err));
+          }
+        },
+      );
+    }
     return () => {
       cancelled = true;
     };
@@ -61,7 +94,6 @@ export function Settings({
   async function save(event: React.FormEvent) {
     event.preventDefault();
     setSaved(false);
-
     const address = forwardAddress.trim();
     if (address !== "" && !/^[^\s@]+@[^\s@]+$/.test(address)) {
       setSaveError("The forward address must be a single email address.");
@@ -70,32 +102,70 @@ export function Settings({
     const allowlist = allowlistText
       .split(/[\n,]/)
       .map((entry) => entry.trim())
-      .filter((entry) => entry !== "");
-    const model = aiModel.trim();
-    if (model === "") {
-      setSaveError("A model id is required.");
+      .filter(Boolean);
+    if (aiProvider === "workers-ai" && aiModel.trim() === "") {
+      setSaveError("A Workers AI model id is required.");
       return;
     }
+    if (
+      aiProvider === "anthropic" &&
+      (keyMode === "remove" || (!anthropicKeyConfigured && anthropicApiKey.trim() === ""))
+    ) {
+      setSaveError("Configure an Anthropic API key before selecting Anthropic.");
+      return;
+    }
+
+    const input: Parameters<typeof api.settings.update>[0] = {
+      forwardAddress: address === "" ? null : address,
+      senderAllowlist: allowlist,
+      aiModel: aiModel.trim(),
+      aiProvider,
+      anthropicModel,
+      extractionInstructions,
+    };
+    if (keyMode === "replace" && anthropicApiKey.trim() !== "") {
+      input.anthropicApiKey = anthropicApiKey;
+    }
+    if (keyMode === "remove") input.anthropicApiKey = null;
 
     setBusy(true);
     setSaveError(null);
     try {
-      const next = await api.settings.update({
-        forwardAddress: address === "" ? null : address,
-        senderAllowlist: allowlist,
-        aiModel: model,
-      });
+      const next = await api.settings.update(input);
       setSettings(next);
       setForwardAddress(next.forwardAddress ?? "");
       setAllowlistText(next.senderAllowlist.join("\n"));
       setAiModel(next.aiModel);
+      setAiProvider(next.aiProvider);
+      setAnthropicModel(next.anthropicModel);
+      setAnthropicKeyConfigured(next.anthropicKeyConfigured);
+      setAnthropicApiKey("");
+      setKeyMode(next.anthropicKeyConfigured ? "unchanged" : "replace");
+      setExtractionInstructions(next.extractionInstructions);
       setSaved(true);
     } catch (err) {
-      // Keep whatever the operator typed -- don't blow away their input on a
-      // rejected write. Same rule TripForm/PersonForm follow.
       setSaveError(errorMessage(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function runTest(event: React.FormEvent) {
+    event.preventDefault();
+    setTestBusy(true);
+    setTestError(null);
+    setTestBookings([]);
+    try {
+      const result = await api.settings.testExtraction({
+        ...(testSubject.trim() ? { subject: testSubject.trim() } : {}),
+        text: testText,
+      });
+      if ("error" in result) setTestError(result.error);
+      else setTestBookings(result.bookings);
+    } catch (err) {
+      setTestError(errorMessage(err));
+    } finally {
+      setTestBusy(false);
     }
   }
 
@@ -113,110 +183,177 @@ export function Settings({
       </>
     );
   }
-
   if (loadFailed) {
-    return (
-      <p className="warning" role="alert">
-        {loadFailed}
-      </p>
-    );
+    return <p className="warning" role="alert">{loadFailed}</p>;
   }
+
+  const modelChoice = WORKERS_MODELS.includes(aiModel as (typeof WORKERS_MODELS)[number])
+    ? aiModel
+    : CUSTOM_MODEL;
 
   return (
     <>
       <SettingsHeader />
-
       {settings === null && <p className="text-muted">Loading…</p>}
-
       {settings !== null && (
-        <div style={{ display: "grid", gap: 24, maxWidth: 560 }}>
-          <form onSubmit={save} style={{ display: "grid", gap: 14 }}>
-            {saveError && (
-              <p className="warning" role="alert" style={{ margin: 0 }}>
-                {saveError}
-              </p>
-            )}
-            {saved && (
-              <p className="text-muted" role="status" style={{ margin: 0 }}>
-                Settings saved.
-              </p>
-            )}
+        <div style={{ display: "grid", gap: 24, maxWidth: 640 }}>
+          <form onSubmit={save} className="card" style={{ display: "grid", gap: 14 }}>
+            <h4>Extraction agent</h4>
+            {saveError && <p className="warning" role="alert" style={{ margin: 0 }}>{saveError}</p>}
+            {saved && <p className="text-muted" role="status" style={{ margin: 0 }}>Settings saved.</p>}
 
             <div className="field">
               <label htmlFor="st-forward">Forward address</label>
-              <input
-                id="st-forward"
-                className="input"
-                placeholder="trips@example.com"
-                value={forwardAddress}
-                onChange={(e) => setForwardAddress(e.target.value)}
-                readOnly={!canWrite}
-              />
-              <p className="text-muted" style={{ margin: "4px 0 0", fontSize: 12.5 }}>
-                The address confirmation emails are forwarded to for this household. Leave blank
-                to turn email ingest off.
-              </p>
+              <input id="st-forward" className="input" placeholder="trips@example.com"
+                value={forwardAddress} onChange={(e) => setForwardAddress(e.target.value)}
+                readOnly={!canWrite} />
             </div>
-
             <div className="field">
               <label htmlFor="st-allowlist">Sender allowlist</label>
-              <textarea
-                id="st-allowlist"
-                className="input"
-                rows={4}
-                placeholder={"you@example.com\nairline.com"}
-                value={allowlistText}
-                onChange={(e) => setAllowlistText(e.target.value)}
-                readOnly={!canWrite}
-              />
-              <p className="text-muted" style={{ margin: "4px 0 0", fontSize: 12.5 }}>
-                One address or domain per line. Only mail from these senders is ingested; an
-                empty list means no mail is ingested at all.
+              <textarea id="st-allowlist" className="input" rows={4}
+                placeholder={"you@example.com\nairline.com"} value={allowlistText}
+                onChange={(e) => setAllowlistText(e.target.value)} readOnly={!canWrite} />
+              <p className="text-muted" style={helpStyle}>
+                One address or domain per line. An empty list disables email ingest.
               </p>
+            </div>
+            <div className="field">
+              <label htmlFor="st-provider">AI provider</label>
+              <select id="st-provider" className="input" value={aiProvider}
+                onChange={(e) => setAiProvider(e.target.value as AiProvider)}
+                disabled={!canWrite}>
+                <option value="workers-ai">Workers AI</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
+            </div>
+
+            {aiProvider === "workers-ai" ? (
+              <>
+                <div className="field">
+                  <label htmlFor="st-model-preset">Extraction model</label>
+                  <select id="st-model-preset" className="input" value={modelChoice}
+                    onChange={(e) => {
+                      if (e.target.value !== CUSTOM_MODEL) setAiModel(e.target.value);
+                      else if (modelChoice !== CUSTOM_MODEL) setAiModel("");
+                    }} disabled={!canWrite}>
+                    {WORKERS_MODELS.map((model) => <option value={model} key={model}>{model}</option>)}
+                    <option value={CUSTOM_MODEL}>Custom model id…</option>
+                  </select>
+                </div>
+                {modelChoice === CUSTOM_MODEL && (
+                  <div className="field">
+                    <label htmlFor="st-custom-model">Custom Workers AI model id</label>
+                    <input id="st-custom-model" className="input" value={aiModel}
+                      onChange={(e) => setAiModel(e.target.value)} readOnly={!canWrite} />
+                    <p className="text-muted" style={helpStyle}>Saved for this household in Travel HQ.</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="field">
+                <label htmlFor="st-anthropic-model">Anthropic model</label>
+                <select id="st-anthropic-model" className="input" value={anthropicModel}
+                  onChange={(e) => setAnthropicModel(e.target.value)} disabled={!canWrite}>
+                  {ANTHROPIC_MODELS.map((model) => <option value={model} key={model}>{model}</option>)}
+                </select>
+              </div>
+            )}
+
+            <div className="field">
+              <label htmlFor="st-anthropic-key">Anthropic API key</label>
+              {anthropicKeyConfigured && keyMode === "unchanged" ? (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <span><Key size={14} /> Configured ••••</span>
+                  {canWrite && <button type="button" className="btn btn-secondary"
+                    onClick={() => setKeyMode("replace")}>Replace</button>}
+                  {canWrite && <button type="button" className="btn btn-secondary"
+                    onClick={() => setKeyMode("remove")}><Trash size={14} /> Remove</button>}
+                </div>
+              ) : keyMode === "remove" ? (
+                <div>
+                  <span className="warning">Key will be removed when settings are saved.</span>
+                  <button type="button" className="btn btn-ghost"
+                    onClick={() => setKeyMode("unchanged")}>Keep configured key</button>
+                </div>
+              ) : (
+                <>
+                  <input id="st-anthropic-key" className="input" type="password"
+                    autoComplete="new-password" placeholder="sk-ant-…"
+                    value={anthropicApiKey} onChange={(e) => setAnthropicApiKey(e.target.value)}
+                    readOnly={!canWrite} />
+                  {anthropicKeyConfigured && <button type="button" className="btn btn-ghost"
+                    onClick={() => { setKeyMode("unchanged"); setAnthropicApiKey(""); }}>Cancel replace</button>}
+                </>
+              )}
             </div>
 
             <div className="field">
-              <label htmlFor="st-model">Extraction model</label>
-              <input
-                id="st-model"
-                className="input"
-                value={aiModel}
-                onChange={(e) => setAiModel(e.target.value)}
-                readOnly={!canWrite}
-              />
-              <p className="text-muted" style={{ margin: "4px 0 0", fontSize: 12.5 }}>
-                Saved for this household in Travel HQ. Wrangler supplies the Workers AI
-                connection; this model controls which AI extracts forwarded confirmations.
+              <label htmlFor="st-instructions">Household extraction instructions</label>
+              <textarea id="st-instructions" className="input" rows={5}
+                maxLength={MAX_INSTRUCTIONS} value={extractionInstructions}
+                onChange={(e) => setExtractionInstructions(e.target.value)} readOnly={!canWrite} />
+              <p className="text-muted" style={counterStyle}>
+                Guidance is appended after fixed safety/schema rules. {extractionInstructions.length}/{MAX_INSTRUCTIONS}
               </p>
             </div>
-
-            {canWrite && (
-              <div>
-                <button type="submit" className="btn btn-primary" disabled={busy}>
-                  <FloppyDisk size={14} /> Save settings
-                </button>
-              </div>
-            )}
+            {canWrite && <div><button type="submit" className="btn btn-primary" disabled={busy}>
+              <FloppyDisk size={14} /> Save settings
+            </button></div>}
           </form>
 
-          {/* Placeholder: the ingest status/log feed (issue #8) renders here
-              once the ingest pipeline (#4) exists. Until then there is
-              nothing to list, and this empty state says so honestly instead
-              of pretending zero activity is a healthy pipeline. */}
-          <section aria-label="Recent ingest activity">
-            <h5 className="card-title" style={{ marginBottom: 10 }}>
-              Recent ingest activity
-            </h5>
-            <div className="card" style={{ alignItems: "flex-start", gap: 10 }}>
-              <span className="card-title">
-                <Robot size={16} style={{ marginRight: 6, verticalAlign: "-2px" }} />
-                Nothing ingested yet
-              </span>
-              <p className="card-body" style={{ margin: 0 }}>
-                Once email ingest is live, recent extraction results and failures will appear
-                here, next to the configuration that drives them.
-              </p>
+          <form onSubmit={runTest} className="card" style={{ display: "grid", gap: 14 }}>
+            <h4><Flask size={18} style={{ verticalAlign: "-2px" }} /> Test extraction</h4>
+            <p className="text-muted" style={{ margin: 0 }}>
+              Paste a confirmation to preview extraction. Nothing is saved.
+            </p>
+            <div className="field">
+              <label htmlFor="test-subject">Subject</label>
+              <input id="test-subject" className="input" value={testSubject}
+                onChange={(e) => setTestSubject(e.target.value)} />
             </div>
+            <div className="field">
+              <label htmlFor="test-body">Email body</label>
+              <textarea id="test-body" className="input" rows={8} value={testText}
+                onChange={(e) => setTestText(e.target.value)} />
+            </div>
+            <div><button type="submit" className="btn btn-primary"
+              disabled={testBusy || testText.length === 0}>
+              <Flask size={14} /> Run test
+            </button></div>
+            {testError && <p className="warning" role="alert">{testError}</p>}
+            {testBookings.map((booking, index) => (
+              <DraftBookingCard booking={booking} key={`${booking.title}-${index}`} />
+            ))}
+          </form>
+
+          <section aria-label="Recent ingest activity">
+            <h4 style={{ marginBottom: 10 }}>Recent ingest activity</h4>
+            {activityError && <p className="warning" role="alert">{activityError}</p>}
+            {activity.length === 0 && !activityError ? (
+              <div className="card" style={{ alignItems: "flex-start", gap: 10 }}>
+                <span className="card-title"><Robot size={16} style={{ marginRight: 6 }} />Nothing ingested yet</span>
+                <p className="card-body" style={{ margin: 0 }}>
+                  Recent extraction results and failures will appear here.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {activity.map((email, index) => (
+                  <article className="card" key={`${email.receivedAt}-${index}`}
+                    style={{ alignItems: "flex-start", gap: 6 }}>
+                    <div style={{ display: "flex", width: "100%", justifyContent: "space-between", gap: 12 }}>
+                      <strong>{email.subject || "(no subject)"}</strong>
+                      <StatusChip status={email.status} />
+                    </div>
+                    <span className="card-body">From {email.from}</span>
+                    {email.error && <span className="warning">{email.error}</span>}
+                    <time className="card-meta" dateTime={email.receivedAt}>
+                      {new Date(email.receivedAt).toLocaleString()}
+                    </time>
+                  </article>
+                ))}
+              </div>
+            )}
           </section>
         </div>
       )}
@@ -224,13 +361,21 @@ export function Settings({
   );
 }
 
+function StatusChip({ status }: { status: InboundEmailMetadata["status"] }) {
+  return <span style={{
+    border: "1px solid var(--color-divider)", borderRadius: 999, padding: "2px 8px",
+    fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em",
+  }}>{status}</span>;
+}
+
 function SettingsHeader() {
   return (
     <header style={{ marginBottom: 20 }}>
       <h3 style={{ marginBottom: 4 }}>Settings</h3>
-      <p className="text-muted" style={{ margin: 0 }}>
-        How the email ingest agent works for this household.
-      </p>
+      <p className="text-muted" style={{ margin: 0 }}>How the email ingest agent works for this household.</p>
     </header>
   );
 }
+
+const helpStyle = { margin: "4px 0 0", fontSize: 12.5 } as const;
+const counterStyle = { ...helpStyle, textAlign: "right" } as const;

@@ -12,6 +12,7 @@ import type {
   DocumentField,
   HouseholdSettings,
   Identity,
+  InboundEmailMetadata,
   ItineraryDay,
   Person,
   PerkWithStatus,
@@ -22,6 +23,7 @@ import type {
   UpdatePersonInput,
   UpdatePerkInput,
   UpdateTripInput,
+  ExtractedBooking,
 } from "./types.js";
 
 export class ApiError extends Error {
@@ -175,6 +177,14 @@ export function createApi(config: ApiConfig = {}) {
       get: () => request<HouseholdSettings>("/api/settings"),
       update: (input: UpdateHouseholdSettingsInput) =>
         request<HouseholdSettings>("/api/settings", jsonBody("PUT", input)),
+      testExtraction: (input: { subject?: string; from?: string; text: string }) =>
+        request<{ bookings: ExtractedBooking[] } | { error: string }>(
+          "/api/settings/extraction-test",
+          jsonBody("POST", input),
+        ),
+    },
+    inboundEmails: {
+      list: () => request<InboundEmailMetadata[]>("/api/inbound-emails"),
     },
   };
 }
