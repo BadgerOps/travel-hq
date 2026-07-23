@@ -4,6 +4,7 @@ import { api as defaultApi } from "../api/client.js";
 import type { BookingStatus, Person, Trip } from "../api/types.js";
 import { zonedToUtc } from "../lib/dates.js";
 import { errorMessage } from "../lib/errors.js";
+import { zoneOptions } from "../lib/timezones.js";
 import { Dialog } from "../components/Dialog.js";
 import { TravelerToggles } from "../components/TravelerToggles.js";
 
@@ -24,30 +25,9 @@ const KINDS = [
 
 type Kind = (typeof KINDS)[number]["id"];
 
-/**
- * A short, curated zone list rather than `Intl.supportedValuesOf("timeZone")`
- * — that returns ~600 entries, which is an unusable <select>, and it is not
- * available on every runtime (the server code avoids it for the same reason).
- * The viewer's own zone is prepended so the common case is one click.
- */
-const COMMON_ZONES = [
-  "America/Los_Angeles",
-  "America/Denver",
-  "America/Boise",
-  "America/Chicago",
-  "America/New_York",
-  "Europe/London",
-  "Europe/Paris",
-  "Asia/Tokyo",
-  "Australia/Sydney",
-  "Pacific/Honolulu",
-  "UTC",
-];
-
-function zoneOptions(): string[] {
-  const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return [local, ...COMMON_ZONES.filter((z) => z !== local)];
-}
+// The curated timezone list lives in ../lib/timezones.js, shared with the
+// import review's edit form; zoneOptions() prepends the viewer's own zone so
+// the common case is one click.
 
 /** "684.30" -> 68430. Returns undefined for blank, null for unparseable. */
 function toCents(raw: string): number | null | undefined {

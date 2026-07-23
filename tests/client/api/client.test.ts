@@ -65,6 +65,15 @@ describe("api client", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/me", expect.anything());
   });
 
+  it("fetches the import queue and a stored email", async () => {
+    const fetchMock = mockFetch(200, []);
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    await api.import.queue();
+    expect(fetchMock).toHaveBeenCalledWith("/api/import/queue", expect.anything());
+    await api.import.email("e1");
+    expect(fetchMock).toHaveBeenCalledWith("/api/import/emails/e1", expect.anything());
+  });
+
   it("url-encodes path parameters", async () => {
     const fetchMock = mockFetch(200, []);
     const api = createApi({ fetch: fetchMock, baseUrl: "" });

@@ -221,6 +221,22 @@ describe("DraftBookingRepo", () => {
     expect((await repo.findById(draft!.id))?.title).toBe("Delta 2214 BOI to STS");
   });
 
+  it("requirePending returns the pending draft, and names why it can't", async () => {
+    const repo = new DraftBookingRepo(env.DB, ctxA);
+    const [draft] = await repo.createMany([draftInput()]);
+
+    expect(await repo.requirePending(draft!.id)).toEqual(draft);
+    // Unknown and cross-household ids are indistinguishable, both 404-class.
+    await expect(repo.requirePending("nope")).rejects.toThrow(NotFoundError);
+    await expect(
+      new DraftBookingRepo(env.DB, ctxB).requirePending(draft!.id),
+    ).rejects.toThrow(NotFoundError);
+    // A resolved draft is a 400-class refusal — the accept route relies on
+    // this firing BEFORE it creates the trip/booking.
+    await repo.markDismissed(draft!.id);
+    await expect(repo.requirePending(draft!.id)).rejects.toThrow(ValidationError);
+  });
+
   it("accepts a pending draft onto a booking in this household", async () => {
     const repo = new DraftBookingRepo(env.DB, ctxA);
     const [draft] = await repo.createMany([draftInput()]);
