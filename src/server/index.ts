@@ -19,8 +19,9 @@ export type AppBindings = {
   TRAVEL_HQ_DEV_EMAIL?: string;
   CF_ACCESS_TEAM_DOMAIN?: string;
   CF_ACCESS_AUD?: string;
-  // Stub email() forwarding target; see worker.ts. Optional -- unset means
-  // the stub no-ops.
+  // Where the email() ingest handler forwards anything it does not store as
+  // `received` (see src/server/ingest.ts). Optional -- unset means such mail
+  // is dropped after being recorded/logged.
   FALLBACK_FORWARD_TO?: string;
 };
 
