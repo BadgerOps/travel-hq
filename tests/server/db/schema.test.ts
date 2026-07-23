@@ -15,11 +15,12 @@ describe("migrated schema", () => {
     await env.DB.exec("DELETE FROM household");
   });
 
-  it("creates every core table, including inbound_email", async () => {
+  it("creates every core table, including inbound_email and draft_booking", async () => {
     expect(await tableNames()).toEqual([
       "booking",
       "booking_person",
       "checklist_item",
+      "draft_booking",
       "household",
       "household_member",
       "household_settings",
@@ -32,7 +33,7 @@ describe("migrated schema", () => {
     ]);
   });
 
-  it("cascades a household delete down to its trips, bookings, and inbound email", async () => {
+  it("cascades a household delete down to its trips, bookings, inbound email, and drafts", async () => {
     const now = new Date().toISOString();
     await env.DB.prepare("INSERT INTO household (id, name, created_at) VALUES (?, ?, ?)")
       .bind("hh-a", "A", now)
@@ -50,14 +51,21 @@ describe("migrated schema", () => {
     )
       .bind("ie1", "hh-a", "a@example.com", "trips@badgerops.foo", "raw", "received", now)
       .run();
+    await env.DB.prepare(
+      "INSERT INTO draft_booking (id, household_id, inbound_email_id, kind, title, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind("db1", "hh-a", "ie1", "other", "Hotel stay", "ai", now)
+      .run();
 
     await env.DB.prepare("DELETE FROM household WHERE id = ?").bind("hh-a").run();
 
     const trip = await env.DB.prepare("SELECT id FROM trip WHERE id = ?").bind("t1").first();
     const booking = await env.DB.prepare("SELECT id FROM booking WHERE id = ?").bind("b1").first();
     const email = await env.DB.prepare("SELECT id FROM inbound_email WHERE id = ?").bind("ie1").first();
+    const draft = await env.DB.prepare("SELECT id FROM draft_booking WHERE id = ?").bind("db1").first();
     expect(trip).toBeNull();
     expect(booking).toBeNull();
     expect(email).toBeNull();
+    expect(draft).toBeNull();
   });
 });
