@@ -21,12 +21,29 @@ Those issues are fixed in `src/server/ingest/ics.ts` and
 `src/server/repos/draft-booking.ts`, covered by focused tests, and the complete
 suite passed afterward.
 
+After the user clarified that ordinary airline/hotel forwards and in-app AI
+configuration are mandatory, a second adversarial pass reviewed the expansion:
+
+- HTML is converted to text without rendering or executing it; script, style,
+  head, and comments are discarded.
+- `message/rfc822` attachments recurse into the forwarded sender, subject,
+  body, and calendars.
+- MIME depth and prompt length are bounded to contain resource exhaustion.
+- Email text remains untrusted model input, but constrained schema validation
+  and pending-draft review prevent it from directly creating a live itinerary
+  booking.
+- `household_settings.ai_model`, `/api/settings`, and the Settings page—not
+  Wrangler—select the per-household model. Wrangler supplies only `env.AI`.
+
+No additional blocking findings remain after that pass.
+
 ## Review notes
 
 - Issue #6 acceptance criteria are covered:
   - AI binding in default/testing/production and deploy permission documented.
   - Calendar-first behavior skips AI even on calendar parse failure.
-  - Workers AI call uses the household model and one strict JSON schema.
+  - Plain-text, HTML-only, and attached forwarded messages reach Workers AI.
+  - Workers AI call uses the in-app household model and one strict JSON schema.
   - Drafts and accepted bookings retain source provenance.
   - `received → extracted|failed` transitions are exercised.
   - Inline entry point is wired after verified storage and remains fail-soft.
@@ -50,3 +67,6 @@ suite passed afterward.
   switch and sender-authentication behavior tracked separately.
 - Extraction runs inline; production-sized latency/load is not benchmarked.
 - MIME and iCalendar parsing are deliberately bounded rather than RFC-complete.
+- Binary-only attachments such as PDF itineraries are not text-extracted by
+  this issue; a useful email body, HTML body, nested email, or `.ics` part is
+  required.

@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { env } from "cloudflare:test";
-import { extractInboundEmail } from "../../../src/server/ingest/extract.js";
+import {
+  buildExtractionPrompt,
+  extractInboundEmail,
+  MAX_AI_TEXT_CHARS,
+} from "../../../src/server/ingest/extract.js";
 import type { ExtractionAi } from "../../../src/server/ingest/extract.js";
 import { EXTRACTED_JSON_SCHEMA } from "../../../src/server/ingest/extracted.js";
 import { InboundEmailRepo } from "../../../src/server/repos/inbound-email.js";
@@ -164,6 +168,47 @@ describe("extractInboundEmail", () => {
     ]);
   });
 
+  it("sends HTML-only forwarded booking details to AI as readable text", async () => {
+    const ai = fakeAi({ response: { bookings: [MODEL_BOOKING] } });
+    const email = await store([
+      "Subject: Fwd: Your hotel is confirmed",
+      "Content-Type: text/html",
+      "",
+      "<h1>Dawn Ranch</h1><p>Confirmation <b>D7WN88</b></p>",
+      "<p>Check-in October 9 &amp; checkout October 11</p>",
+    ].join("\r\n"));
+
+    await run(email, ai);
+
+    const messages = ai.run.mock.calls[0]?.[1].messages as { role: string; content: string }[];
+    expect(messages[1]?.content).toContain("Dawn Ranch");
+    expect(messages[1]?.content).toContain("Confirmation D7WN88");
+    expect(messages[1]?.content).toContain("October 9 & checkout October 11");
+    expect((await status(email.id))?.status).toBe("extracted");
+  });
+
+  it("sends an attached forwarded airline message to AI", async () => {
+    const ai = fakeAi({ response: { bookings: [MODEL_BOOKING] } });
+    const email = await store([
+      "Subject: Please import",
+      "Content-Type: message/rfc822",
+      "",
+      "From: receipts@airline.example",
+      "Subject: Flight confirmation Q7FLY9",
+      "Content-Type: text/html",
+      "",
+      "<p>Flight 2214 from BOI to STS</p><p>October 9 at 9:40 AM</p>",
+    ].join("\r\n"));
+
+    await run(email, ai);
+
+    const messages = ai.run.mock.calls[0]?.[1].messages as { role: string; content: string }[];
+    expect(messages[1]?.content).toContain("Forwarded subject: Flight confirmation Q7FLY9");
+    expect(messages[1]?.content).toContain("Forwarded from: receipts@airline.example");
+    expect(messages[1]?.content).toContain("Flight 2214 from BOI to STS");
+    expect((await status(email.id))?.status).toBe("extracted");
+  });
+
   it.each([
     ["empty", { response: { bookings: [] } }],
     ["malformed", { response: "not json" }],
@@ -193,5 +238,19 @@ describe("extractInboundEmail", () => {
 
     expect((await status(email.id))?.status).toBe("extracted");
     expect(await drafts(email.id)).toHaveLength(1);
+  });
+});
+
+describe("buildExtractionPrompt", () => {
+  it("bounds large forwarded emails while preserving their tail", () => {
+    const prompt = buildExtractionPrompt({
+      from: "sender@example.com",
+      subject: "Large confirmation",
+      textBody: `${"A".repeat(MAX_AI_TEXT_CHARS + 10_000)}TAIL-CONFIRMATION`,
+      calendars: [],
+    });
+    expect(prompt.user).toContain("email text truncated for model context");
+    expect(prompt.user).toContain("TAIL-CONFIRMATION");
+    expect(prompt.user.length).toBeLessThan(MAX_AI_TEXT_CHARS + 200);
   });
 });

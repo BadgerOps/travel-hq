@@ -5,7 +5,8 @@
 Ship GitHub issue #6 on top of the current `master`: extract structured travel
 bookings from verified, stored inbound email into pending drafts, preferring
 `text/calendar` attachments and using a household-configured Workers AI model
-only when no calendar attachment exists.
+for ordinary forwarded airline, hotel, car, and activity confirmations,
+including plain-text, HTML-only, and attached forwarded messages.
 
 The earlier PR #15 is useful implementation material, but it was merged into a
 stacked feature branch rather than `master`. GitHub reports that PR as merged
@@ -26,6 +27,9 @@ branch. This change will port and harden that implementation.
   calendar parts contain no valid VEVENT, extraction fails without invoking AI.
 - If the AI binding is unavailable, a non-calendar email remains `received` so
   it can be retried after deployment configuration is fixed.
+- Wrangler provides only the Workers AI capability. Model selection is
+  configured and persisted per household in the existing in-app Settings page
+  and `/api/settings`; the shipped UI must keep that control explicit.
 - No user input is needed to resolve these choices because they follow the
   issue acceptance criteria and existing repository design.
 
@@ -38,14 +42,16 @@ branch. This change will port and harden that implementation.
 - Calling external model providers or a real AI model in tests.
 - Activating the Cloudflare Email Routing dashboard rule.
 - Building a general-purpose MIME or iCalendar implementation.
+- Extracting text from binary attachments such as PDFs or images.
 
 ## User-facing behavior
 
 - A verified email with a `text/calendar` attachment creates one pending draft
   per VEVENT and never calls Workers AI.
-- A verified email without a calendar attachment calls the household's
-  configured Workers AI model using strict JSON-schema output and creates
-  pending drafts from the fully validated response.
+- A verified email without a calendar attachment collects readable content
+  from `text/plain`, safely text-normalized `text/html`, and nested
+  `message/rfc822` forwarded messages, then calls the household's in-app
+  configured Workers AI model using strict JSON-schema output.
 - Drafts retain their source inbound email and extraction source (`ics` or
   `ai`); eventual accepted bookings can retain the same inbound-email
   provenance.
@@ -75,7 +81,12 @@ branch. This change will port and harden that implementation.
    - Create all drafts in one transactional D1 batch.
    - Expose scoped reads and review-state transitions needed by issue #7.
 3. Add focused MIME and iCalendar parsing modules:
-   - Decode relevant `text/plain` and `text/calendar` parts.
+   - Decode relevant `text/plain`, `text/html`, `text/calendar`, and
+     `message/rfc822` parts.
+   - Convert HTML to readable text without executing or rendering it, removing
+     script/style/head content and decoding common/numeric entities.
+   - Recurse into attached forwarded messages and include their subject,
+     sender, body, and calendar parts.
    - Support folded headers, nested multipart messages, base64, and
      quoted-printable content.
    - Parse VEVENT dates with UTC or valid IANA TZID values and unfold ICS
@@ -96,6 +107,8 @@ branch. This change will port and harden that implementation.
 7. Add the AI binding to development, testing, and production Wrangler
    environments, update `Cloudflare.Env`/application binding types, disable
    remote bindings in tests, and document the deploy-token permission.
+   Preserve and explicitly document the existing in-app per-household model
+   setting; add a UI test that changes and saves the model.
 8. Add `CHANGELOG.md` section `0.2.0`, bump `package.json` and
    `package-lock.json` from `0.1.0` to `0.2.0`, and do not introduce an
    `Unreleased` section.
@@ -131,6 +144,9 @@ extend, so create `CHANGELOG.md`.
 
 - Uppercase/case-sensitive MIME boundaries and folded MIME/ICS headers.
 - Nested multiparts, base64, and quoted-printable bodies.
+- HTML-only confirmations with tables, entities, scripts/styles, and no
+  `text/plain` alternative.
+- Attached `message/rfc822` forwards with their own MIME tree.
 - Calendar attachment present but malformed or empty: fail without AI.
 - Multiple VEVENTs: create all drafts or none.
 - Floating local ICS times without TZID: reject rather than apply the Worker's
@@ -152,11 +168,14 @@ extend, so create `CHANGELOG.md`.
   - `.ics` path creates drafts and records zero fake-AI calls.
   - Plain email calls fake AI with the configured model/schema and creates
     drafts.
+  - HTML-only airline/hotel confirmation text reaches the fake AI prompt.
+  - Nested forwarded-message content reaches the fake AI prompt.
   - Malformed/empty model response marks failed and writes zero drafts.
   - Calendar-present-but-invalid path does not call AI.
   - Retry after existing drafts does not duplicate them.
 - Schema migration tests for `draft_booking` and
   `booking.source_inbound_email_id`.
+- Client Settings test that edits and persists a household AI model.
 - `npm run typecheck`
 - Focused Vitest runs while iterating, then `npm run test:all`
 - `npm run build`

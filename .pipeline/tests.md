@@ -11,13 +11,17 @@
   - Retry after committed drafts without duplication.
   - Mixed valid/invalid calendars produce no partial drafts.
 - Added MIME/ICS parser tests for nested multipart, case-sensitive boundaries,
-  folded headers/lines, base64, quoted-printable, UTC, floating time, and
-  invalid zones.
+  folded headers/lines, base64, quoted-printable, HTML normalization,
+  `message/rfc822` forwards, nesting limits, UTC, floating time, and invalid
+  zones.
+- Added prompt-size coverage that preserves confirmation content at the tail
+  of a large forwarded message.
 - Added draft repository tests for batch atomicity, stable ordinals, unique
   retry protection, tenant isolation, and source preservation on acceptance.
 - Updated booking tests for source-email provenance and tenant isolation.
 - Updated email-handler integration tests for inline AI extraction.
 - Updated migrated-schema tests for `draft_booking` and booking provenance.
+- Updated Settings UI tests to prove a model change is persisted in-app.
 
 ## Commands run and results
 
@@ -25,9 +29,9 @@
 - Focused six-file server run — 52 tests passed.
 - `npm run test:all` — passed after renaming two regular-expression `.exec`
   calls that triggered the lexical raw-database architecture guard:
-  - Server: 348 tests across 27 files passed.
+  - Server: 354 tests across 27 files passed.
   - Architecture: 1 test passed.
-  - Client: 257 tests across 35 files passed.
+  - Client: 258 tests across 35 files passed.
 - `npm run build` — passed; Vite production build completed.
 - Wrangler dry runs with a writable temporary config directory:
   - default — passed, `env.DB` and `env.AI` present.

@@ -146,10 +146,13 @@ silently lost.
 
 Extraction runs inline after a verified message is stored. A
 `text/calendar` attachment is parsed directly and never sent to a model.
-Otherwise the household-configured Workers AI model runs in JSON mode against
-the committed extraction schema. The complete result is validated before its
-pending `draft_booking` rows are inserted as one batch; the email then becomes
-`extracted`, or `failed` without partial drafts.
+Otherwise readable content is collected from plain text, HTML-only mail, and
+attached `message/rfc822` forwarded messages before the household-configured
+Workers AI model runs in JSON mode against the committed extraction schema.
+The model id is changed in the app's **Settings → Extraction model** field;
+Wrangler only supplies the `AI` binding. The complete result is validated
+before its pending `draft_booking` rows are inserted as one batch; the email
+then becomes `extracted`, or `failed` without partial drafts.
 
 ### Switching the routing rule to the Worker (owner action)
 

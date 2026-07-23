@@ -41,6 +41,63 @@ describe("parseMime", () => {
       calendars: [calendar],
     });
   });
+
+  it("turns an HTML-only airline confirmation into readable prompt text", () => {
+    const parsed = parseMime([
+      "From: Delta <receipts@delta.com>",
+      "Subject: Your flight is confirmed",
+      "Content-Type: text/html; charset=utf-8",
+      "",
+      "<html><head><style>.hidden{display:none}</style></head><body>",
+      "<h1>Flight DL 2214</h1>",
+      "<table><tr><td>BOI</td><td>&rarr;</td><td>STS</td></tr></table>",
+      "<p>Confirmation: <strong>D7WN88</strong> &amp; total &#36;412.50</p>",
+      "<script>stealSecrets()</script>",
+      "</body></html>",
+    ].join("\r\n"));
+
+    expect(parsed.textBody).toContain("Flight DL 2214");
+    expect(parsed.textBody).toContain("BOI");
+    expect(parsed.textBody).toContain("STS");
+    expect(parsed.textBody).toContain("D7WN88 & total $412.50");
+    expect(parsed.textBody).not.toContain("display:none");
+    expect(parsed.textBody).not.toContain("stealSecrets");
+  });
+
+  it("recurses into an attached forwarded hotel confirmation", () => {
+    const parsed = parseMime([
+      "Subject: Fwd: hotel",
+      'Content-Type: multipart/mixed; boundary="ForwardB"',
+      "",
+      "--ForwardB",
+      "Content-Type: text/plain",
+      "",
+      "Please import this trip.",
+      "--ForwardB",
+      "Content-Type: message/rfc822",
+      "",
+      "From: reservations@hotel.example",
+      "Subject: Dawn Ranch reservation confirmed",
+      "Content-Type: text/html",
+      "",
+      "<p>Check-in: October 9</p><p>Confirmation H0TEL42</p>",
+      "--ForwardB--",
+    ].join("\r\n"));
+
+    expect(parsed.textBody).toContain("Please import this trip.");
+    expect(parsed.textBody).toContain("Forwarded subject: Dawn Ranch reservation confirmed");
+    expect(parsed.textBody).toContain("Forwarded from: reservations@hotel.example");
+    expect(parsed.textBody).toContain("Check-in: October 9");
+    expect(parsed.textBody).toContain("Confirmation H0TEL42");
+  });
+
+  it("rejects pathologically deep forwarded-message nesting", () => {
+    let raw = "Content-Type: text/plain\r\n\r\nConfirmation ABC123";
+    for (let depth = 0; depth < 22; depth++) {
+      raw = `Content-Type: message/rfc822\r\n\r\n${raw}`;
+    }
+    expect(() => parseMime(raw)).toThrow("MIME nesting exceeds");
+  });
 });
 
 describe("parseIcs", () => {

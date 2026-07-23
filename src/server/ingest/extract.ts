@@ -32,6 +32,7 @@ export type ExtractionContext = {
 };
 
 const MAX_ERROR_CHARS = 500;
+export const MAX_AI_TEXT_CHARS = 24_000;
 
 /**
  * Extract one stored message without ever propagating an extraction failure
@@ -196,11 +197,22 @@ export function buildExtractionPrompt(email: ParsedEmail): { system: string; use
     user: [
       email.subject ? `Subject: ${email.subject}` : "",
       email.from ? `From: ${email.from}` : "",
-      email.textBody ?? "(no text body)",
+      email.textBody ? limitPromptText(email.textBody) : "(no text body)",
     ]
       .filter(Boolean)
       .join("\n\n"),
   };
+}
+
+function limitPromptText(text: string): string {
+  if (text.length <= MAX_AI_TEXT_CHARS) return text;
+  const tailChars = 6_000;
+  const headChars = MAX_AI_TEXT_CHARS - tailChars;
+  return [
+    text.slice(0, headChars),
+    "[... email text truncated for model context ...]",
+    text.slice(-tailChars),
+  ].join("\n");
 }
 
 function describeError(err: unknown): string {

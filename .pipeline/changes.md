@@ -22,8 +22,12 @@
 ## Behavior implemented
 
 - Calendar attachments are parsed authoritatively before any model path.
-- Plain confirmation mail calls the household-configured Workers AI model with
-  the committed strict JSON schema.
+- Plain-text, HTML-only, and attached forwarded confirmation mail is converted
+  to readable prompt text and sent to the household-configured Workers AI
+  model with the committed strict JSON schema.
+- MIME recursion and AI prompt size are bounded so pathological or
+  marketing-heavy forwards fail safely without exhausting the worker/model
+  context.
 - Complete validated extraction results become an ordered transactional batch
   of pending drafts tied to their inbound email.
 - Inbound messages transition `received → extracted|failed` fail-soft.
@@ -35,6 +39,9 @@
   or nonexistent local wall times.
 - Draft acceptance requires the real booking to retain the same source email.
 - Development, testing, and production declare the `AI` binding.
+- The existing Settings UI/API remains the source of per-household model
+  configuration; explanatory copy and a successful model-change test make the
+  distinction from the Wrangler binding explicit.
 
 ## Deviations from spec
 
