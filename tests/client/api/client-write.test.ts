@@ -108,6 +108,44 @@ describe("api client writes", () => {
     );
   });
 
+  it("edits an import draft with PUT, nulls intact", async () => {
+    const fetchMock = mockFetch({ id: "d1", title: "Delta 2214" });
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    await api.import.updateDraft("d1", { title: "Delta 2214", location: null });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/import/drafts/d1",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ title: "Delta 2214", location: null }),
+      }),
+    );
+  });
+
+  it("accepts an import draft onto a trip", async () => {
+    const fetchMock = mockFetch({ draft: { id: "d1" }, booking: { id: "b1" }, trip: { id: "t1" } });
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    await api.import.acceptDraft("d1", { tripId: "t1", personIds: ["p1"] });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/import/drafts/d1/accept",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ tripId: "t1", personIds: ["p1"] }),
+      }),
+    );
+  });
+
+  it("dismisses an import draft without a body", async () => {
+    const fetchMock = mockFetch({ id: "d1", status: "dismissed" });
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    await api.import.dismissDraft("d1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/import/drafts/d1/dismiss",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.body).toBeUndefined();
+  });
+
   it("url-encodes ids in write paths", async () => {
     // Ids reach these methods from server data and, in the import flow, from
     // a form. An unencoded slash would reshape the request path.

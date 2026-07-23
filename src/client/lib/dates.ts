@@ -142,6 +142,31 @@ function offsetAt(instant: number, timeZone: string): number {
 }
 
 /**
+ * The inverse of `zonedToUtc` below: a stored UTC instant rendered as the
+ * wall-clock date-time it reads in `timeZone`, in exactly the shape
+ * `<input type="datetime-local">` wants (`"2026-10-09T09:40"`). The import
+ * review's edit form prefills its datetime inputs with this, so a reviewer
+ * sees the flight's own local time — not the browser's — and a save round-
+ * trips through `zonedToUtc` to the identical instant.
+ */
+export function utcToZonedLocal(utcInstant: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(new Date(utcInstant));
+  const read = (type: string): string => parts.find((p) => p.type === type)?.value ?? "00";
+  // Some engines render midnight as hour 24 under hour12:false — same note
+  // as offsetAt above.
+  const hour = String(Number(read("hour")) % 24).padStart(2, "0");
+  return `${read("year")}-${read("month")}-${read("day")}T${hour}:${read("minute")}`;
+}
+
+/**
  * Convert a wall-clock local time (`"2026-10-09T09:40"`, as produced by
  * `<input type="datetime-local">`) in a named IANA zone into a UTC ISO
  * instant.

@@ -1,4 +1,6 @@
 import type {
+  AcceptDraftInput,
+  AcceptDraftResult,
   Booking,
   BookingStatus,
   ChecklistItem,
@@ -6,12 +8,16 @@ import type {
   CreatePersonInput,
   CreateTripInput,
   DocumentField,
+  DraftBooking,
   HouseholdSettings,
   Identity,
+  ImportQueueGroup,
+  InboundEmail,
   ItineraryDay,
   Person,
   Trip,
   TripRollup,
+  UpdateDraftBookingInput,
   UpdateHouseholdSettingsInput,
   UpdatePersonInput,
 } from "./types.js";
@@ -134,6 +140,17 @@ export function createApi(config: ApiConfig = {}) {
       get: () => request<HouseholdSettings>("/api/settings"),
       update: (input: UpdateHouseholdSettingsInput) =>
         request<HouseholdSettings>("/api/settings", jsonBody("PUT", input)),
+    },
+    import: {
+      queue: () => request<ImportQueueGroup[]>("/api/import/queue"),
+      email: (id: string) => request<InboundEmail>(`/api/import/emails/${seg(id)}`),
+      updateDraft: (id: string, input: UpdateDraftBookingInput) =>
+        request<DraftBooking>(`/api/import/drafts/${seg(id)}`, jsonBody("PUT", input)),
+      acceptDraft: (id: string, input: AcceptDraftInput) =>
+        request<AcceptDraftResult>(`/api/import/drafts/${seg(id)}/accept`, jsonBody("POST", input)),
+      dismissDraft: (id: string) =>
+        // No body: the draft id is the whole instruction, read from the path.
+        request<DraftBooking>(`/api/import/drafts/${seg(id)}/dismiss`, { method: "POST" }),
     },
   };
 }

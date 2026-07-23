@@ -18,3 +18,19 @@ export type {
   HouseholdSettings,
   UpdateHouseholdSettingsInput,
 } from "../../server/repos/household-settings.js";
+export type {
+  DraftBooking,
+  DraftBookingSource,
+  DraftBookingStatus,
+  UpdateDraftBookingInput,
+} from "../../server/repos/draft-booking.js";
+export type { InboundEmail } from "../../server/repos/inbound-email.js";
+export type { BookingKind } from "../../server/schemas/booking-kinds.js";
+// Route-level composites (the queue's grouped shape, the accept contract)
+// live with the route that answers them; still type-only, still erased.
+export type {
+  AcceptDraftInput,
+  AcceptDraftResult,
+  ImportQueueEmail,
+  ImportQueueGroup,
+} from "../../server/routes/import.js";
