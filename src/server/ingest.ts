@@ -1,5 +1,8 @@
 import { HouseholdSettingsRepo } from "./repos/household-settings.js";
 import { InboundEmailRepo } from "./repos/inbound-email.js";
+import type { InboundEmail } from "./repos/inbound-email.js";
+import { extractInboundEmail } from "./ingest/extract.js";
+import type { ExtractionAi } from "./ingest/extract.js";
 
 /**
  * The slice of the Worker's bindings the email() handler needs. Deliberately
@@ -7,6 +10,15 @@ import { InboundEmailRepo } from "./repos/inbound-email.js";
  */
 export type EmailIngestEnv = {
   DB: D1Database;
+  /**
+   * The Workers AI binding ([ai] in wrangler.toml), used by the inline
+   * extractor (#6) for mail without a calendar attachment. Structurally
+   * typed so tests stub it as `{ run: async () => ... }`; the real `Ai`
+   * binding satisfies the shape. Optional because a stripped env without it
+   * must degrade to storage-only ingest (rows queue as `received`), never
+   * crash or bounce.
+   */
+  AI?: ExtractionAi;
   /**
    * Optional Email Routing destination address. Every message that is NOT
    * stored as `received` (unclaimed recipient, rejected sender, internal
@@ -50,6 +62,11 @@ export type SenderVerdict = { ok: true } | { ok: false; reason: string };
  *   MAX_RAW_CHARS) with parsed metadata as a `received` row — the durable
  *   record the extractor (#6) and review queue (#7) read. Storing raw before
  *   extraction makes a failed extraction retryable.
+ * - Extraction (#6) runs INLINE after the row is stored: .ics-first, then
+ *   Workers AI JSON Mode (model from household settings), writing pending
+ *   draft_booking rows and transitioning received → extracted|failed.
+ *   extractInboundEmail never throws by contract, so an extraction problem
+ *   can only ever mark the stored row failed — the mail itself is safe.
  * - Any error after the household is known is recorded as a `failed` row
  *   (best-effort) and the message is forwarded to the fallback.
  */
@@ -84,6 +101,7 @@ export async function handleInboundEmail(
     messageId: message.headers.get("message-id"),
   };
 
+  let stored: InboundEmail;
   try {
     const raw = truncateRaw(await new Response(message.raw).text());
 
@@ -94,7 +112,7 @@ export async function handleInboundEmail(
       return;
     }
 
-    await repo.create({ ...meta, raw, status: "received" });
+    stored = await repo.create({ ...meta, raw, status: "received" });
   } catch (err) {
     console.error("[email-ingest] ingest failed; storing a failed row", err);
     try {
@@ -105,7 +123,17 @@ export async function handleInboundEmail(
       console.error("[email-ingest] could not store the failed row either", writeErr);
     }
     await forwardToFallback(message, env);
+    return;
   }
+
+  // Outside the try above on purpose: extractInboundEmail never throws by
+  // contract (it marks the row failed instead), and keeping it out of that
+  // catch means a bug in it can never create a SECOND, duplicate failed row
+  // for a message that was already stored.
+  await extractInboundEmail(
+    { db: env.DB, ai: env.AI, householdId: match.householdId, aiModel: match.settings.aiModel },
+    stored,
+  );
 }
 
 /**

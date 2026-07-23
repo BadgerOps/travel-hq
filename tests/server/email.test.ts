@@ -329,6 +329,120 @@ describe("email() ingest", () => {
   });
 });
 
+describe("email() ingest → inline extraction (issue #6)", () => {
+  // These three walk the WHOLE path — Email Routing message in, drafts out —
+  // with a fake AI binding. The real model is never called anywhere in CI.
+  const ICS_RAW = [
+    "Subject: Your flight",
+    'Content-Type: multipart/mixed; boundary="B"',
+    "",
+    "--B",
+    "Content-Type: text/plain",
+    "",
+    "Flight attached.",
+    "",
+    "--B",
+    "Content-Type: text/calendar",
+    "",
+    "BEGIN:VCALENDAR",
+    "BEGIN:VEVENT",
+    "SUMMARY:Delta 2214 BOI to STS",
+    "DTSTART;TZID=America/Boise:20261009T094000",
+    "END:VEVENT",
+    "END:VCALENDAR",
+    "",
+    "--B--",
+  ].join("\r\n");
+
+  const MODEL_RESPONSE = {
+    response: {
+      bookings: [
+        {
+          kind: "lodging",
+          title: "Dawn Ranch Lodge",
+          location: null,
+          startsAt: null,
+          startsAtTz: null,
+          endsAt: null,
+          endsAtTz: null,
+          confirmationNumber: "D7WN88",
+          costCents: null,
+          details: { propertyName: "Dawn Ranch Lodge" },
+        },
+      ],
+    },
+  };
+
+  async function draftRows() {
+    const { results } = await env.DB.prepare(
+      "SELECT household_id, inbound_email_id, kind, title, source, status FROM draft_booking ORDER BY created_at, id",
+    ).all<Record<string, string>>();
+    return results;
+  }
+
+  it("extracts a .ics message into drafts without ever calling the model", async () => {
+    const aiRun = vi.fn(async () => MODEL_RESPONSE);
+    await worker.email(
+      fakeMessage({ headers: { "Authentication-Results": AUTH_PASS }, rawText: ICS_RAW }),
+      { DB: env.DB, AI: { run: aiRun } },
+      {} as ExecutionContext,
+    );
+
+    const rows = await storedRows();
+    expect(rows.map((r) => [r.household_id, r.status, r.error])).toEqual([["hh-a", "extracted", null]]);
+    expect(aiRun).not.toHaveBeenCalled();
+
+    const drafts = await draftRows();
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({
+      household_id: "hh-a",
+      kind: "other",
+      title: "Delta 2214 BOI to STS",
+      source: "ics",
+      status: "pending",
+    });
+  });
+
+  it("routes a plain confirmation email through the fake model and writes its drafts", async () => {
+    const aiRun = vi.fn(async () => MODEL_RESPONSE);
+    await worker.email(
+      fakeMessage({
+        headers: { "Authentication-Results": AUTH_PASS, Subject: "Reservation Confirmed" },
+        rawText: "Subject: Reservation Confirmed\r\n\r\nDawn Ranch Lodge. Confirmation D7WN88.",
+      }),
+      { DB: env.DB, AI: { run: aiRun } },
+      {} as ExecutionContext,
+    );
+
+    const rows = await storedRows();
+    expect(rows.map((r) => [r.status, r.error])).toEqual([["extracted", null]]);
+    expect(aiRun).toHaveBeenCalledTimes(1);
+
+    const drafts = await draftRows();
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({ kind: "lodging", title: "Dawn Ranch Lodge", source: "ai", status: "pending" });
+    expect(drafts[0]!.inbound_email_id).toBeTruthy();
+  });
+
+  it("marks the email failed on a malformed model response and writes no drafts", async () => {
+    await worker.email(
+      fakeMessage({
+        headers: { "Authentication-Results": AUTH_PASS },
+        rawText: "Subject: Hmm\r\n\r\nSome confirmation text.",
+      }),
+      { DB: env.DB, AI: { run: async () => ({ response: "not json at all" }) } },
+      {} as ExecutionContext,
+    );
+
+    const rows = await storedRows();
+    expect(rows.map((r) => r.status)).toEqual(["failed"]);
+    expect(rows[0]!.error).toContain("Extraction failed:");
+    // The raw message is still on the row — a failed extraction is retryable.
+    expect(rows[0]!.raw).toContain("Some confirmation text.");
+    expect(await draftRows()).toEqual([]);
+  });
+});
+
 describe("senderAuthenticated (Authentication-Results parsing)", () => {
   const h = (value?: string) =>
     new Headers(value === undefined ? {} : { "Authentication-Results": value });

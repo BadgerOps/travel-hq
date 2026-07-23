@@ -11,6 +11,14 @@ export default defineConfig({
       return {
         // Single source of truth for bindings: the testing environment's DB.
         wrangler: { configPath: "./wrangler.toml", environment: "testing" },
+        // wrangler.toml now declares the [ai] binding (issue #6), and Workers
+        // AI has no local simulator — with this left at its default (true)
+        // the pool starts a REMOTE proxy session against the real Cloudflare
+        // API, which needs a CLOUDFLARE_API_TOKEN and would let tests reach a
+        // real model. Both are wrong for this suite: extraction tests inject
+        // a fake `{ run: async () => ... }` binding, so the real one must
+        // simply not exist here.
+        remoteBindings: false,
         miniflare: {
           // Test-only binding; not declared in wrangler.toml.
           // TEST_MIGRATIONS: applied to the local D1 by the setup file.

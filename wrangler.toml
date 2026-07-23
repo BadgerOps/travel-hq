@@ -28,7 +28,11 @@ database_name = "travel-hq-dev"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
-# Workers AI ([ai] binding) is deferred to Plan C (ingest/extraction).
+# Workers AI, used by the ingest extractor (issue #6) for mail without a
+# calendar attachment. No resource to create; billed per use. Bound per
+# environment below as well — [env.*] blocks do not inherit bindings.
+[ai]
+binding = "AI"
 
 # --- testing (PR preview target; its own D1) --------------------------------
 [env.testing]
@@ -51,6 +55,9 @@ database_name = "travel-hq-testing"
 database_id = "d3425ba3-8d2c-4a07-aa62-dd23c61128c3"
 migrations_dir = "migrations"
 
+[env.testing.ai]
+binding = "AI"
+
 
 # --- production (deployed from master; its own D1) --------------------------
 [env.production]
@@ -64,6 +71,9 @@ binding = "DB"
 database_name = "travel-hq-production"
 database_id = "9035fd50-6e50-401c-8e46-8ddc66a5467c"
 migrations_dir = "migrations"
+
+[env.production.ai]
+binding = "AI"
 
 # Cloudflare Access config for human auth. NOT secrets (the AUD tag is an
 # identifier, not a credential), so they live here rather than in
