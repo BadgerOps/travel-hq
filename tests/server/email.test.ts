@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
 import worker from "../../src/server/worker.js";
-import { senderAuthenticated, MAX_RAW_CHARS } from "../../src/server/ingest.js";
+import { senderAuthenticated, MAX_RAW_BYTES } from "../../src/server/ingest.js";
 import { HouseholdSettingsRepo } from "../../src/server/repos/household-settings.js";
 import type { HouseholdContext } from "../../src/server/repos/base.js";
 
 const ctxA: HouseholdContext = { householdId: "hh-a", userId: "u1", role: "owner" };
 const ctxB: HouseholdContext = { householdId: "hh-b", userId: "u2", role: "owner" };
 
-/** Authentication-Results as Email Routing stamps it on a clean message. */
+/** A trusted result record authored by Cloudflare's MX. */
 const AUTH_PASS = "mx.cloudflare.net; dkim=pass; spf=pass smtp.mailfrom=example.com; dmarc=pass";
 const AUTH_FAIL = "mx.cloudflare.net; spf=fail smtp.mailfrom=example.com; dmarc=fail";
 
@@ -187,9 +187,24 @@ describe("email() ingest", () => {
     const rows = await storedRows();
     expect(rows.map((r) => [r.household_id, r.status])).toEqual([["hh-a", "rejected"]]);
     expect(rows[0]!.error).toBe("sender did not pass DMARC/SPF authentication");
-    // Raw is still kept for the audit trail.
-    expect(rows[0]!.raw).toContain("Confirmation body");
+    // Metadata is enough for the audit trail. Persisting an attacker's body
+    // makes a public forward address an unbounded D1 storage-amplification
+    // endpoint.
+    expect(rows[0]!.raw).toBe("");
     expect(forward).toHaveBeenCalledWith("owner@example.com");
+  });
+
+  it("rejects before touching an untrusted raw stream", async () => {
+    await worker.email(
+      fakeMessage({
+        headers: { "Authentication-Results": AUTH_FAIL },
+        brokenRaw: true,
+      }),
+      { DB: env.DB },
+      {} as ExecutionContext,
+    );
+    const rows = await storedRows();
+    expect(rows.map((r) => [r.status, r.raw])).toEqual([["rejected", ""]]);
   });
 
   it("rejects a message with no Authentication-Results header at all (fail-safe)", async () => {
@@ -200,12 +215,23 @@ describe("email() ingest", () => {
     ]);
   });
 
-  it("is not fooled by a planted dmarc=pass alongside the genuine dmarc=fail", async () => {
+  it("ignores a planted pass from an untrusted authentication authority", async () => {
     await worker.email(
       fakeMessage({
         headers: {
-          // Headers.get() joins the forged header the sender planted with the
-          // genuine verdict stamped at the edge; every verdict must pass.
+          "Authentication-Results": "forger.example; dmarc=pass",
+        },
+      }),
+      { DB: env.DB },
+      {} as ExecutionContext,
+    );
+    expect((await storedRows()).map((r) => r.status)).toEqual(["rejected"]);
+  });
+
+  it("is not fooled by a planted pass alongside a genuine Cloudflare failure", async () => {
+    await worker.email(
+      fakeMessage({
+        headers: {
           "Authentication-Results": "forger.example; dmarc=pass, mx.cloudflare.net; dmarc=fail",
         },
       }),
@@ -213,6 +239,19 @@ describe("email() ingest", () => {
       {} as ExecutionContext,
     );
     expect((await storedRows()).map((r) => r.status)).toEqual(["rejected"]);
+  });
+
+  it("accepts Cloudflare's documented ARC-Authentication-Results record", async () => {
+    await worker.email(
+      fakeMessage({
+        headers: {
+          "ARC-Authentication-Results": `i=1; ${AUTH_PASS}`,
+        },
+      }),
+      { DB: env.DB },
+      {} as ExecutionContext,
+    );
+    expect((await storedRows()).map((r) => r.status)).toEqual(["received"]);
   });
 
   it("rejects an authenticated sender that is not on the allowlist", async () => {
@@ -316,7 +355,7 @@ describe("email() ingest", () => {
   });
 
   it("truncates an oversized raw message before storing it", async () => {
-    const rawText = "x".repeat(MAX_RAW_CHARS + 100);
+    const rawText = "x".repeat(MAX_RAW_BYTES + 100);
     await worker.email(
       fakeMessage({ headers: { "Authentication-Results": AUTH_PASS }, rawText }),
       { DB: env.DB },
@@ -329,9 +368,9 @@ describe("email() ingest", () => {
   });
 });
 
-describe("senderAuthenticated (Authentication-Results parsing)", () => {
-  const h = (value?: string) =>
-    new Headers(value === undefined ? {} : { "Authentication-Results": value });
+describe("senderAuthenticated (trusted authentication-result parsing)", () => {
+  const h = (value?: string, name = "Authentication-Results") =>
+    new Headers(value === undefined ? {} : { [name]: value });
 
   it("treats a missing header as unauthenticated", () => {
     expect(senderAuthenticated(h())).toBe(false);
@@ -340,7 +379,11 @@ describe("senderAuthenticated (Authentication-Results parsing)", () => {
   it("requires every DMARC verdict to pass", () => {
     expect(senderAuthenticated(h("mx.cloudflare.net; dmarc=pass"))).toBe(true);
     expect(senderAuthenticated(h("mx.cloudflare.net; dmarc=fail"))).toBe(false);
-    expect(senderAuthenticated(h("a; dmarc=pass, b; dmarc=fail"))).toBe(false);
+    expect(
+      senderAuthenticated(
+        h("mx.cloudflare.net; dmarc=pass, mx.cloudflare.net; dmarc=fail"),
+      ),
+    ).toBe(false);
     expect(senderAuthenticated(h("mx.cloudflare.net; DMARC=PASS"))).toBe(true);
   });
 
@@ -353,5 +396,26 @@ describe("senderAuthenticated (Authentication-Results parsing)", () => {
 
   it("treats a header with neither mechanism as unauthenticated", () => {
     expect(senderAuthenticated(h("mx.cloudflare.net; dkim=pass"))).toBe(false);
+  });
+
+  it("accepts Cloudflare's ARC form and rejects another ARC authority", () => {
+    expect(
+      senderAuthenticated(
+        h("i=1; mx.cloudflare.net; dmarc=pass", "ARC-Authentication-Results"),
+      ),
+    ).toBe(true);
+    expect(
+      senderAuthenticated(
+        h("i=1; mx.google.com; dmarc=pass", "ARC-Authentication-Results"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not let a forged DMARC pass hide a trusted SPF failure", () => {
+    expect(
+      senderAuthenticated(
+        h("forger.example; dmarc=pass, mx.cloudflare.net; spf=fail"),
+      ),
+    ).toBe(false);
   });
 });

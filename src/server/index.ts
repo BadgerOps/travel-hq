@@ -61,6 +61,16 @@ function verifierFor(env: AppBindings): (req: Request) => Promise<Identity> {
 export function createApp(overrides: AppOverrides = {}) {
   const app = new Hono<AppEnv>();
 
+  // API responses contain private household data, and the explicit reveal
+  // endpoints can contain plaintext passport, KTN, redress, and confirmation
+  // numbers. Do not leave caching behavior to browsers, intermediary proxies,
+  // or future Cloudflare cache rules. Set this before auth/routing so error
+  // responses are covered too.
+  app.use("/api/*", async (c, next) => {
+    c.header("Cache-Control", "no-store");
+    await next();
+  });
+
   // The one place every thrown/rejected error in a route funnels through, so
   // there is exactly one status-mapping decision (routes/errors.ts).
   app.onError((err, c) => {

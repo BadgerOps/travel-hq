@@ -19,13 +19,13 @@ export type EmailIngestEnv = {
 
 /**
  * D1 caps a row at ~2 MB; Email Routing allows messages up to 25 MiB. Raw
- * text beyond this many characters is truncated before storage (confirmation
- * emails are far smaller; anything bigger is almost certainly inline-image
- * padding the extractor does not need). Mostly-ASCII mail at this cap stays
- * comfortably under the row limit; a pathological multi-byte message that
- * still overflows fails the insert and falls into the fail-soft path.
+ * input beyond this many bytes is truncated while streaming, before the
+ * whole message can occupy Worker memory or reach storage (confirmation emails
+ * are far smaller; anything bigger is almost certainly inline-image padding
+ * the extractor does not need). A byte limit, rather than a JavaScript string
+ * length limit, keeps multi-byte UTF-8 mail under the D1 row limit too.
  */
-export const MAX_RAW_CHARS = 1_000_000;
+export const MAX_RAW_BYTES = 1_000_000;
 const TRUNCATION_MARKER = "\n[truncated by travel-hq ingest]";
 
 /** Keep stored reasons short and single-purpose; #8 renders them verbatim. */
@@ -43,11 +43,13 @@ export type SenderVerdict = { ok: true } | { ok: false; reason: string };
  *   (if configured) and NEVER write — an unclaimed address must not be able
  *   to create rows anywhere.
  * - Sender verification: the envelope From: must be on the household's
- *   allowlist AND the message must carry passing DMARC/SPF results
- *   (Authentication-Results, added by Email Routing). Anything less is stored
- *   as a `rejected` row for auditability and forwarded to the fallback.
+ *   allowlist AND a Cloudflare-authored Authentication-Results or
+ *   ARC-Authentication-Results record must carry passing DMARC/SPF results.
+ *   Anything less is stored as a metadata-only `rejected` row for auditability
+ *   and forwarded to the fallback. Attacker-controlled raw bodies are never
+ *   persisted for rejected mail.
  * - Storage: the verified message is stored raw (headers + body, truncated at
- *   MAX_RAW_CHARS) with parsed metadata as a `received` row — the durable
+ *   MAX_RAW_BYTES) with parsed metadata as a `received` row — the durable
  *   record the extractor (#6) and review queue (#7) read. Storing raw before
  *   extraction makes a failed extraction retryable.
  * - Any error after the household is known is recorded as a `failed` row
@@ -85,15 +87,17 @@ export async function handleInboundEmail(
   };
 
   try {
-    const raw = truncateRaw(await new Response(message.raw).text());
-
     const verdict = verifySender(message.from, message.headers, match.settings.senderAllowlist);
     if (!verdict.ok) {
-      await repo.create({ ...meta, raw, status: "rejected", error: verdict.reason });
+      // Verify before reading the stream, and retain metadata only. The
+      // forwarding address is public by design; storing up to 1 MB for every
+      // rejected message lets any spammer exhaust D1 cheaply.
+      await repo.create({ ...meta, raw: "", status: "rejected", error: verdict.reason });
       await forwardToFallback(message, env);
       return;
     }
 
+    const raw = await readRawLimited(message.raw);
     await repo.create({ ...meta, raw, status: "received" });
   } catch (err) {
     console.error("[email-ingest] ingest failed; storing a failed row", err);
@@ -147,29 +151,59 @@ export function senderAllowed(from: string, allowlist: string[]): boolean {
 }
 
 /**
- * Fail-safe reading of the Authentication-Results header(s) Email Routing
- * stamps on the message. Defensive on purpose:
+ * Fail-safe reading of the authentication result header(s) produced by
+ * Cloudflare Email Routing. Cloudflare documents its original-sender results
+ * in ARC-Authentication-Results, while some deliveries/runtimes expose
+ * Authentication-Results. Defensive on purpose:
  *
- * - No header at all → unauthenticated.
- * - DMARC verdicts present → EVERY one must be pass. A message can carry a
- *   forged Authentication-Results header planted by the sender alongside the
- *   real one added at the Cloudflare edge; requiring all-pass means a planted
- *   `dmarc=pass` cannot outvote a genuine `dmarc=fail`.
+ * - No result authored by mx.cloudflare.net → unauthenticated. A sender may
+ *   plant either header in the RFC 5322 message, so verdict text from any other
+ *   authserv-id is untrusted even when it says pass.
+ * - DMARC verdicts in trusted records → EVERY one must be pass.
  * - No DMARC verdict → fall back to SPF, same all-must-pass rule.
  * - Neither mechanism reported → unauthenticated.
  */
 export function senderAuthenticated(headers: Headers): boolean {
-  const results = headers.get("authentication-results");
-  if (!results) return false;
+  const results = trustedCloudflareResults(headers);
+  if (results.length === 0) return false;
   const verdicts = (mechanism: string): string[] =>
-    [...results.matchAll(new RegExp(`\\b${mechanism}=([a-z0-9]+)`, "gi"))].map((m) =>
-      m[1]!.toLowerCase(),
+    results.flatMap((result) =>
+      [...result.matchAll(new RegExp(`\\b${mechanism}=([a-z0-9]+)`, "gi"))].map((m) =>
+        m[1]!.toLowerCase(),
+      ),
     );
   const dmarc = verdicts("dmarc");
   if (dmarc.length > 0) return dmarc.every((v) => v === "pass");
   const spf = verdicts("spf");
   if (spf.length > 0) return spf.every((v) => v === "pass");
   return false;
+}
+
+const CLOUDFLARE_AUTHSERV_ID = "mx.cloudflare.net";
+
+/**
+ * Headers combines repeated fields with commas. Split only at a comma followed
+ * by the start of another Authentication-Results record so a comma inside a
+ * diagnostic comment is not mistaken for a record boundary.
+ */
+function trustedCloudflareResults(headers: Headers): string[] {
+  const records: string[] = [];
+  for (const name of ["authentication-results", "arc-authentication-results"]) {
+    const value = headers.get(name);
+    if (!value) continue;
+    for (const rawRecord of value.split(
+      /,(?=\s*(?:i=\d+\s*;\s*)?[a-z0-9.-]+\s*;)/i,
+    )) {
+      const record = rawRecord.trim().replace(/^i=\d+\s*;\s*/i, "");
+      const separator = record.indexOf(";");
+      if (separator === -1) continue;
+      const authservId = record.slice(0, separator).trim().toLowerCase();
+      if (authservId === CLOUDFLARE_AUTHSERV_ID) {
+        records.push(record.slice(separator + 1));
+      }
+    }
+  }
+  return records;
 }
 
 async function forwardToFallback(message: ForwardableEmailMessage, env: EmailIngestEnv): Promise<void> {
@@ -183,9 +217,48 @@ async function forwardToFallback(message: ForwardableEmailMessage, env: EmailIng
   }
 }
 
-function truncateRaw(raw: string): string {
-  if (raw.length <= MAX_RAW_CHARS) return raw;
-  return raw.slice(0, MAX_RAW_CHARS) + TRUNCATION_MARKER;
+async function readRawLimited(raw: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = raw.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      return decodeChunks(chunks, bytes);
+    }
+
+    const remaining = MAX_RAW_BYTES - bytes;
+    if (value.byteLength > remaining) {
+      if (remaining > 0) chunks.push(value.subarray(0, remaining));
+      bytes += Math.max(0, remaining);
+      await reader.cancel("travel-hq raw message limit reached");
+      return decodeChunks(chunks, bytes) + TRUNCATION_MARKER;
+    }
+    chunks.push(value);
+    bytes += value.byteLength;
+
+    // At exactly the cap, one more read distinguishes an exact-size message
+    // from a larger one without ever retaining bytes beyond the limit.
+    if (bytes === MAX_RAW_BYTES) {
+      const next = await reader.read();
+      if (next.done) {
+        return decodeChunks(chunks, bytes);
+      }
+      await reader.cancel("travel-hq raw message limit reached");
+      return decodeChunks(chunks, bytes) + TRUNCATION_MARKER;
+    }
+  }
+}
+
+function decodeChunks(chunks: Uint8Array[], bytes: number): string {
+  const joined = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(joined);
 }
 
 function describeError(err: unknown): string {

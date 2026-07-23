@@ -49,7 +49,23 @@ describe("api client", () => {
     expect(await api.trips.revealConfirmation("t1", "b1")).toEqual({ value: "ABCDX4T2" });
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/trips/t1/bookings/b1/reveal",
-      expect.anything(),
+      expect.objectContaining({
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  });
+
+  it("reveals a person document with POST", async () => {
+    const fetchMock = mockFetch(200, { value: "C03X72119" });
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    await api.people.reveal("p1", "passport_number");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/people/p1/reveal/passport_number",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      }),
     );
   });
 
