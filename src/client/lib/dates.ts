@@ -30,6 +30,87 @@ export function isActiveOn(
   return today >= trip.startsOn && today <= (trip.endsOn ?? trip.startsOn);
 }
 
+/**
+ * The one effective state a trip is in — what Home's hero, the grid
+ * ordering, and every badge read. "Status wins when set, dates fill in":
+ * a stored `cancelled`/`complete`/`active` is an explicit human decision
+ * and beats whatever the dates say; the default `planning` means "nobody
+ * has said anything", so the dates decide.
+ */
+export type TripState = "active" | "upcoming" | "past" | "complete" | "cancelled";
+
+type TripLike = {
+  status: "planning" | "active" | "complete" | "cancelled";
+  startsOn: string | null;
+  endsOn: string | null;
+};
+
+export function resolveTripState(trip: TripLike, today: string): TripState {
+  switch (trip.status) {
+    case "cancelled":
+      return "cancelled";
+    case "complete":
+      return "complete";
+    case "active":
+      return "active";
+    case "planning": {
+      if (isActiveOn(trip, today)) return "active";
+      // Undated sorts with the future, not the past: a trip with no start
+      // date is one still being planned, which is an upcoming thing.
+      if (!trip.startsOn || trip.startsOn > today) return "upcoming";
+      return "past";
+    }
+  }
+}
+
+/** Display order, ascending: the now, the next, then the finished. */
+const TRIP_STATE_RANK: Record<TripState, number> = {
+  active: 0,
+  upcoming: 1,
+  past: 2,
+  complete: 3,
+  cancelled: 4,
+};
+
+export function tripStateRank(state: TripState): number {
+  return TRIP_STATE_RANK[state];
+}
+
+/**
+ * The one comparator for trip lists (Home's grid and the Trips page), so
+ * the two can never disagree about order. Rank first; within a rank the
+ * live states (active/upcoming) read soonest-first with undated last, and
+ * the finished states (past/complete/cancelled) most-recent-first.
+ */
+export function compareTrips(a: TripLike, b: TripLike, today: string): number {
+  const rankA = tripStateRank(resolveTripState(a, today));
+  const rankB = tripStateRank(resolveTripState(b, today));
+  if (rankA !== rankB) return rankA - rankB;
+  const finished = rankA >= TRIP_STATE_RANK.past;
+  const as = a.startsOn;
+  const bs = b.startsOn;
+  if (as === null || bs === null) {
+    // Undated last in either direction — "no date" is the least informative
+    // sort key there is.
+    return as === bs ? 0 : as === null ? 1 : -1;
+  }
+  return finished ? bs.localeCompare(as) : as.localeCompare(bs);
+}
+
+/**
+ * The badge text for a trip, state-aware. An explicit state names itself;
+ * a date-derived state keeps the countdown language ("In 12 days", "Today",
+ * "Past"). A forced-active trip whose dates do not cover today says
+ * "Active" — a countdown would contradict the state the family set.
+ */
+export function tripStateBadge(trip: TripLike, today: string): string {
+  const state = resolveTripState(trip, today);
+  if (state === "cancelled") return "Cancelled";
+  if (state === "complete") return "Complete";
+  if (state === "active" && !isActiveOn(trip, today)) return "Active";
+  return countdownLabel(trip.startsOn, trip.endsOn, today);
+}
+
 export function countdownLabel(
   startsOn: string | null,
   endsOn: string | null,

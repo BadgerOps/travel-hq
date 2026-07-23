@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { TripRepo } from "../repos/trip.js";
+import { TripRepo, TRIP_STATUSES } from "../repos/trip.js";
+import type { UpdateTripInput } from "../repos/trip.js";
 import { BookingRepo } from "../repos/booking.js";
 import { PersonRepo } from "../repos/person.js";
 import { RollupRepo } from "../repos/rollup.js";
@@ -15,6 +16,33 @@ const createTripSchema = z.object({
   endsOn: z.string().optional(),
   notes: z.string().optional(),
 });
+
+/**
+ * `.nullable().optional()` is the tri-state at the HTTP boundary, exactly as
+ * updatePersonSchema established: the key may be absent (leave unchanged),
+ * null (clear), or a value (replace). `title` and `status` are optional but
+ * never null — a trip must keep a title, and "no status" is spelled
+ * `planning`, not NULL.
+ *
+ * `.strict()` for the same reason as updatePersonSchema: an edit form that
+ * PUTs back the whole object it was shown would otherwise send `id` (or a
+ * misspelled key), which a permissive schema would silently drop, leaving
+ * the operator believing they had edited a field they had not.
+ *
+ * Date well-formedness and the startsOn <= endsOn ordering are validated in
+ * TripRepo.update — the ordering check must see the EFFECTIVE post-patch
+ * pair, which only the repo (holding the stored row) can compute.
+ */
+const updateTripSchema = z
+  .object({
+    title: z.string().min(1).optional(),
+    destination: z.string().nullable().optional(),
+    startsOn: z.string().nullable().optional(),
+    endsOn: z.string().nullable().optional(),
+    status: z.enum(TRIP_STATUSES).optional(),
+    notes: z.string().nullable().optional(),
+  })
+  .strict();
 
 // C1: a timestamp must be something `Date.parse` can understand, and a
 // timezone must be something `Intl.DateTimeFormat` recognizes as an IANA
@@ -90,6 +118,37 @@ trips.post("/", async (c) => {
   return c.json(await new TripRepo(c.get("db"), c.get("identity")).create(parsed.data), 201);
 });
 
+trips.put("/:tripId", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const parsed = updateTripSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid trip", details: parsed.error.issues }, 400);
+  }
+  // NotFoundError (404), ForbiddenError (403), and the date-ordering
+  // ValidationError (400) all reach app.onError, which is the single place
+  // that decides status. No local try/catch.
+  return c.json(
+    await new TripRepo(c.get("db"), c.get("identity")).update(
+      c.req.param("tripId"),
+      parsed.data satisfies UpdateTripInput,
+    ),
+  );
+});
+
+trips.delete("/:tripId", async (c) => {
+  // Hard delete; the schema's cascades remove bookings (and their
+  // booking_person rows), checklist items, and trip_person rows. Unknown or
+  // cross-household ids throw NotFoundError, a viewer ForbiddenError — both
+  // mapped by app.onError.
+  await new TripRepo(c.get("db"), c.get("identity")).delete(c.req.param("tripId"));
+  return c.body(null, 204);
+});
+
 trips.get("/:tripId/bookings", async (c) =>
   // An unknown/cross-household tripId throws NotFoundError (I5), mapped by
   // app.onError.
@@ -151,6 +210,19 @@ trips.put("/:tripId/people/:personId", async (c) => {
   // Unknown trip/person in this household (NotFoundError, 404) or a viewer
   // role (ForbiddenError, 403) throw here and are mapped by app.onError.
   await new TripRepo(c.get("db"), c.get("identity")).addTraveler(
+    c.req.param("tripId"),
+    c.req.param("personId"),
+  );
+  return c.body(null, 204);
+});
+
+trips.delete("/:tripId/people/:personId", async (c) => {
+  // The mirror of the PUT above. Unassigns only — the person comes off this
+  // trip's bookings and its roster in one transaction; no booking is
+  // cancelled or deleted. Idempotent for a person who is simply not on the
+  // trip; 404 (NotFoundError) for a trip/person outside this household and
+  // 403 (ForbiddenError) for a viewer, both mapped by app.onError.
+  await new TripRepo(c.get("db"), c.get("identity")).removeTraveler(
     c.req.param("tripId"),
     c.req.param("personId"),
   );

@@ -326,6 +326,24 @@ export abstract class TenantRepo {
   }
 
   /**
+   * unscopedRun() for several statements that must succeed or fail together.
+   * D1 has no interactive transactions; `db.batch()` is its atomic unit —
+   * the statements execute sequentially in one implicit transaction and a
+   * failure rolls back the ones before it. Same rules as unscopedRun(): a
+   * single human-readable reason covers the batch, and any write statement
+   * in it requires a writing role.
+   */
+  protected async unscopedBatchRun(
+    reason: string,
+    statements: { sql: string; params: unknown[] }[],
+  ): Promise<void> {
+    this.requireReason(reason);
+    if (statements.some((s) => isWriteQuery(s.sql))) this.requireWrite();
+    if (statements.length === 0) return;
+    await this.db.batch(statements.map((s) => this.db.prepare(s.sql).bind(...(s.params as never[]))));
+  }
+
+  /**
    * Guards reads of encrypted/sensitive fields the same way requireWrite()
    * guards mutations. A viewer may see masked output but must not unmask it.
    */

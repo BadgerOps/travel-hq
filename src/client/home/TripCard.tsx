@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { MapPin } from "@phosphor-icons/react";
 import type { Booking, Person, Trip } from "../api/types.js";
-import { countdownLabel } from "../lib/dates.js";
+import { tripStateBadge } from "../lib/dates.js";
 import { PersonChips } from "../components/PersonChip.js";
 
 export function TripCard({
@@ -17,7 +17,9 @@ export function TripCard({
 }) {
   const booked = bookings.filter((b) => b.status === "booked").length;
   const remaining = bookings.length - booked;
-  const countdown = countdownLabel(trip.startsOn, trip.endsOn, today);
+  // State-aware: an explicitly cancelled/complete/forced-active trip names
+  // its state; a planning trip keeps the countdown language.
+  const badge = tripStateBadge(trip, today);
   const travelerIds = new Set(bookings.flatMap((b) => b.personIds));
   const travelers = people.filter((p) => travelerIds.has(p.id));
 
@@ -30,10 +32,10 @@ export function TripCard({
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
         <span className="card-title">{trip.title}</span>
         <span
-          className={countdown === "Today" ? "tag tag-accent" : "tag tag-neutral"}
+          className={badge === "Today" || badge === "Active" ? "tag tag-accent" : "tag tag-neutral"}
           style={{ marginLeft: "auto" }}
         >
-          {countdown}
+          {badge}
         </span>
       </div>
 
