@@ -34,8 +34,9 @@ and `[env.production]` blocks in `wrangler.toml`.
    Put the returned `database_id`s into the matching `[env.*]` blocks of
    `wrangler.toml`.
 3. The **Workers AI** binding (`AI`) needs no resource creation — it is bound in
-   `wrangler.toml` and billed per use. (Only relevant once ingest/extraction is
-   built; deferred for now.)
+   `wrangler.toml` (`[ai]`, plus `[env.testing.ai]`/`[env.production.ai]`) and
+   billed per use. The ingest extractor (issue #6) calls it for mail without a
+   calendar attachment.
 
 ## 2. Encryption key (Workers secret, per environment)
 
@@ -100,8 +101,12 @@ never in the repo.
    - **Account · D1 · Edit** — `wrangler d1 migrations apply` and D1 queries.
    - **Account · Account Settings · Read** — optional, lets wrangler resolve
      account details without broader read.
-   - *(Do NOT add **Workers AI** yet — extraction is deferred. Add
-     **Account · Workers AI · Read** only when ingest is built.)*
+   - **Account · Workers AI · Read** — required now that the Worker declares
+     the `[ai]` binding (issue #6): lets the deploy token validate/attach the
+     Workers AI binding. Read is enough — the deployed Worker's own inference
+     calls run under its binding, not this token. If your token predates this,
+     edit it (dashboard → API Tokens → the deploy token → Edit) and add this
+     permission.
    - **Account Resources:** Include → **your specific account**, not "All
      accounts." No Zone or Email permission is needed (Email Routing is
      dashboard-configured). Optionally set a TTL; leave Client IP filtering
@@ -143,8 +148,17 @@ metadata as an `inbound_email` row — status `received` on success, or
 it never bounces the sender; anything **not** stored as `received` (unclaimed
 recipient, rejected sender, internal error) is forwarded best-effort to
 `env.FALLBACK_FORWARD_TO` when that var/secret is set, so mail is never
-silently lost. Extraction of `received` rows into draft bookings is issue #6;
-until it lands, stored mail simply waits in `received`.
+silently lost.
+
+Extraction (issue #6) runs inline after a `received` row is stored: a
+`text/calendar` attachment is parsed directly (structured, authoritative,
+no model call); otherwise **Workers AI** reads the message under JSON Mode
+(`env.AI`, model from the household's Settings, default
+`@cf/meta/llama-3.1-8b-instruct`). Each extracted booking becomes a
+**pending `draft_booking` row** for the review UI (issue #7); the email row
+transitions `received → extracted`, or `→ failed` with a readable reason if
+nothing could be extracted. Extraction failures never bounce or lose mail —
+the raw message stays on the row.
 
 ### Switching the routing rule to the Worker (owner action)
 
