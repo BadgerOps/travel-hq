@@ -3,6 +3,7 @@ import { InboundEmailRepo } from "./repos/inbound-email.js";
 import type { InboundEmail } from "./repos/inbound-email.js";
 import { extractInboundEmail } from "./ingest/extract.js";
 import type { ExtractionAi } from "./ingest/extract.js";
+import { logEvent, errorMessage } from "./logging.js";
 
 /**
  * The slice of the Worker's bindings the email() handler needs. Deliberately
@@ -79,8 +80,9 @@ export async function handleInboundEmail(
     match = await HouseholdSettingsRepo.findHouseholdByForwardAddress(env.DB, message.to);
   } catch (err) {
     // Even resolution can fail (D1 outage). No household is known, so there
-    // is nowhere to write a failed row — log, forward, done.
-    console.error("[email-ingest] recipient resolution failed", err);
+    // is nowhere to write a failed row — log, forward, done. The reason is
+    // D1's error text, never anything from the message itself.
+    logEvent("email_ingest", { outcome: "resolution_failed", reason: errorMessage(err) });
     await forwardToFallback(message, env);
     return;
   }
@@ -88,7 +90,11 @@ export async function handleInboundEmail(
   if (!match) {
     // Unclaimed recipient: never write. A row keyed to no household would be
     // unreachable, and writing on unmatched mail would let any stranger who
-    // guesses hostnames grow the database.
+    // guesses hostnames grow the database. The log line carries the outcome
+    // and nothing else on purpose — the addresses of unmatched mail are
+    // exactly the strangers'-emails case the no-PII rule exists for (#8);
+    // the message itself is preserved by the fallback forward.
+    logEvent("email_ingest", { outcome: "unmatched_recipient" });
     await forwardToFallback(message, env);
     return;
   }
@@ -107,21 +113,43 @@ export async function handleInboundEmail(
 
     const verdict = verifySender(message.from, message.headers, match.settings.senderAllowlist);
     if (!verdict.ok) {
-      await repo.create({ ...meta, raw, status: "rejected", error: verdict.reason });
+      const rejected = await repo.create({ ...meta, raw, status: "rejected", error: verdict.reason });
+      // The reason names which verification leg(s) failed — never the sender
+      // address itself; that lives on the row, which the owner-gated
+      // Settings activity feed (#8) serves.
+      logEvent("email_ingest", {
+        outcome: "rejected",
+        householdId: match.householdId,
+        emailId: rejected.id,
+        reason: verdict.reason,
+      });
       await forwardToFallback(message, env);
       return;
     }
 
     stored = await repo.create({ ...meta, raw, status: "received" });
   } catch (err) {
-    console.error("[email-ingest] ingest failed; storing a failed row", err);
+    const reason = describeError(err);
+    // emailId stays null when even the failed row could not be written —
+    // that second failure gets its own line so it is never silent.
+    let failedRowId: string | null = null;
     try {
       // raw: "" — the stream may be what failed (or is already consumed);
       // metadata alone still gives the owner an auditable trace (#8).
-      await repo.create({ ...meta, raw: "", status: "failed", error: describeError(err) });
+      const failed = await repo.create({ ...meta, raw: "", status: "failed", error: reason });
+      failedRowId = failed.id;
     } catch (writeErr) {
-      console.error("[email-ingest] could not store the failed row either", writeErr);
+      logEvent("email_ingest_error", {
+        householdId: match.householdId,
+        reason: `could not store the failed row: ${errorMessage(writeErr)}`,
+      });
     }
+    logEvent("email_ingest", {
+      outcome: "failed",
+      householdId: match.householdId,
+      emailId: failedRowId,
+      reason,
+    });
     await forwardToFallback(message, env);
     return;
   }
@@ -207,7 +235,7 @@ async function forwardToFallback(message: ForwardableEmailMessage, env: EmailIng
   } catch (err) {
     // Best-effort only. An unverified destination or transient routing error
     // must not turn into a bounce.
-    console.error("[email-ingest] fallback forward failed", err);
+    logEvent("email_ingest_error", { reason: `fallback forward failed: ${errorMessage(err)}` });
   }
 }
 
@@ -217,6 +245,5 @@ function truncateRaw(raw: string): string {
 }
 
 function describeError(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  return `Ingest failed: ${message}`.slice(0, MAX_ERROR_CHARS);
+  return `Ingest failed: ${errorMessage(err)}`.slice(0, MAX_ERROR_CHARS);
 }

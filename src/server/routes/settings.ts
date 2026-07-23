@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { HouseholdSettingsRepo } from "../repos/household-settings.js";
 import type { UpdateHouseholdSettingsInput } from "../repos/household-settings.js";
+import { InboundEmailRepo } from "../repos/inbound-email.js";
 import type { AppEnv } from "../index.js";
 
 /**
@@ -26,6 +27,28 @@ export const settings = new Hono<AppEnv>();
 settings.get("/", async (c) =>
   c.json(await new HouseholdSettingsRepo(c.get("db"), c.get("identity")).getSettings()),
 );
+
+/**
+ * The recent-ingest-activity feed the Settings page renders next to the
+ * configuration that drives it (#8): metadata + outcome + reason per inbound
+ * email, newest first, never `raw`. Owner/adult only, same as the settings
+ * themselves — the repo throws ForbiddenError for a viewer (see
+ * InboundEmailRepo.listActivity for why), mapped to 403 by app.onError.
+ */
+settings.get("/ingest-activity", async (c) => {
+  const rawLimit = c.req.query("limit");
+  let limit = 20;
+  if (rawLimit !== undefined) {
+    const parsed = Number(rawLimit);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+      // Client input, handled here directly — the repo's ValidationError for
+      // the same condition exists for callers inside our own code.
+      return c.json({ error: "limit must be an integer between 1 and 100" }, 400);
+    }
+    limit = parsed;
+  }
+  return c.json(await new InboundEmailRepo(c.get("db"), c.get("identity")).listActivity(limit));
+});
 
 settings.put("/", async (c) => {
   let body: unknown;

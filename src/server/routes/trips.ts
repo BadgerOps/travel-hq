@@ -6,6 +6,7 @@ import { PersonRepo } from "../repos/person.js";
 import { RollupRepo } from "../repos/rollup.js";
 import { BOOKING_KINDS } from "../schemas/booking-kinds.js";
 import { isValidTimestamp, isValidTimezone } from "../time.js";
+import { logEvent } from "../logging.js";
 import type { AppEnv } from "../index.js";
 
 const createTripSchema = z.object({
@@ -133,16 +134,14 @@ trips.get("/:tripId/bookings/:bookingId/reveal", async (c) => {
   // not a reveal to log.
   const value = await repo.revealConfirmation(c.req.param("bookingId"));
 
-  // The spec requires reveals to be logged.
-  console.info(
-    JSON.stringify({
-      event: "confirmation_reveal",
-      at: new Date().toISOString(),
-      user: identity.email,
-      household: identity.householdId,
-      booking: c.req.param("bookingId"),
-    }),
-  );
+  // The spec requires reveals to be logged. Ids and outcome only -- userId,
+  // not email: an address identifies a person and must not land in logs (#8).
+  logEvent("confirmation_reveal", {
+    requestId: c.get("requestId"),
+    userId: identity.userId,
+    householdId: identity.householdId,
+    bookingId: c.req.param("bookingId"),
+  });
 
   return c.json({ value });
 });

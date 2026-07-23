@@ -27,13 +27,14 @@ describe("migrated schema", () => {
       "inbound_email",
       "loyalty_account",
       "person",
+      "reveal_audit",
       "trip",
       "trip_person",
       "user",
     ]);
   });
 
-  it("cascades a household delete down to its trips, bookings, inbound email, and drafts", async () => {
+  it("cascades a household delete down to its trips, bookings, inbound email, drafts, and reveal audit", async () => {
     const now = new Date().toISOString();
     await env.DB.prepare("INSERT INTO household (id, name, created_at) VALUES (?, ?, ?)")
       .bind("hh-a", "A", now)
@@ -56,6 +57,11 @@ describe("migrated schema", () => {
     )
       .bind("db1", "hh-a", "ie1", "other", "Hotel stay", "ai", now)
       .run();
+    await env.DB.prepare(
+      "INSERT INTO reveal_audit (id, household_id, user_id, user_email, person_id, field, revealed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind("ra1", "hh-a", "u1", "owner@example.com", "p1", "passport_number", now)
+      .run();
 
     await env.DB.prepare("DELETE FROM household WHERE id = ?").bind("hh-a").run();
 
@@ -63,9 +69,11 @@ describe("migrated schema", () => {
     const booking = await env.DB.prepare("SELECT id FROM booking WHERE id = ?").bind("b1").first();
     const email = await env.DB.prepare("SELECT id FROM inbound_email WHERE id = ?").bind("ie1").first();
     const draft = await env.DB.prepare("SELECT id FROM draft_booking WHERE id = ?").bind("db1").first();
+    const audit = await env.DB.prepare("SELECT id FROM reveal_audit WHERE id = ?").bind("ra1").first();
     expect(trip).toBeNull();
     expect(booking).toBeNull();
     expect(email).toBeNull();
     expect(draft).toBeNull();
+    expect(audit).toBeNull();
   });
 });

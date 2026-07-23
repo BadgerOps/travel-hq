@@ -10,7 +10,9 @@ import { bookings } from "./routes/bookings.js";
 import { checklist } from "./routes/checklist.js";
 import { settings } from "./routes/settings.js";
 import { imports } from "./routes/import.js";
+import { audit } from "./routes/audit.js";
 import { mapError } from "./routes/errors.js";
+import { requestLogger } from "./logging.js";
 
 export type AppBindings = {
   DB: D1Database;
@@ -32,6 +34,8 @@ export type AppEnv = {
     db: D1Database;
     ring: Keyring;
     identity: Identity;
+    /** Set by requestLogger() for every request; joins log lines together. */
+    requestId: string;
   };
 };
 
@@ -68,6 +72,13 @@ export function createApp(overrides: AppOverrides = {}) {
     return c.json(mapped.body, mapped.status);
   });
 
+  // Ahead of the auth middleware on purpose: a 401 (or any auth failure)
+  // still gets its one structured request line, and the request id exists
+  // before anything downstream could want to log. One JSON line per request
+  // (issue #8); 500s carry the real error server-side while mapError keeps
+  // the HTTP body generic.
+  app.use("*", requestLogger());
+
   app.use("/api/*", async (c, next) => {
     const env = c.env;
     c.set("db", env.DB);
@@ -89,6 +100,7 @@ export function createApp(overrides: AppOverrides = {}) {
   app.route("/api/checklist", checklist);
   app.route("/api/settings", settings);
   app.route("/api/import", imports);
+  app.route("/api/audit", audit);
 
   app.get("/healthz", (c) => c.text("ok"));
 

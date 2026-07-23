@@ -13,8 +13,10 @@ import type {
   Identity,
   ImportQueueGroup,
   InboundEmail,
+  InboundEmailActivity,
   ItineraryDay,
   Person,
+  RevealAuditEntry,
   Trip,
   TripRollup,
   UpdateDraftBookingInput,
@@ -140,6 +142,12 @@ export function createApi(config: ApiConfig = {}) {
       get: () => request<HouseholdSettings>("/api/settings"),
       update: (input: UpdateHouseholdSettingsInput) =>
         request<HouseholdSettings>("/api/settings", jsonBody("PUT", input)),
+      ingestActivity: () =>
+        request<InboundEmailActivity[]>("/api/settings/ingest-activity"),
+    },
+    audit: {
+      // Owner-only on the server; adults and viewers get a 403.
+      reveals: () => request<RevealAuditEntry[]>("/api/audit/reveals"),
     },
     import: {
       queue: () => request<ImportQueueGroup[]>("/api/import/queue"),
