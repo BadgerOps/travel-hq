@@ -49,6 +49,12 @@ const TRUNCATION_MARKER = "\n[truncated by travel-hq ingest]";
 const MAX_ERROR_CHARS = 500;
 
 export type CloudflareAuthVerdict = "pass" | "fail" | "unavailable";
+export type CloudflareAuthDiagnostic = {
+  verdict: CloudflareAuthVerdict;
+  trustedRecords: number;
+  dmarc: string[];
+  spf: string[];
+};
 export type SenderVerdict =
   | { decision: "accept"; source: "cloudflare" }
   | { decision: "verify-dkim" }
@@ -109,7 +115,20 @@ export async function handleInboundEmail(
   };
 
   try {
-    const verdict = verifySender(message.from, message.headers, match.settings.senderAllowlist);
+    const authentication = cloudflareAuthenticationDiagnostic(message.headers);
+    const verdict = verifySender(
+      message.from,
+      message.headers,
+      match.settings.senderAllowlist,
+      authentication.verdict,
+    );
+    console.info("[email-ingest] sender authentication evaluated", {
+      verdict: authentication.verdict,
+      trustedRecords: authentication.trustedRecords,
+      dmarc: authentication.dmarc,
+      spf: authentication.spf,
+      decision: verdict.decision,
+    });
     if (verdict.decision === "reject") {
       // Verify before reading the stream, and retain metadata only. The
       // forwarding address is public by design; storing up to 1 MB for every
@@ -185,9 +204,9 @@ export function verifySender(
   from: string,
   headers: Headers,
   allowlist: string[],
+  authentication = cloudflareAuthentication(headers),
 ): SenderVerdict {
   const allowed = senderAllowed(from, allowlist);
-  const authentication = cloudflareAuthentication(headers);
 
   if (!allowed) {
     const reasons = ["sender is not on the household allowlist"];
@@ -252,8 +271,18 @@ function exactSenderAllowed(from: string, allowlist: string[]): boolean {
  *   fallback.
  */
 export function cloudflareAuthentication(headers: Headers): CloudflareAuthVerdict {
+  return cloudflareAuthenticationDiagnostic(headers).verdict;
+}
+
+/**
+ * Returns only bounded authentication status tokens and counts, making this
+ * safe to emit to persistent observability without exposing message content,
+ * addresses, or complete authentication headers.
+ */
+export function cloudflareAuthenticationDiagnostic(
+  headers: Headers,
+): CloudflareAuthDiagnostic {
   const results = trustedCloudflareResults(headers);
-  if (results.length === 0) return "unavailable";
   const verdicts = (mechanism: string): string[] =>
     results.flatMap((result) =>
       [...result.matchAll(new RegExp(`\\b${mechanism}=([a-z0-9]+)`, "gi"))].map((m) =>
@@ -261,10 +290,19 @@ export function cloudflareAuthentication(headers: Headers): CloudflareAuthVerdic
       ),
     );
   const dmarc = verdicts("dmarc");
-  if (dmarc.length > 0) return dmarc.every((v) => v === "pass") ? "pass" : "fail";
   const spf = verdicts("spf");
-  if (spf.length > 0) return spf.every((v) => v === "pass") ? "pass" : "fail";
-  return "unavailable";
+  let verdict: CloudflareAuthVerdict = "unavailable";
+  if (dmarc.length > 0) {
+    verdict = dmarc.every((value) => value === "pass") ? "pass" : "fail";
+  } else if (spf.length > 0) {
+    verdict = spf.every((value) => value === "pass") ? "pass" : "fail";
+  }
+  return {
+    verdict,
+    trustedRecords: results.length,
+    dmarc: dmarc.slice(0, 10).map((value) => value.slice(0, 32)),
+    spf: spf.slice(0, 10).map((value) => value.slice(0, 32)),
+  };
 }
 
 /** Compatibility helper for callers that only need a passing/not-passing bit. */

@@ -4,6 +4,7 @@ import { createHash, createSign, generateKeyPairSync } from "node:crypto";
 import worker from "../../src/server/worker.js";
 import {
   cloudflareAuthentication,
+  cloudflareAuthenticationDiagnostic,
   senderAuthenticated,
   MAX_RAW_BYTES,
 } from "../../src/server/ingest.js";
@@ -613,6 +614,19 @@ describe("senderAuthenticated (trusted authentication-result parsing)", () => {
       ),
     ).toBe(false);
     expect(senderAuthenticated(h("mx.cloudflare.net; DMARC=PASS"))).toBe(true);
+  });
+
+  it("reports bounded, content-free authentication evidence for observability", () => {
+    expect(
+      cloudflareAuthenticationDiagnostic(
+        h("mx.cloudflare.net; dmarc=pass; spf=pass, mx.cloudflare.net; dmarc=fail"),
+      ),
+    ).toEqual({
+      verdict: "fail",
+      trustedRecords: 2,
+      dmarc: ["pass", "fail"],
+      spf: ["pass"],
+    });
   });
 
   it("falls back to SPF only when no DMARC verdict is present", () => {
