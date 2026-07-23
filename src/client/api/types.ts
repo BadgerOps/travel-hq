@@ -15,6 +15,18 @@ export type { CreatePersonInput, UpdatePersonInput } from "../../server/repos/pe
 export type { CreateTripInput, UpdateTripInput } from "../../server/repos/trip.js";
 export type { CreateBookingInput } from "../../server/repos/booking.js";
 export type {
+  Card,
+  CardPerk,
+  CardWithPerks,
+  PerkWithStatus,
+  PerkKind,
+  PerkCadence,
+  CreateCardInput,
+  UpdateCardInput,
+  CreatePerkInput,
+  UpdatePerkInput,
+} from "../../server/repos/card.js";
+export type {
   HouseholdSettings,
   UpdateHouseholdSettingsInput,
 } from "../../server/repos/household-settings.js";

@@ -1,19 +1,26 @@
 import type {
   Booking,
   BookingStatus,
+  Card,
+  CardWithPerks,
   ChecklistItem,
   CreateBookingInput,
+  CreateCardInput,
   CreatePersonInput,
+  CreatePerkInput,
   CreateTripInput,
   DocumentField,
   HouseholdSettings,
   Identity,
   ItineraryDay,
   Person,
+  PerkWithStatus,
   Trip,
   TripRollup,
+  UpdateCardInput,
   UpdateHouseholdSettingsInput,
   UpdatePersonInput,
+  UpdatePerkInput,
   UpdateTripInput,
 } from "./types.js";
 
@@ -118,6 +125,27 @@ export function createApi(config: ApiConfig = {}) {
         ),
       setStatus: (bookingId: string, status: BookingStatus) =>
         request<void>(`/api/bookings/${seg(bookingId)}/status`, jsonBody("PUT", { status })),
+    },
+    cards: {
+      list: () => request<CardWithPerks[]>("/api/cards"),
+      create: (input: CreateCardInput) => request<Card>("/api/cards", jsonBody("POST", input)),
+      update: (id: string, input: UpdateCardInput) =>
+        request<Card>(`/api/cards/${seg(id)}`, jsonBody("PUT", input)),
+      remove: (id: string) => request<void>(`/api/cards/${seg(id)}`, { method: "DELETE" }),
+      createPerk: (cardId: string, input: CreatePerkInput) =>
+        request<PerkWithStatus>(`/api/cards/${seg(cardId)}/perks`, jsonBody("POST", input)),
+      updatePerk: (cardId: string, perkId: string, input: UpdatePerkInput) =>
+        request<PerkWithStatus>(
+          `/api/cards/${seg(cardId)}/perks/${seg(perkId)}`,
+          jsonBody("PUT", input),
+        ),
+      removePerk: (cardId: string, perkId: string) =>
+        request<void>(`/api/cards/${seg(cardId)}/perks/${seg(perkId)}`, { method: "DELETE" }),
+      setPerkUsed: (cardId: string, perkId: string, used: boolean) =>
+        request<void>(
+          `/api/cards/${seg(cardId)}/perks/${seg(perkId)}/used`,
+          jsonBody("PUT", { used }),
+        ),
     },
     checklist: {
       list: () => request<ChecklistItem[]>("/api/checklist"),

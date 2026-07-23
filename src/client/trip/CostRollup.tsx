@@ -30,6 +30,10 @@ export function CostRollup({ rollup }: { rollup: TripRollup }) {
       {rollup.points.map((p) => (
         <div key={p.program} className="card-meta">
           {number.format(p.used)} {p.program}
+          {/* The card portfolio's balance for this program, when a card
+              carries one — see RollupRepo.forTrip. Absent/null (no card in
+              this program, or a pre-cards rollup) renders nothing extra. */}
+          {p.balance != null && <> · of {number.format(p.balance)} available</>}
         </div>
       ))}
     </section>
