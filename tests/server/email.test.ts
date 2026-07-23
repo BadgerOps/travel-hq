@@ -88,6 +88,40 @@ beforeEach(async () => {
 });
 
 describe("email() ingest", () => {
+  it("runs AI extraction inline after storing a verified plain message", async () => {
+    const ai = {
+      run: vi.fn(async () => ({
+        response: {
+          bookings: [{
+            kind: "lodging",
+            title: "Dawn Ranch",
+            location: null,
+            startsAt: null,
+            startsAtTz: null,
+            endsAt: null,
+            endsAtTz: null,
+            confirmationNumber: "ABC123",
+            costCents: null,
+            details: { propertyName: "Dawn Ranch" },
+          }],
+        },
+      })),
+    };
+
+    await worker.email(
+      fakeMessage({ headers: { "Authentication-Results": AUTH_PASS } }),
+      { DB: env.DB, AI: ai },
+      {} as ExecutionContext,
+    );
+
+    expect(ai.run).toHaveBeenCalledTimes(1);
+    expect((await storedRows()).map((row) => row.status)).toEqual(["extracted"]);
+    const draft = await env.DB.prepare(
+      "SELECT source, title, confirmation_number FROM draft_booking",
+    ).first<{ source: string; title: string; confirmation_number: string }>();
+    expect(draft).toEqual({ source: "ai", title: "Dawn Ranch", confirmation_number: "ABC123" });
+  });
+
   it("stores a verified message as a received row scoped to the right household", async () => {
     const forward = vi.fn(async () => {});
     const setReject = vi.fn();

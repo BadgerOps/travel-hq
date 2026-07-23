@@ -14,7 +14,7 @@ import { mapError } from "./routes/errors.js";
 
 export type AppBindings = {
   DB: D1Database;
-  AI: Ai; // declared for later plans; unused here
+  AI: Ai;
   ENCRYPTION_KEY: string;
   TRAVEL_HQ_ENV?: string;
   TRAVEL_HQ_DEV_EMAIL?: string;

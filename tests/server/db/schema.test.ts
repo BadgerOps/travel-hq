@@ -15,13 +15,14 @@ describe("migrated schema", () => {
     await env.DB.exec("DELETE FROM household");
   });
 
-  it("creates every core table, including the card tables and inbound_email", async () => {
+  it("creates every core table, including extraction drafts", async () => {
     expect(await tableNames()).toEqual([
       "booking",
       "booking_person",
       "card",
       "card_perk",
       "checklist_item",
+      "draft_booking",
       "household",
       "household_member",
       "household_settings",
@@ -32,6 +33,16 @@ describe("migrated schema", () => {
       "trip_person",
       "user",
     ]);
+  });
+
+  it("adds booking provenance and stable draft ordinals", async () => {
+    const booking = await env.DB.prepare("PRAGMA table_info(booking)").all<{ name: string }>();
+    expect(booking.results.map((column) => column.name)).toContain("source_inbound_email_id");
+
+    const draft = await env.DB.prepare("PRAGMA table_info(draft_booking)").all<{ name: string }>();
+    expect(draft.results.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["inbound_email_id", "ordinal", "source", "status"]),
+    );
   });
 
   it("cascades a household delete down to its trips, bookings, and inbound email", async () => {

@@ -19,6 +19,7 @@ export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 export type Booking = {
   id: string;
   tripId: string;
+  sourceInboundEmailId: string | null;
   kind: string;
   title: string;
   location: string | null;
@@ -37,6 +38,7 @@ export type Booking = {
 
 export type CreateBookingInput = {
   tripId: string;
+  sourceInboundEmailId?: string | null;
   kind: string;
   title: string;
   location?: string;
@@ -61,6 +63,7 @@ export type CreateBookingInput = {
 export type BookingRow = {
   id: string;
   trip_id: string;
+  source_inbound_email_id: string | null;
   kind: string;
   title: string;
   location: string | null;
@@ -96,6 +99,7 @@ export async function toBooking(
   return {
     id: row.id,
     tripId: row.trip_id,
+    sourceInboundEmailId: row.source_inbound_email_id,
     kind: row.kind,
     title: row.title,
     location: row.location,
@@ -159,6 +163,14 @@ export class BookingRepo extends BookingAwareRepo {
     );
     if (!trip) throw new NotFoundError("Trip not found in this household");
 
+    if (input.sourceInboundEmailId !== undefined && input.sourceInboundEmailId !== null) {
+      const source = await this.get<{ id: string }>(
+        "SELECT id FROM inbound_email WHERE {scope} AND id = ?2",
+        input.sourceInboundEmailId,
+      );
+      if (!source) throw new NotFoundError("Source inbound email not found in this household");
+    }
+
     if (input.confirmationNumber !== undefined && input.confirmationNumber !== null) {
       // `toBooking()` masks this column with the same `mask()` helper that
       // masks a passport number, so the identical round-trip destruction is
@@ -178,6 +190,7 @@ export class BookingRepo extends BookingAwareRepo {
     await this.insert("booking", {
       id,
       trip_id: input.tripId,
+      source_inbound_email_id: input.sourceInboundEmailId ?? null,
       kind: input.kind,
       title: input.title,
       location: input.location ?? null,

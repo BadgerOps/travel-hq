@@ -34,8 +34,7 @@ and `[env.production]` blocks in `wrangler.toml`.
    Put the returned `database_id`s into the matching `[env.*]` blocks of
    `wrangler.toml`.
 3. The **Workers AI** binding (`AI`) needs no resource creation — it is bound in
-   `wrangler.toml` and billed per use. (Only relevant once ingest/extraction is
-   built; deferred for now.)
+   every `wrangler.toml` environment and billed per use.
 
 ## 2. Encryption key (Workers secret, per environment)
 
@@ -100,8 +99,8 @@ never in the repo.
    - **Account · D1 · Edit** — `wrangler d1 migrations apply` and D1 queries.
    - **Account · Account Settings · Read** — optional, lets wrangler resolve
      account details without broader read.
-   - *(Do NOT add **Workers AI** yet — extraction is deferred. Add
-     **Account · Workers AI · Read** only when ingest is built.)*
+   - **Account · Workers AI · Read** — required so deployment can validate and
+     attach the `AI` binding. Inference runs through the deployed binding.
    - **Account Resources:** Include → **your specific account**, not "All
      accounts." No Zone or Email permission is needed (Email Routing is
      dashboard-configured). Optionally set a TTL; leave Client IP filtering
@@ -143,8 +142,14 @@ metadata as an `inbound_email` row — status `received` on success, or
 it never bounces the sender; anything **not** stored as `received` (unclaimed
 recipient, rejected sender, internal error) is forwarded best-effort to
 `env.FALLBACK_FORWARD_TO` when that var/secret is set, so mail is never
-silently lost. Extraction of `received` rows into draft bookings is issue #6;
-until it lands, stored mail simply waits in `received`.
+silently lost.
+
+Extraction runs inline after a verified message is stored. A
+`text/calendar` attachment is parsed directly and never sent to a model.
+Otherwise the household-configured Workers AI model runs in JSON mode against
+the committed extraction schema. The complete result is validated before its
+pending `draft_booking` rows are inserted as one batch; the email then becomes
+`extracted`, or `failed` without partial drafts.
 
 ### Switching the routing rule to the Worker (owner action)
 

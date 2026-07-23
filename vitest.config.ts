@@ -9,8 +9,13 @@ export default defineConfig({
       // individual statements) so a setup file can apply them to the local D1.
       const migrations = await readD1Migrations(path.join(__dirname, "migrations"));
       return {
-        // Single source of truth for bindings: the testing environment's DB.
-        wrangler: { configPath: "./wrangler.toml", environment: "testing" },
+        // Never open a remote Workers AI proxy in tests; extraction injects a
+        // fake binding and CI must not call a billable model.
+        wrangler: {
+          configPath: "./wrangler.toml",
+          environment: "testing",
+          remoteBindings: false,
+        },
         miniflare: {
           // Test-only binding; not declared in wrangler.toml.
           // TEST_MIGRATIONS: applied to the local D1 by the setup file.
