@@ -1,0 +1,17 @@
+# Local-only worker configuration for @cloudflare/vitest-pool-workers.
+#
+# Production wrangler.toml intentionally declares Workers AI in every deploy
+# environment. AI is remote-only, so loading that file makes the test pool
+# establish an authenticated Cloudflare proxy before tests start. CI is
+# secret-free and model behavior is covered with injected fakes, so this
+# harness contains only the locally emulated D1 binding the suite requires.
+name = "travel-hq-test"
+main = "src/server/worker.ts"
+compatibility_date = "2025-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "travel-hq-test"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"

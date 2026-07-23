@@ -37,6 +37,12 @@ configuration are mandatory, a second adversarial pass reviewed the expansion:
 
 No additional blocking findings remain after that pass.
 
+PR CI then exposed a test-harness configuration flaw: loading the deployment
+Wrangler environment caused the Cloudflare pool to initialize a remote AI
+proxy before the suite ran. The worker tests now use a dedicated local
+Wrangler config with only D1. Deployment environments retain their AI binding,
+while fake-AI contract coverage stays hermetic and secret-free.
+
 ## Review notes
 
 - Issue #6 acceptance criteria are covered:

@@ -33,16 +33,20 @@
   - Architecture: 1 test passed.
   - Client: 258 tests across 35 files passed.
 - `npm run build` — passed; Vite production build completed.
+- After PR CI exposed that the deploy-time Workers AI binding caused the
+  secret-free Vitest job to attempt a remote Cloudflare proxy, added
+  `wrangler.test.toml` and pointed the worker pool at it. The test harness now
+  loads only locally emulated D1; deploy configurations still bind AI in
+  default, testing, and production.
 - Wrangler dry runs with a writable temporary config directory:
   - default — passed, `env.DB` and `env.AI` present.
   - testing — passed, `env.DB` and `env.AI` present.
   - production — passed, `env.DB`, `env.AI`, and Access vars present.
 - `git diff --check` — passed.
 
-Wrangler/Vitest prints a warning that AI bindings are remote resources while
-starting each worker test isolate. Tests never invoke that configured binding:
-all model-path tests pass an explicit fake AI object, and
-`remoteBindings: false` remains set. No real inference was requested.
+Vitest does not load the deploy-time AI binding. All model-path tests pass an
+explicit fake AI object, and `remoteBindings: false` remains set. No remote
+proxy or real inference is requested.
 
 ## Changelog verification
 
