@@ -8,6 +8,7 @@ import { RollupRepo } from "../repos/rollup.js";
 import { BOOKING_KINDS } from "../schemas/booking-kinds.js";
 import { isValidTimestamp, isValidTimezone } from "../time.js";
 import type { AppEnv } from "../index.js";
+import { isJsonAction } from "./request.js";
 
 const createTripSchema = z.object({
   title: z.string().min(1),
@@ -183,7 +184,14 @@ trips.post("/:tripId/bookings", async (c) => {
   return c.json(await repo.create({ ...parsed.data, tripId: c.req.param("tripId") }), 201);
 });
 
-trips.get("/:tripId/bookings/:bookingId/reveal", async (c) => {
+// Revealing plaintext is an audited action, not a safe/idempotent resource
+// read. POST prevents link scanners, prefetchers, and speculative navigation
+// from triggering it; the API-wide no-store middleware prevents retention of
+// the response.
+trips.post("/:tripId/bookings/:bookingId/reveal", async (c) => {
+  if (!isJsonAction(c.req.raw)) {
+    return c.json({ error: "Reveal actions require application/json" }, 415);
+  }
   const identity = c.get("identity");
   const repo = new BookingRepo(c.get("db"), identity, c.get("ring"));
   // A viewer role (ForbiddenError, I3) or an unknown/cross-household

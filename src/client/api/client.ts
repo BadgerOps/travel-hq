@@ -72,7 +72,10 @@ export function createApi(config: ApiConfig = {}) {
     people: {
       list: () => request<Person[]>("/api/people"),
       reveal: (id: string, field: DocumentField) =>
-        request<{ value: string | null }>(`/api/people/${seg(id)}/reveal/${seg(field)}`),
+        request<{ value: string | null }>(
+          `/api/people/${seg(id)}/reveal/${seg(field)}`,
+          jsonBody("POST", {}),
+        ),
       create: (input: CreatePersonInput) =>
         request<Person>("/api/people", jsonBody("POST", input)),
       update: (id: string, input: UpdatePersonInput) =>
@@ -85,6 +88,7 @@ export function createApi(config: ApiConfig = {}) {
       revealConfirmation: (tripId: string, bookingId: string) =>
         request<{ value: string | null }>(
           `/api/trips/${seg(tripId)}/bookings/${seg(bookingId)}/reveal`,
+          jsonBody("POST", {}),
         ),
       itinerary: (tripId: string, personId?: string) =>
         request<ItineraryDay[]>(

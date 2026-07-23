@@ -19,6 +19,11 @@ function request(a: ReturnType<typeof createApp>, path: string, init?: RequestIn
 function jsonRequest(path: string, method: string, body: unknown) {
   return request(app, path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
+const revealInit: RequestInit = {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: "{}",
+};
 async function createAva(): Promise<string> {
   const res = await jsonRequest("/api/people", "POST", { displayName: "Ava", passportNumber: "C03X72119" });
   return ((await res.json()) as { id: string }).id;
@@ -43,14 +48,18 @@ describe("PUT /api/people/:id", () => {
   it("does not disturb the passport when the field is omitted", async () => {
     const id = await createAva();
     await jsonRequest(`/api/people/${id}`, "PUT", { displayName: "Ava Wright" });
-    const revealed = (await (await request(app, `/api/people/${id}/reveal/passport_number`)).json()) as { value: string };
+    const revealed = (await (
+      await request(app, `/api/people/${id}/reveal/passport_number`, revealInit)
+    ).json()) as { value: string };
     expect(revealed.value).toBe("C03X72119");
   });
   it("answers 400 for a masked passport value and leaves the stored one intact", async () => {
     const id = await createAva();
     const res = await jsonRequest(`/api/people/${id}`, "PUT", { passportNumber: "••••2119" });
     expect(res.status).toBe(400);
-    const revealed = (await (await request(app, `/api/people/${id}/reveal/passport_number`)).json()) as { value: string };
+    const revealed = (await (
+      await request(app, `/api/people/${id}/reveal/passport_number`, revealInit)
+    ).json()) as { value: string };
     expect(revealed.value).toBe("C03X72119");
   });
   it("clears a document field on an explicit null", async () => {

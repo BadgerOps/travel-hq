@@ -3,6 +3,7 @@ import { z } from "zod";
 import { PersonRepo, DOCUMENT_FIELDS } from "../repos/person.js";
 import type { DocumentField, UpdatePersonInput } from "../repos/person.js";
 import type { AppEnv } from "../index.js";
+import { isJsonAction } from "./request.js";
 
 const createPersonSchema = z.object({
   displayName: z.string().min(1),
@@ -87,7 +88,14 @@ people.put("/:id", async (c) => {
   return c.json(await repo.update(c.req.param("id"), parsed.data satisfies UpdatePersonInput));
 });
 
-people.get("/:id/reveal/:field", async (c) => {
+// Revealing plaintext is an audited action, not a safe/idempotent resource
+// read. POST prevents link scanners, prefetchers, and speculative navigation
+// from triggering it; the API-wide no-store middleware prevents retention of
+// the response.
+people.post("/:id/reveal/:field", async (c) => {
+  if (!isJsonAction(c.req.raw)) {
+    return c.json({ error: "Reveal actions require application/json" }, 415);
+  }
   const field = c.req.param("field");
   if (!DOCUMENT_FIELDS.includes(field as DocumentField)) {
     // A client-supplied field outside the allowlist is genuine bad input —

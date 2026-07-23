@@ -23,6 +23,11 @@ function request(a: ReturnType<typeof createApp>, path: string, init?: RequestIn
 function postJson(path: string, body: unknown) {
   return request(app, path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
+const revealInit: RequestInit = {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: "{}",
+};
 
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM booking_person");
@@ -84,12 +89,35 @@ describe("API", () => {
 
   it("reveals a document only on the explicit endpoint", async () => {
     const person = (await (await postJson("/api/people", { displayName: "Ava", passportNumber: "C03X72119" })).json()) as { id: string };
-    const res = await request(app, `/api/people/${person.id}/reveal/passport_number`);
+    const res = await request(app, `/api/people/${person.id}/reveal/passport_number`, revealInit);
     expect(await res.json()).toEqual({ value: "C03X72119" });
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect((await request(app, `/api/people/${person.id}/reveal/passport_number`)).status).toBe(404);
+  });
+
+  it("rejects a simple form-style POST to a reveal endpoint", async () => {
+    const person = (await (
+      await postJson("/api/people", {
+        displayName: "Ava",
+        passportNumber: "C03X72119",
+      })
+    ).json()) as { id: string };
+    const res = await request(app, `/api/people/${person.id}/reveal/passport_number`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "reveal=1",
+    });
+    expect(res.status).toBe(415);
   });
 
   it("rejects revealing a field that is not a document", async () => {
-    expect((await request(app, "/api/people/whatever/reveal/display_name")).status).toBe(400);
+    expect(
+      (
+        await request(app, "/api/people/whatever/reveal/display_name", {
+          ...revealInit,
+        })
+      ).status,
+    ).toBe(400);
   });
 
   it("rejects a booking with an unpaired timezone", async () => {
@@ -104,8 +132,26 @@ describe("API", () => {
     const listed = await (await request(app, `/api/trips/${trip.id}/bookings`)).json();
     expect(JSON.stringify(listed)).not.toContain("ABCDX4T2");
     expect(JSON.stringify(listed)).toContain("••••X4T2");
-    const revealed = await (await request(app, `/api/trips/${trip.id}/bookings/${booking.id}/reveal`)).json();
+    const revealResponse = await request(
+      app,
+      `/api/trips/${trip.id}/bookings/${booking.id}/reveal`,
+      revealInit,
+    );
+    const revealed = await revealResponse.json();
     expect(revealed).toEqual({ value: "ABCDX4T2" });
+    expect(revealResponse.headers.get("cache-control")).toBe("no-store");
+    expect(
+      (await request(app, `/api/trips/${trip.id}/bookings/${booking.id}/reveal`)).status,
+    ).toBe(404);
+  });
+
+  it("marks every API response, including errors, as non-cacheable", async () => {
+    const ok = await request(app, "/api/me");
+    expect(ok.headers.get("cache-control")).toBe("no-store");
+
+    const missing = await request(app, "/api/trips/does-not-exist/bookings");
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("cache-control")).toBe("no-store");
   });
 
   describe("C1: booking timestamp/timezone validation", () => {
@@ -134,8 +180,10 @@ describe("API", () => {
       expect(res.headers.get("content-type")).toContain("application/json");
       expect(await res.json()).toEqual({ error: "Not found" });
     });
-    it("GET /api/people/:id/reveal/:field for an unknown person is a JSON 404", async () => {
-      const res = await request(app, "/api/people/does-not-exist/reveal/passport_number");
+    it("POST /api/people/:id/reveal/:field for an unknown person is a JSON 404", async () => {
+      const res = await request(app, "/api/people/does-not-exist/reveal/passport_number", {
+        ...revealInit,
+      });
       expect(res.status).toBe(404);
       expect(res.headers.get("content-type")).toContain("application/json");
       expect(await res.json()).toEqual({ error: "Not found" });
@@ -146,23 +194,47 @@ describe("API", () => {
     it("rejects a viewer revealing a document with 403", async () => {
       const person = (await (await postJson("/api/people", { displayName: "Ava", passportNumber: "C03X72119" })).json()) as { id: string };
       const viewerApp = appAs({ ...identity, role: "viewer" });
-      expect((await request(viewerApp, `/api/people/${person.id}/reveal/passport_number`)).status).toBe(403);
+      expect(
+        (
+          await request(viewerApp, `/api/people/${person.id}/reveal/passport_number`, {
+            ...revealInit,
+          })
+        ).status,
+      ).toBe(403);
     });
     it("rejects a viewer revealing a booking confirmation with 403", async () => {
       const trip = (await (await postJson("/api/trips", { title: "Trip" })).json()) as { id: string };
       const booking = (await (await postJson(`/api/trips/${trip.id}/bookings`, { kind: "other", title: "Hotel", confirmationNumber: "ABCDX4T2", details: {} })).json()) as { id: string };
       const viewerApp = appAs({ ...identity, role: "viewer" });
-      expect((await request(viewerApp, `/api/trips/${trip.id}/bookings/${booking.id}/reveal`)).status).toBe(403);
+      expect(
+        (
+          await request(viewerApp, `/api/trips/${trip.id}/bookings/${booking.id}/reveal`, {
+            ...revealInit,
+          })
+        ).status,
+      ).toBe(403);
     });
   });
 
   describe("I5: reveal and list distinguish missing from empty", () => {
     it("404s revealing a document for a person that does not exist", async () => {
-      expect((await request(app, "/api/people/does-not-exist/reveal/passport_number")).status).toBe(404);
+      expect(
+        (
+          await request(app, "/api/people/does-not-exist/reveal/passport_number", {
+            ...revealInit,
+          })
+        ).status,
+      ).toBe(404);
     });
     it("404s revealing a confirmation for a booking that does not exist", async () => {
       const trip = (await (await postJson("/api/trips", { title: "Trip" })).json()) as { id: string };
-      expect((await request(app, `/api/trips/${trip.id}/bookings/does-not-exist/reveal`)).status).toBe(404);
+      expect(
+        (
+          await request(app, `/api/trips/${trip.id}/bookings/does-not-exist/reveal`, {
+            ...revealInit,
+          })
+        ).status,
+      ).toBe(404);
     });
     it("404s listing bookings for a trip that does not exist", async () => {
       expect((await request(app, "/api/trips/does-not-exist/bookings")).status).toBe(404);
