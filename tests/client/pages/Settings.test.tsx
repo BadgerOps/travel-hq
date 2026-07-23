@@ -54,6 +54,8 @@ describe("Settings", () => {
     expect(screen.getByLabelText("Extraction model")).toHaveValue(
       "@cf/meta/llama-3.1-8b-instruct",
     );
+    expect(screen.getByText(/exact addresses can use verified DKIM/i)).toBeInTheDocument();
+    expect(screen.getByText(/domain entries require Cloudflare verification/i)).toBeInTheDocument();
   });
 
   it("shows the model default when the household has no row yet", async () => {

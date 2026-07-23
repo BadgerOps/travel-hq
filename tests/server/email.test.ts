@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
+import { createHash, createSign, generateKeyPairSync } from "node:crypto";
 import worker from "../../src/server/worker.js";
-import { senderAuthenticated, MAX_RAW_BYTES } from "../../src/server/ingest.js";
+import {
+  cloudflareAuthentication,
+  senderAuthenticated,
+  MAX_RAW_BYTES,
+} from "../../src/server/ingest.js";
+import { verifyAlignedDkim } from "../../src/server/ingest/dkim.js";
+import type { DnsTxtResolver } from "../../src/server/ingest/dkim.js";
 import { HouseholdSettingsRepo } from "../../src/server/repos/household-settings.js";
 import type { HouseholdContext } from "../../src/server/repos/base.js";
 
@@ -11,6 +18,69 @@ const ctxB: HouseholdContext = { householdId: "hh-b", userId: "u2", role: "owner
 /** A trusted result record authored by Cloudflare's MX. */
 const AUTH_PASS = "mx.cloudflare.net; dkim=pass; spf=pass smtp.mailfrom=example.com; dmarc=pass";
 const AUTH_FAIL = "mx.cloudflare.net; spf=fail smtp.mailfrom=example.com; dmarc=fail";
+
+const TEST_SELECTOR = "travel-hq-test";
+const TEST_KEYS = generateKeyPairSync("rsa", { modulusLength: 1024 });
+const TEST_PRIVATE_KEY = TEST_KEYS.privateKey.export({
+  type: "pkcs8",
+  format: "pem",
+}).toString();
+const TEST_PUBLIC_KEY = TEST_KEYS.publicKey.export({
+  type: "spki",
+  format: "der",
+}).toString("base64");
+
+const testDkimResolver: DnsTxtResolver = async (name) => {
+  if (name !== `${TEST_SELECTOR}._domainkey.example.com`) {
+    throw Object.assign(new Error("no test key"), { code: "ENOTFOUND" });
+  }
+  return [[`v=DKIM1; k=rsa; p=${TEST_PUBLIC_KEY}`]];
+};
+
+async function signedMessage(
+  {
+    from = "Badger <badger@example.com>",
+    signingDomain = "example.com",
+    body = "Confirmation body",
+    maxBodyLength,
+    extraHeaders = "",
+  }: {
+    from?: string;
+    signingDomain?: string;
+    body?: string;
+    maxBodyLength?: number;
+    extraHeaders?: string;
+  } = {},
+): Promise<string> {
+  const lines = [
+    `From: ${from}`,
+    "To: trips@badgerops.foo",
+    "Subject: Trip",
+    extraHeaders,
+    "",
+    body,
+  ].filter((line, index) => line !== "" || index >= 4);
+  const unsigned = lines.join("\r\n");
+  const canonicalBody = body
+    .replace(/[ \t]+/g, " ")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/(?:\r\n)*$/, "\r\n");
+  const bodyHash = createHash("sha256").update(canonicalBody).digest("base64");
+  const lengthTag = maxBodyLength === undefined ? "" : `l=${maxBodyLength}; `;
+  const tags =
+    `v=1; a=rsa-sha256; c=relaxed/relaxed; d=${signingDomain}; ` +
+    `s=${TEST_SELECTOR}; h=from:to:subject; ${lengthTag}bh=${bodyHash}; b=`;
+  const relaxed = (value: string) => value.replace(/[ \t]+/g, " ").trim();
+  const signingInput =
+    `from:${relaxed(from)}\r\n` +
+    "to:trips@badgerops.foo\r\n" +
+    "subject:Trip\r\n" +
+    `dkim-signature:${tags}`;
+  const signature = createSign("RSA-SHA256")
+    .update(signingInput)
+    .sign(TEST_PRIVATE_KEY, "base64");
+  return `DKIM-Signature: ${tags}${signature}\r\n${unsigned}`;
+}
 
 type FakeMessageInit = {
   from?: string;
@@ -245,7 +315,129 @@ describe("email() ingest", () => {
     await worker.email(fakeMessage(), { DB: env.DB }, {} as ExecutionContext);
     const rows = await storedRows();
     expect(rows.map((r) => [r.status, r.error])).toEqual([
-      ["rejected", "sender did not pass DMARC/SPF authentication"],
+      [
+        "rejected",
+        "Cloudflare authentication verdict unavailable; outer From must be one address matching the envelope sender",
+      ],
+    ]);
+  });
+
+  it("accepts independently verified aligned DKIM when Cloudflare omits its verdict", async () => {
+    const rawText = await signedMessage();
+    await worker.email(
+      fakeMessage({ rawText }),
+      { DB: env.DB, dkimResolver: testDkimResolver },
+      {} as ExecutionContext,
+    );
+    const rows = await storedRows();
+    expect(rows.map((row) => [row.status, row.error])).toEqual([["received", null]]);
+    expect(rows[0]!.raw).toBe(rawText);
+  });
+
+  it("accepts a valid aligned signature after an earlier malformed signature", async () => {
+    const valid = await signedMessage();
+    const rawText =
+      "DKIM-Signature: v=1; v=1; a=rsa-sha256; d=broken.example; s=bad\r\n" +
+      valid;
+    await worker.email(
+      fakeMessage({ rawText }),
+      { DB: env.DB, dkimResolver: testDkimResolver },
+      {} as ExecutionContext,
+    );
+    expect((await storedRows()).map((row) => row.status)).toEqual(["received"]);
+  });
+
+  it("rejects a spoof whose outer From does not match the exact allowlisted envelope sender", async () => {
+    const rawText = await signedMessage({ from: "Mallory <mallory@example.com>" });
+    await worker.email(
+      fakeMessage({ rawText }),
+      { DB: env.DB, dkimResolver: testDkimResolver },
+      {} as ExecutionContext,
+    );
+    expect((await storedRows()).map((row) => [row.status, row.raw, row.error])).toEqual([
+      [
+        "rejected",
+        "",
+        "Cloudflare authentication verdict unavailable; outer From must be one address matching the envelope sender",
+      ],
+    ]);
+  });
+
+  it("rejects a tampered body even when the sender claims match", async () => {
+    const rawText = (await signedMessage()).replace("Confirmation body", "Forged booking");
+    await worker.email(
+      fakeMessage({ rawText }),
+      { DB: env.DB, dkimResolver: testDkimResolver },
+      {} as ExecutionContext,
+    );
+    expect((await storedRows()).map((row) => [row.status, row.raw])).toEqual([
+      ["rejected", ""],
+    ]);
+  });
+
+  it("rejects an unaligned DKIM signer", async () => {
+    const rawText = await signedMessage({ signingDomain: "evil.example" });
+    const resolver: DnsTxtResolver = async () => [
+      [`v=DKIM1; k=rsa; p=${TEST_PUBLIC_KEY}`],
+    ];
+    await worker.email(
+      fakeMessage({ rawText }),
+      { DB: env.DB, dkimResolver: resolver },
+      {} as ExecutionContext,
+    );
+    expect((await storedRows()).map((row) => row.status)).toEqual(["rejected"]);
+  });
+
+  it("rejects multiple outer From mailboxes", async () => {
+    const rawText = await signedMessage({
+      extraHeaders: "From: Other <other@example.com>",
+    });
+    await worker.email(
+      fakeMessage({ rawText }),
+      { DB: env.DB, dkimResolver: testDkimResolver },
+      {} as ExecutionContext,
+    );
+    expect((await storedRows()).map((row) => row.status)).toEqual(["rejected"]);
+  });
+
+  it("rejects body-length-limited DKIM signatures", async () => {
+    const rawText = await signedMessage({ maxBodyLength: 5 });
+    await worker.email(
+      fakeMessage({ rawText }),
+      { DB: env.DB, dkimResolver: testDkimResolver },
+      {} as ExecutionContext,
+    );
+    expect((await storedRows()).map((row) => row.status)).toEqual(["rejected"]);
+  });
+
+  it("does not use DKIM fallback after an explicit trusted Cloudflare failure", async () => {
+    const resolver = vi.fn(testDkimResolver);
+    await worker.email(
+      fakeMessage({
+        headers: { "Authentication-Results": AUTH_FAIL },
+        brokenRaw: true,
+      }),
+      { DB: env.DB, dkimResolver: resolver },
+      {} as ExecutionContext,
+    );
+    expect((await storedRows()).map((row) => row.status)).toEqual(["rejected"]);
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing verdicts for domain-only allowlist entries without reading raw", async () => {
+    await worker.email(
+      fakeMessage({
+        from: "noreply@bounce.airline.com",
+        brokenRaw: true,
+      }),
+      { DB: env.DB, dkimResolver: testDkimResolver },
+      {} as ExecutionContext,
+    );
+    expect((await storedRows()).map((row) => [row.status, row.error])).toEqual([
+      [
+        "rejected",
+        "Cloudflare authentication verdict unavailable; aligned DKIM fallback requires an exact-address allowlist entry",
+      ],
     ]);
   });
 
@@ -306,7 +498,7 @@ describe("email() ingest", () => {
       {} as ExecutionContext,
     );
     expect((await storedRows())[0]!.error).toBe(
-      "sender is not on the household allowlist; sender did not pass DMARC/SPF authentication",
+      "sender is not on the household allowlist; Cloudflare authentication verdict unavailable",
     );
   });
 
@@ -408,11 +600,13 @@ describe("senderAuthenticated (trusted authentication-result parsing)", () => {
 
   it("treats a missing header as unauthenticated", () => {
     expect(senderAuthenticated(h())).toBe(false);
+    expect(cloudflareAuthentication(h())).toBe("unavailable");
   });
 
   it("requires every DMARC verdict to pass", () => {
     expect(senderAuthenticated(h("mx.cloudflare.net; dmarc=pass"))).toBe(true);
     expect(senderAuthenticated(h("mx.cloudflare.net; dmarc=fail"))).toBe(false);
+    expect(cloudflareAuthentication(h("mx.cloudflare.net; dmarc=fail"))).toBe("fail");
     expect(
       senderAuthenticated(
         h("mx.cloudflare.net; dmarc=pass, mx.cloudflare.net; dmarc=fail"),
@@ -430,6 +624,9 @@ describe("senderAuthenticated (trusted authentication-result parsing)", () => {
 
   it("treats a header with neither mechanism as unauthenticated", () => {
     expect(senderAuthenticated(h("mx.cloudflare.net; dkim=pass"))).toBe(false);
+    expect(cloudflareAuthentication(h("mx.cloudflare.net; dkim=pass"))).toBe(
+      "unavailable",
+    );
   });
 
   it("accepts Cloudflare's ARC form and rejects another ARC authority", () => {
@@ -451,5 +648,26 @@ describe("senderAuthenticated (trusted authentication-result parsing)", () => {
         h("forger.example; dmarc=pass, mx.cloudflare.net; spf=fail"),
       ),
     ).toBe(false);
+  });
+});
+
+describe("verifyAlignedDkim resource limits", () => {
+  it("rejects excessive DKIM signatures before DNS resolution", async () => {
+    const resolver = vi.fn(testDkimResolver);
+    const headers = Array.from(
+      { length: 11 },
+      () => "DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=test; b=x; bh=x",
+    ).join("\r\n");
+    const verdict = await verifyAlignedDkim(
+      `${headers}\r\nFrom: badger@example.com\r\n\r\nbody`,
+      "badger@example.com",
+      resolver,
+    );
+    expect(verdict).toEqual({
+      ok: false,
+      reason:
+        "Cloudflare authentication verdict unavailable; message has more than 10 DKIM signatures",
+    });
+    expect(resolver).not.toHaveBeenCalled();
   });
 });

@@ -134,15 +134,29 @@ Defined in `.github/workflows/` (added by the CI/CD plan):
 The Worker's `email()` handler (`src/server/worker.ts`, logic in
 `src/server/ingest.ts`) is **real ingest**: it resolves the target household
 by matching the envelope recipient against
-`household_settings.forward_address`, verifies the sender (household
-allowlist **and** DMARC/SPF from the `Authentication-Results` header Email
-Routing stamps on the message), and stores the raw message plus parsed
-metadata as an `inbound_email` row — status `received` on success, or
-`rejected`/`failed` with a human-readable reason. It is fail-soft end to end:
-it never bounces the sender; anything **not** stored as `received` (unclaimed
-recipient, rejected sender, internal error) is forwarded best-effort to
-`env.FALLBACK_FORWARD_TO` when that var/secret is set, so mail is never
-silently lost.
+`household_settings.forward_address`, verifies the sender, and stores the raw
+message plus parsed metadata as an `inbound_email` row — status `received` on
+success, or `rejected`/`failed` with a human-readable reason.
+
+Sender verification always requires the household allowlist. The primary
+authentication path uses a Cloudflare-authored DMARC/SPF pass from
+`Authentication-Results` or `ARC-Authentication-Results`. Email Routing does
+not consistently expose those headers to Workers even when its Activity log
+shows SPF, DKIM, and DMARC passed. When the trusted verdict is unavailable,
+the Worker independently verifies DKIM against the selector's DNS key. That
+fallback is deliberately narrower: the allowlist must contain the exact
+envelope address, the message must have one matching outer `From`, and a
+SHA-256 DKIM signature aligned to that address must cover `From` and the full
+body. An explicit Cloudflare failure never falls back, and bare-domain
+allowlist entries require a Cloudflare pass.
+
+DKIM keys are resolved through Cloudflare's DNS-over-HTTPS endpoint. A DNS
+failure, missing/invalid signature, unaligned signer, body-length-limited
+signature, or message with excessive signatures fails closed. The handler is
+still fail-soft end to end: it never bounces the sender; anything **not**
+stored as `received` (unclaimed recipient, rejected sender, internal error) is
+forwarded best-effort to `env.FALLBACK_FORWARD_TO` when that var/secret is set,
+so mail is never silently lost.
 
 Extraction runs inline after a verified message is stored. A
 `text/calendar` attachment is parsed directly and never sent to a model.
@@ -165,9 +179,13 @@ Before flipping it, prepare:
    `0004_inbound_email.sql` must be live, or every message lands in the
    fail-soft path.
 2. In the app's **Settings** page, set the household's **forward address** to
-   `trips@badgerops.foo` and add the expected senders (full addresses or bare
-   domains, e.g. `airline.com`) to the **sender allowlist**. An unclaimed
-   recipient is never stored, and an empty allowlist rejects every sender.
+   `trips@badgerops.foo` and add the expected senders to the **sender
+   allowlist**. Use the exact address for people or forwarding mailboxes (for
+   example, `person@example.com`) so independent DKIM verification can recover
+   when Cloudflare omits its verdict. Bare domains (for example,
+   `airline.com`) are convenient for vendor infrastructure but require a
+   trusted Cloudflare verdict. An unclaimed recipient is never stored, and an
+   empty allowlist rejects every sender.
 3. Optionally set `FALLBACK_FORWARD_TO` on the Worker (var or secret) to an
    Email Routing **verified destination address** — `message.forward()` only
    works to verified destinations.
@@ -181,6 +199,28 @@ action from **Send to an email** to **Send to a Worker** → pick the production
 
 To roll back at any time, switch the action back to **Send to an email**
 pointing at the mailbox; the Worker keeps working for anything already stored.
+
+### Production authentication smoke test
+
+After each change to Email Routing or sender verification:
+
+1. Send one direct vendor confirmation from a configured domain and confirm
+   its `inbound_email` activity reaches `received` or `extracted`.
+2. Forward one confirmation from an exact-address allowlist entry and confirm
+   it reaches `received` or `extracted`, even if Cloudflare does not expose a
+   trusted result header to the Worker.
+3. From infrastructure not authorized by the allowlisted domain, attempt a
+   controlled message with both envelope and outer `From` set to the exact
+   allowlisted address. Confirm Cloudflare rejects it before the Worker or the
+   Worker records it as `rejected`; it must never become `received`.
+4. In **Compute → Email Service → Email Routing → Activity**, record the
+   message ID and redacted SPF, DKIM, DMARC, ARC, and lifecycle results for all
+   three checks. In Travel HQ Settings, record the corresponding metadata-only
+   ingest activity. Never paste raw personal mail into an issue.
+
+The independent fallback needs outbound HTTPS access to
+`cloudflare-dns.com`. A resolver outage intentionally rejects and uses
+`FALLBACK_FORWARD_TO`; retry the message after DNS recovers.
 
 ## 6. First run
 
