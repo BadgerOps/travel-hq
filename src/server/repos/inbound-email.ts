@@ -1,4 +1,4 @@
-import { TenantRepo, NotFoundError, ValidationError } from "./base.js";
+import { TenantRepo, ForbiddenError, NotFoundError, ValidationError } from "./base.js";
 import type { HouseholdContext } from "./base.js";
 import { newId } from "../ids.js";
 
@@ -51,6 +51,11 @@ export type CreateInboundEmailInput = {
   /** Required in spirit for failed/rejected; ignored-as-null when absent. */
   error?: string | null;
 };
+
+export type InboundEmailMetadata = Pick<
+  InboundEmail,
+  "from" | "to" | "subject" | "status" | "error" | "receivedAt"
+>;
 
 type Row = {
   id: string;
@@ -117,6 +122,27 @@ export class InboundEmailRepo extends TenantRepo {
       "SELECT * FROM inbound_email WHERE {scope} ORDER BY received_at DESC, id DESC",
     );
     return rows.map(toInboundEmail);
+  }
+
+  /** Owner/adult activity feed. Deliberately selects no raw or identifier columns. */
+  async listMetadata(): Promise<InboundEmailMetadata[]> {
+    if (this.ctx.role === "viewer") {
+      throw new ForbiddenError("Viewers may not access inbound email activity");
+    }
+    const rows = await this.all<
+      Pick<Row, "from_address" | "to_address" | "subject" | "status" | "error" | "received_at">
+    >(
+      `SELECT from_address, to_address, subject, status, error, received_at
+         FROM inbound_email WHERE {scope} ORDER BY received_at DESC, id DESC`,
+    );
+    return rows.map((row) => ({
+      from: row.from_address,
+      to: row.to_address,
+      subject: row.subject,
+      status: row.status,
+      error: row.error,
+      receivedAt: row.received_at,
+    }));
   }
 
   /**

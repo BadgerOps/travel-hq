@@ -1,4 +1,7 @@
 import { TenantRepo, ForbiddenError, ValidationError } from "./base.js";
+import type { HouseholdContext } from "./base.js";
+import { assertNotMasked } from "../crypto/envelope.js";
+import type { Keyring } from "../crypto/envelope.js";
 
 /**
  * The one place the default extractor model is spelled out. The ingest
@@ -6,6 +9,10 @@ import { TenantRepo, ForbiddenError, ValidationError } from "./base.js";
  * future model bump is a one-line change here.
  */
 export const DEFAULT_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+export const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8";
+export const AI_PROVIDERS = ["workers-ai", "anthropic"] as const;
+export type AiProvider = (typeof AI_PROVIDERS)[number];
+export const MAX_EXTRACTION_INSTRUCTIONS_CHARS = 2_000;
 
 export type HouseholdSettings = {
   /** Where mail for this household is sent; null = ingest not configured. */
@@ -17,6 +24,16 @@ export type HouseholdSettings = {
   senderAllowlist: string[];
   /** The Workers AI model id the extractor runs. */
   aiModel: string;
+  aiProvider: AiProvider;
+  anthropicModel: string;
+  /** The only credential state exposed outside the repository. */
+  anthropicKeyConfigured: boolean;
+  extractionInstructions: string;
+};
+
+export type IngestHouseholdSettings = HouseholdSettings & {
+  /** Encrypted envelope for runtime use only; never serialize this type. */
+  anthropicApiKeyCiphertext: string | null;
 };
 
 /**
@@ -28,6 +45,11 @@ export type UpdateHouseholdSettingsInput = {
   forwardAddress?: string | null;
   senderAllowlist?: string[];
   aiModel?: string;
+  aiProvider?: AiProvider;
+  anthropicModel?: string;
+  /** absent = keep, null = clear, string = encrypt and replace */
+  anthropicApiKey?: string | null;
+  extractionInstructions?: string;
 };
 
 /**
@@ -38,21 +60,41 @@ export type UpdateHouseholdSettingsInput = {
  */
 export type ForwardAddressMatch = {
   householdId: string;
-  settings: HouseholdSettings;
+  settings: IngestHouseholdSettings;
 };
 
 /** The defaults a household with no settings row behaves as. */
 export function defaultHouseholdSettings(): HouseholdSettings {
-  return { forwardAddress: null, senderAllowlist: [], aiModel: DEFAULT_AI_MODEL };
+  return {
+    forwardAddress: null,
+    senderAllowlist: [],
+    aiModel: DEFAULT_AI_MODEL,
+    aiProvider: "workers-ai",
+    anthropicModel: DEFAULT_ANTHROPIC_MODEL,
+    anthropicKeyConfigured: false,
+    extractionInstructions: "",
+  };
 }
 
 type Row = {
   forward_address: string | null;
   sender_allowlist: string;
   ai_model: string;
+  ai_provider: string;
+  anthropic_model: string;
+  anthropic_api_key: string | null;
+  extraction_instructions: string;
 };
 
 export class HouseholdSettingsRepo extends TenantRepo {
+  constructor(
+    db: D1Database,
+    ctx: HouseholdContext,
+    private readonly ring?: Keyring,
+  ) {
+    super(db, ctx);
+  }
+
   /**
    * The household's settings, or the defaults when no row exists yet.
    * Owner/adult only — see requireOwnerOrAdult below.
@@ -61,6 +103,15 @@ export class HouseholdSettingsRepo extends TenantRepo {
     this.requireOwnerOrAdult();
     const row = await this.getRow();
     return row ? toSettings(row) : defaultHouseholdSettings();
+  }
+
+  /** Internal provider configuration, including only encrypted credential data. */
+  async getIngestSettings(): Promise<IngestHouseholdSettings> {
+    this.requireOwnerOrAdult();
+    const row = await this.getRow();
+    return row
+      ? toIngestSettings(row)
+      : { ...defaultHouseholdSettings(), anthropicApiKeyCiphertext: null };
   }
 
   /**
@@ -86,6 +137,38 @@ export class HouseholdSettingsRepo extends TenantRepo {
         : JSON.stringify(normalizeAllowlist(input.senderAllowlist));
     const aiModel =
       input.aiModel === undefined ? (current?.ai_model ?? DEFAULT_AI_MODEL) : normalizeModel(input.aiModel);
+    const aiProvider =
+      input.aiProvider === undefined
+        ? normalizeStoredProvider(current?.ai_provider)
+        : normalizeProvider(input.aiProvider);
+    const anthropicModel =
+      input.anthropicModel === undefined
+        ? normalizeModel(current?.anthropic_model ?? DEFAULT_ANTHROPIC_MODEL, "anthropicModel")
+        : normalizeModel(input.anthropicModel, "anthropicModel");
+    const extractionInstructions =
+      input.extractionInstructions === undefined
+        ? (current?.extraction_instructions ?? "")
+        : normalizeInstructions(input.extractionInstructions);
+
+    let anthropicApiKey = current?.anthropic_api_key ?? null;
+    if (input.anthropicApiKey !== undefined) {
+      if (input.anthropicApiKey === null) {
+        anthropicApiKey = null;
+      } else {
+        rejectMasked("anthropicApiKey", input.anthropicApiKey);
+        const plaintext = input.anthropicApiKey.trim();
+        if (plaintext === "") {
+          throw new ValidationError("anthropicApiKey must not be blank");
+        }
+        if (!this.ring) {
+          throw new Error("HouseholdSettingsRepo requires a Keyring to store an Anthropic API key");
+        }
+        anthropicApiKey = await this.ring.encrypt(plaintext);
+      }
+    }
+    if (aiProvider === "anthropic" && anthropicApiKey === null) {
+      throw new ValidationError("An Anthropic API key is required when Anthropic is selected");
+    }
 
     if (forwardAddress !== null) {
       // ValidationError (400), not a raw UNIQUE-constraint failure (500): two
@@ -108,11 +191,17 @@ export class HouseholdSettingsRepo extends TenantRepo {
     if (current) {
       await this.run(
         `UPDATE household_settings
-            SET forward_address = ?2, sender_allowlist = ?3, ai_model = ?4, updated_at = ?5
+            SET forward_address = ?2, sender_allowlist = ?3, ai_model = ?4,
+                ai_provider = ?5, anthropic_model = ?6, anthropic_api_key = ?7,
+                extraction_instructions = ?8, updated_at = ?9
           WHERE {scope}`,
         forwardAddress,
         senderAllowlist,
         aiModel,
+        aiProvider,
+        anthropicModel,
+        anthropicApiKey,
+        extractionInstructions,
         now,
       );
     } else {
@@ -120,6 +209,10 @@ export class HouseholdSettingsRepo extends TenantRepo {
         forward_address: forwardAddress,
         sender_allowlist: senderAllowlist,
         ai_model: aiModel,
+        ai_provider: aiProvider,
+        anthropic_model: anthropicModel,
+        anthropic_api_key: anthropicApiKey,
+        extraction_instructions: extractionInstructions,
         created_at: now,
         updated_at: now,
       });
@@ -150,18 +243,21 @@ export class HouseholdSettingsRepo extends TenantRepo {
     const row = await db
       .prepare(
         `SELECT household_id, forward_address, sender_allowlist, ai_model
+                , ai_provider, anthropic_model, anthropic_api_key, extraction_instructions
            FROM household_settings
           WHERE forward_address = ?`,
       )
       .bind(address)
       .first<Row & { household_id: string }>();
     if (!row) return undefined;
-    return { householdId: row.household_id, settings: toSettings(row) };
+    return { householdId: row.household_id, settings: toIngestSettings(row) };
   }
 
   private async getRow(): Promise<Row | undefined> {
     return this.get<Row>(
-      "SELECT forward_address, sender_allowlist, ai_model FROM household_settings WHERE {scope}",
+      `SELECT forward_address, sender_allowlist, ai_model, ai_provider,
+              anthropic_model, anthropic_api_key, extraction_instructions
+         FROM household_settings WHERE {scope}`,
     );
   }
 
@@ -184,6 +280,20 @@ function toSettings(r: Row): HouseholdSettings {
     forwardAddress: r.forward_address,
     senderAllowlist: parseAllowlist(r.sender_allowlist),
     aiModel: r.ai_model,
+    aiProvider: normalizeStoredProvider(r.ai_provider),
+    anthropicModel: normalizeStoredModel(r.anthropic_model, DEFAULT_ANTHROPIC_MODEL),
+    anthropicKeyConfigured: r.anthropic_api_key !== null,
+    extractionInstructions:
+      r.extraction_instructions.length <= MAX_EXTRACTION_INSTRUCTIONS_CHARS
+        ? r.extraction_instructions
+        : "",
+  };
+}
+
+function toIngestSettings(r: Row): IngestHouseholdSettings {
+  return {
+    ...toSettings(r),
+    anthropicApiKeyCiphertext: r.anthropic_api_key,
   };
 }
 
@@ -236,10 +346,46 @@ function normalizeAllowlist(entries: string[]): string[] {
   return out;
 }
 
-function normalizeModel(model: string): string {
+function normalizeModel(model: string, field = "aiModel"): string {
   const normalized = model.trim();
   if (normalized === "") {
-    throw new ValidationError("aiModel must not be blank");
+    throw new ValidationError(`${field} must not be blank`);
   }
   return normalized;
+}
+
+function normalizeStoredModel(model: string, fallback: string): string {
+  const normalized = model.trim();
+  return normalized === "" ? fallback : normalized;
+}
+
+function normalizeProvider(provider: string): AiProvider {
+  if ((AI_PROVIDERS as readonly string[]).includes(provider)) {
+    return provider as AiProvider;
+  }
+  throw new ValidationError(`aiProvider must be one of ${AI_PROVIDERS.join(", ")}`);
+}
+
+function normalizeStoredProvider(provider: string | undefined): AiProvider {
+  if (provider && (AI_PROVIDERS as readonly string[]).includes(provider)) {
+    return provider as AiProvider;
+  }
+  return "workers-ai";
+}
+
+function normalizeInstructions(instructions: string): string {
+  if (instructions.length > MAX_EXTRACTION_INSTRUCTIONS_CHARS) {
+    throw new ValidationError(
+      `extractionInstructions must be at most ${MAX_EXTRACTION_INSTRUCTIONS_CHARS} characters`,
+    );
+  }
+  return instructions;
+}
+
+function rejectMasked(field: string, value: string): void {
+  try {
+    assertNotMasked(field, value);
+  } catch (err) {
+    throw new ValidationError(err instanceof Error ? err.message : String(err));
+  }
 }

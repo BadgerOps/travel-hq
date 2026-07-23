@@ -5,12 +5,16 @@ import userEvent from "@testing-library/user-event";
 import { Settings } from "../../../src/client/pages/Settings.js";
 import { ApiError } from "../../../src/client/api/client.js";
 import { IdentityProvider } from "../../../src/client/api/identity.js";
-import type { Identity } from "../../../src/client/api/types.js";
+import type { Identity, InboundEmailMetadata } from "../../../src/client/api/types.js";
 
 const SETTINGS = {
   forwardAddress: "trips@badgerops.foo",
   senderAllowlist: ["badger@example.com", "airline.com"],
   aiModel: "@cf/meta/llama-3.1-8b-instruct",
+  aiProvider: "workers-ai" as const,
+  anthropicModel: "claude-opus-4-8",
+  anthropicKeyConfigured: false,
+  extractionInstructions: "",
 };
 
 function makeApi(over: Record<string, unknown> = {}) {
@@ -18,8 +22,10 @@ function makeApi(over: Record<string, unknown> = {}) {
     settings: {
       get: vi.fn(async () => SETTINGS),
       update: vi.fn(async (input: Record<string, unknown>) => ({ ...SETTINGS, ...input })),
+      testExtraction: vi.fn(async () => ({ bookings: [] })),
       ...over,
     },
+    inboundEmails: { list: vi.fn(async (): Promise<InboundEmailMetadata[]> => []) },
   };
 }
 
@@ -72,18 +78,19 @@ describe("Settings", () => {
     await userEvent.type(allowlist, "one@example.com{enter}hotels.com");
     await userEvent.click(screen.getByRole("button", { name: /save settings/i }));
     expect(await screen.findByText(/settings saved/i)).toBeInTheDocument();
-    expect(api.settings.update).toHaveBeenCalledWith({
+    expect(api.settings.update).toHaveBeenCalledWith(expect.objectContaining({
       forwardAddress: "trips@badgerops.foo",
       senderAllowlist: ["one@example.com", "hotels.com"],
       aiModel: "@cf/meta/llama-3.1-8b-instruct",
-    });
+    }));
   });
 
   it("saves an in-app household model change", async () => {
     const api = renderSettings();
     const model = await screen.findByLabelText("Extraction model");
-    await userEvent.clear(model);
-    await userEvent.type(model, "@cf/meta/custom-travel-model");
+    await userEvent.selectOptions(model, "__custom__");
+    const custom = screen.getByLabelText("Custom Workers AI model id");
+    await userEvent.type(custom, "@cf/meta/custom-travel-model");
     await userEvent.click(screen.getByRole("button", { name: /save settings/i }));
 
     expect(await screen.findByText(/settings saved/i)).toBeInTheDocument();
@@ -145,11 +152,12 @@ describe("Settings", () => {
     });
     renderSettings(api);
     const model = await screen.findByLabelText("Extraction model");
-    await userEvent.clear(model);
-    await userEvent.type(model, "@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+    await userEvent.selectOptions(model, "__custom__");
+    const custom = screen.getByLabelText("Custom Workers AI model id");
+    await userEvent.type(custom, "@cf/meta/custom-travel-model");
     await userEvent.click(screen.getByRole("button", { name: /save settings/i }));
     expect(await screen.findByRole("alert")).toBeInTheDocument();
-    expect(model).toHaveValue("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+    expect(custom).toHaveValue("@cf/meta/custom-travel-model");
   });
 
   it("renders the ingest-activity placeholder with an honest empty state", async () => {
@@ -158,5 +166,83 @@ describe("Settings", () => {
     const section = screen.getByRole("region", { name: /recent ingest activity/i });
     expect(section).toBeInTheDocument();
     expect(screen.getByText(/nothing ingested yet/i)).toBeInTheDocument();
+  });
+
+  it("configures Anthropic with a write-only key and instruction counter", async () => {
+    const api = renderSettings();
+    await screen.findByLabelText("AI provider");
+    await userEvent.selectOptions(screen.getByLabelText("AI provider"), "anthropic");
+    expect(screen.getByLabelText("Anthropic model")).toHaveValue("claude-opus-4-8");
+    await userEvent.type(screen.getByLabelText("Anthropic API key"), "sk-ant-new");
+    await userEvent.type(
+      screen.getByLabelText("Household extraction instructions"),
+      "Prefer BOI.",
+    );
+    expect(screen.getByText(/11\/2000/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /save settings/i }));
+    expect(api.settings.update).toHaveBeenCalledWith(expect.objectContaining({
+      aiProvider: "anthropic",
+      anthropicApiKey: "sk-ant-new",
+      extractionInstructions: "Prefer BOI.",
+    }));
+  });
+
+  it("shows configured key controls without rendering a key value even on Workers AI", async () => {
+    const api = makeApi({
+      get: vi.fn(async () => ({
+        ...SETTINGS,
+        anthropicKeyConfigured: true,
+      })),
+    });
+    renderSettings(api);
+    expect(await screen.findByText(/configured ••••/i)).toBeInTheDocument();
+    expect(screen.queryByDisplayValue(/sk-ant/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /replace/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /remove/i })).toBeInTheDocument();
+  });
+
+  it("runs a dry extraction and renders draft-style results", async () => {
+    const api = makeApi({
+      testExtraction: vi.fn(async () => ({
+        bookings: [{
+          kind: "flight",
+          title: "BOI to STS",
+          location: "Boise",
+          startsAt: null,
+          startsAtTz: null,
+          endsAt: null,
+          endsAtTz: null,
+          confirmationNumber: "FLY123",
+          costCents: null,
+          details: {},
+        }],
+      })),
+    });
+    renderSettings(api);
+    await screen.findByLabelText("Email body");
+    await userEvent.type(screen.getByLabelText("Subject"), "Flight");
+    await userEvent.type(screen.getByLabelText("Email body"), "Confirmation FLY123");
+    await userEvent.click(screen.getByRole("button", { name: /run test/i }));
+    expect(await screen.findByText("BOI to STS")).toBeInTheDocument();
+    expect(api.settings.testExtraction).toHaveBeenCalledWith({
+      subject: "Flight",
+      text: "Confirmation FLY123",
+    });
+  });
+
+  it("renders recent ingest failure metadata", async () => {
+    const api = makeApi();
+    api.inboundEmails.list.mockResolvedValue([{
+      from: "airline@example.com",
+      to: "trips@example.com",
+      subject: "Broken extraction",
+      status: "failed",
+      error: "Extraction failed: rate limited",
+      receivedAt: "2026-07-23T12:00:00.000Z",
+    }]);
+    renderSettings(api);
+    expect(await screen.findByText("Broken extraction")).toBeInTheDocument();
+    expect(screen.getByText("Extraction failed: rate limited")).toBeInTheDocument();
+    expect(screen.getByText("failed")).toBeInTheDocument();
   });
 });

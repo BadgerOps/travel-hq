@@ -1,7 +1,7 @@
 {
   "name": "travel-hq",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
@@ -19,6 +19,7 @@
     "deploy:production": "wrangler deploy --env production"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.114.0",
     "@phosphor-icons/react": "^2.1.10",
     "@vitejs/plugin-react": "^4.4.1",
     "hono": "^4.12.31",

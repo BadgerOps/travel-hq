@@ -1,63 +1,49 @@
-# Coder Handoff
+# Issue 28 implementation changes
 
 ## Files changed
 
-- Added `migrations/0005_draft_booking.sql`.
-- Added extraction modules:
-  - `src/server/ingest/extract.ts`
-  - `src/server/ingest/extracted.ts`
-  - `src/server/ingest/ics.ts`
-  - `src/server/ingest/mime.ts`
-- Added `src/server/repos/draft-booking.ts`.
-- Updated `src/server/ingest.ts` to invoke extraction after verified storage.
-- Updated `src/server/repos/booking.ts` with source-email provenance.
-- Updated Workers AI bindings/types in `wrangler.toml`,
-  `src/server/index.ts`, `tests/server/env.d.ts`, and `vitest.config.ts`.
-- Updated `docs/cloudflare-github-setup.md`.
-- Added/updated focused tests under `tests/server/ingest`,
-  `tests/server/repos`, `tests/server/email.test.ts`, and
-  `tests/server/db/schema.test.ts`.
-- Added `CHANGELOG.md` and bumped package/lockfile versions to `0.2.0`.
+- Added `migrations/0006_agent_config.sql`.
+- Extended household settings/repository and inbound-email metadata reads.
+- Added provider abstraction and official Anthropic SDK integration in
+  `src/server/ingest/providers.ts`.
+- Refactored extraction/ingest to use configured providers, household
+  instructions, runtime credential fallback, and provider provenance.
+- Extended settings routes and added the extraction-test endpoint.
+- Added and registered the metadata-only inbound-email route.
+- Extended application bindings/overrides for stubbed Anthropic clients.
+- Extended the client API/types, rebuilt Settings, and added a reusable
+  `DraftBookingCard`.
+- Added the Anthropic SDK dependency.
+- Bumped package version to `0.3.0` and added the concrete changelog entry.
 
 ## Behavior implemented
 
-- Calendar attachments are parsed authoritatively before any model path.
-- Plain-text, HTML-only, and attached forwarded confirmation mail is converted
-  to readable prompt text and sent to the household-configured Workers AI
-  model with the committed strict JSON schema.
-- MIME recursion and AI prompt size are bounded so pathological or
-  marketing-heavy forwards fail safely without exhausting the worker/model
-  context.
-- Complete validated extraction results become an ordered transactional batch
-  of pending drafts tied to their inbound email.
-- Inbound messages transition `received → extracted|failed` fail-soft.
-- Missing AI configuration leaves plain mail queued as `received`.
-- Existing drafts are recognized on retry, preventing duplicate model calls or
-  draft rows if only the final status transition previously failed.
-- Accepted bookings can retain a tenant-validated source inbound-email id.
-- Calendar extraction is all-or-nothing across VEVENTs and rejects impossible
-  or nonexistent local wall times.
-- Draft acceptance requires the real booking to retain the same source email.
-- Development, testing, and production declare the `AI` binding.
-- The existing Settings UI/API remains the source of per-household model
-  configuration; explanatory copy and a successful model-change test make the
-  distinction from the Wrangler binding explicit.
+- Provider/model selection for Workers AI and Anthropic.
+- Envelope-encrypted, write-only, tri-state Anthropic API keys with mask-glyph
+  protection and save-time Anthropic-without-key rejection.
+- Household prompt guidance capped at 2,000 characters and appended after the
+  fixed prompt contract in a delimited section.
+- Anthropic JSON-schema structured output through the official SDK.
+- Soft runtime fallback to Workers AI when Anthropic credentials are missing
+  or undecryptable, with the actual provider recorded in AI draft payloads.
+- Persist-nothing extraction dry runs for owners/adults.
+- Tenant-scoped, newest-first inbound activity containing metadata only.
+- Settings controls, dry-run result cards, and live ingest activity/error
+  rendering.
 
 ## Deviations from spec
 
-- None.
-- Compared with the earlier stacked PR #15 implementation, this port
-  deliberately changes malformed-calendar handling from AI fallback to failure
-  and adds retry-safe ordinals/provenance required by the current issue text.
+- `EmailIngestEnv.ENCRYPTION_KEY` is optional at the narrow handler type for
+  compatibility with Workers-only test/runtime callers. The production
+  `AppBindings.ENCRYPTION_KEY` remains required. A missing keyring is treated
+  exactly like an unavailable Anthropic credential and falls back softly.
+- The issue-linked approved design file was absent from `github/master`; the
+  issue body supplied the implementation contract.
 
 ## Suggested verification
 
-- `npm run typecheck`
-- `npx vitest run tests/server/ingest/extract.test.ts tests/server/ingest/parsers.test.ts tests/server/repos/draft-booking.test.ts tests/server/repos/booking.test.ts tests/server/email.test.ts tests/server/db/schema.test.ts`
-- `npm run test:all`
-- `npm run build`
-- `npx wrangler deploy --dry-run`
-- `npx wrangler deploy --env testing --dry-run`
-- `npx wrangler deploy --env production --dry-run`
-- Confirm package and changelog versions are exactly `0.2.0` and no
-  `Unreleased` section exists.
+- Update existing settings expectations for the expanded safe response.
+- Add repository, provider, route, ingest, client, and UI tests from the
+  verification plan in `.pipeline/spec.md`.
+- Run focused suites, then `npm run typecheck`, `npm run test:all`, and
+  `npm run build` through `nix develop -c`.

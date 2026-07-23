@@ -45,6 +45,27 @@ describe("migrated schema", () => {
     );
   });
 
+  it("adds constrained extraction-agent settings with safe defaults", async () => {
+    const columns = await env.DB.prepare("PRAGMA table_info(household_settings)")
+      .all<{ name: string; dflt_value: string | null }>();
+    expect(columns.results.map((column) => column.name)).toEqual(expect.arrayContaining([
+      "ai_provider",
+      "anthropic_model",
+      "anthropic_api_key",
+      "extraction_instructions",
+    ]));
+    expect(columns.results.find((column) => column.name === "ai_provider")?.dflt_value)
+      .toContain("workers-ai");
+
+    const now = new Date().toISOString();
+    await env.DB.prepare("INSERT INTO household (id,name,created_at) VALUES (?,?,?)")
+      .bind("hh-provider", "Provider", now).run();
+    await expect(env.DB.prepare(
+      `INSERT INTO household_settings
+       (household_id, ai_provider, created_at, updated_at) VALUES (?,?,?,?)`,
+    ).bind("hh-provider", "bogus", now, now).run()).rejects.toThrow(/CHECK/i);
+  });
+
   it("cascades a household delete down to its trips, bookings, and inbound email", async () => {
     const now = new Date().toISOString();
     await env.DB.prepare("INSERT INTO household (id, name, created_at) VALUES (?, ?, ?)")

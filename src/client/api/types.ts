@@ -27,6 +27,9 @@ export type {
   UpdatePerkInput,
 } from "../../server/repos/card.js";
 export type {
+  AiProvider,
   HouseholdSettings,
   UpdateHouseholdSettingsInput,
 } from "../../server/repos/household-settings.js";
+export type { InboundEmailMetadata } from "../../server/repos/inbound-email.js";
+export type { ExtractedBooking } from "../../server/ingest/extracted.js";

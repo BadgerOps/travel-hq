@@ -90,4 +90,21 @@ describe("api client", () => {
       expect.anything(),
     );
   });
+
+  it("posts extraction tests and lists safe inbound activity", async () => {
+    const fetchMock = mockFetch(200, { bookings: [] });
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    await api.settings.testExtraction({ subject: "Flight", text: "Confirmation" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/settings/extraction-test",
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response("[]", {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    await api.inboundEmails.list();
+    expect(fetchMock).toHaveBeenCalledWith("/api/inbound-emails", expect.anything());
+  });
 });

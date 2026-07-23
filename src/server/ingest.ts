@@ -3,15 +3,23 @@ import { InboundEmailRepo } from "./repos/inbound-email.js";
 import type { InboundEmail } from "./repos/inbound-email.js";
 import { extractInboundEmail } from "./ingest/extract.js";
 import type { ExtractionAi } from "./ingest/extract.js";
+import {
+  resolveExtractionProvider,
+} from "./ingest/providers.js";
+import type { AnthropicClientFactory } from "./ingest/providers.js";
+import { loadKeyring } from "./crypto/envelope.js";
 
 /**
- * The slice of the Worker's bindings the email() handler needs. Deliberately
- * NOT the full AppBindings: ingest never touches auth or encryption.
+ * The slice of the Worker's bindings the email() handler needs.
  */
 export type EmailIngestEnv = {
   DB: D1Database;
+  /** Same keyring secret used by authenticated routes; decrypts provider keys. */
+  ENCRYPTION_KEY?: string;
   /** Workers AI JSON-mode fallback for messages without calendar parts. */
   AI?: ExtractionAi;
+  /** Test seam only; production uses the official SDK's client. */
+  anthropicClientFactory?: AnthropicClientFactory;
   /**
    * Optional Email Routing destination address. Every message that is NOT
    * stored as `received` (unclaimed recipient, rejected sender, internal
@@ -121,12 +129,25 @@ export async function handleInboundEmail(
   // Extraction owns its own fail-soft status transitions. Keep it outside the
   // ingest catch so an unexpected extractor bug cannot create a second row for
   // a message that was already stored successfully.
+  let ring;
+  try {
+    if (env.ENCRYPTION_KEY) ring = loadKeyring(env.ENCRYPTION_KEY);
+  } catch (err) {
+    console.warn("[extract] encryption keyring unavailable", err);
+  }
+  const provider = await resolveExtractionProvider({
+    settings: match.settings,
+    ai: env.AI,
+    ring,
+    anthropicClientFactory: env.anthropicClientFactory,
+    logContext: `inbound email ${stored.id}`,
+  });
   await extractInboundEmail(
     {
       db: env.DB,
-      ai: env.AI,
       householdId: match.householdId,
-      aiModel: match.settings.aiModel,
+      provider,
+      extractionInstructions: match.settings.extractionInstructions,
     },
     stored,
   );
