@@ -9,6 +9,7 @@ import { itinerary } from "./routes/itinerary.js";
 import { bookings } from "./routes/bookings.js";
 import { checklist } from "./routes/checklist.js";
 import { cards } from "./routes/cards.js";
+import { settings } from "./routes/settings.js";
 import { mapError } from "./routes/errors.js";
 
 export type AppBindings = {
@@ -19,8 +20,9 @@ export type AppBindings = {
   TRAVEL_HQ_DEV_EMAIL?: string;
   CF_ACCESS_TEAM_DOMAIN?: string;
   CF_ACCESS_AUD?: string;
-  // Stub email() forwarding target; see worker.ts. Optional -- unset means
-  // the stub no-ops.
+  // Where the email() ingest handler forwards anything it does not store as
+  // `received` (see src/server/ingest.ts). Optional -- unset means such mail
+  // is dropped after being recorded/logged.
   FALLBACK_FORWARD_TO?: string;
 };
 
@@ -86,6 +88,7 @@ export function createApp(overrides: AppOverrides = {}) {
   app.route("/api/bookings", bookings);
   app.route("/api/checklist", checklist);
   app.route("/api/cards", cards);
+  app.route("/api/settings", settings);
 
   app.get("/healthz", (c) => c.text("ok"));
 

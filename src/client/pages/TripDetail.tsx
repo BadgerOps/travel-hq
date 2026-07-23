@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
-import { Link } from "wouter";
-import { MapPin, Plus } from "@phosphor-icons/react";
+import { Link, useLocation } from "wouter";
+import { MapPin, PencilSimple, Plus } from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
+import { useCanWrite } from "../api/identity.js";
 import type { Booking, Person, Trip, TripRollup } from "../api/types.js";
-import { countdownLabel } from "../lib/dates.js";
+import { resolveTripState, tripStateBadge } from "../lib/dates.js";
+import { errorMessage } from "../lib/errors.js";
+import { Dialog } from "../components/Dialog.js";
 import { PersonChips } from "../components/PersonChip.js";
+import { TripForm } from "../components/TripForm.js";
 import { OverviewTab } from "../trip/OverviewTab.js";
 import { TravelersTab } from "../trip/TravelersTab.js";
 import { TripWarnings } from "../trip/TripWarnings.js";
@@ -53,6 +57,15 @@ export function TripDetail({
   const [failed, setFailed] = useState(false);
   const [tab, setTab] = useState<TabId>(() => tabFromHash(window.location.hash));
   const [addingBooking, setAddingBooking] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // The delete dialog's second step: the first click arms, the second fires.
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const canWrite = useCanWrite();
+  const [, navigate] = useLocation();
   // Bumped after any write, to re-run the load effect. Simpler and less
   // error-prone than threading a refetch callback through four tab
   // components, and it reloads the rollup and the booking list together —
@@ -108,6 +121,41 @@ export function TripDetail({
     if (tabFromHash(window.location.hash) !== next) window.location.hash = next;
   }
 
+  /**
+   * Soft cancel and its reversal are the same partial PUT — only the status
+   * changes hands. The full reload (reloadKey) keeps the badge, footer, and
+   * grid pages honest without hand-patching local state.
+   */
+  async function setTripStatus(status: "cancelled" | "planning") {
+    setActionBusy(true);
+    try {
+      await api.trips.update(id, { status });
+      setActionError(null);
+      setConfirmingCancel(false);
+      setReloadKey((n) => n + 1);
+    } catch (err) {
+      // A 403 (role changed under us) or 404 must say so — never a silent
+      // no-op, never String(err).
+      setActionError(errorMessage(err));
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function deleteTrip() {
+    setActionBusy(true);
+    try {
+      await api.trips.delete(id);
+      // The trip is gone; this page has nothing left to show.
+      navigate("/trips");
+    } catch (err) {
+      setActionError(errorMessage(err));
+      setActionBusy(false);
+      setConfirmingDelete(false);
+      setDeleteArmed(false);
+    }
+  }
+
   if (failed) {
     return (
       <p className="text-muted" role="alert">
@@ -117,6 +165,8 @@ export function TripDetail({
   }
   if (trip === undefined) return <p className="text-muted">Loading…</p>;
   if (trip === null) return <p className="text-muted">Trip not found.</p>;
+
+  const state = resolveTripState(trip, today);
 
   return (
     <>
@@ -135,8 +185,18 @@ export function TripDetail({
       <header style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <h3 style={{ margin: 0 }}>{trip.title}</h3>
-          <span className="tag tag-accent">
-            {countdownLabel(trip.startsOn, trip.endsOn, today)}
+          {canWrite && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-icon"
+              aria-label={`Edit ${trip.title}`}
+              onClick={() => setEditing(true)}
+            >
+              <PencilSimple size={14} />
+            </button>
+          )}
+          <span className={state === "cancelled" ? "tag tag-neutral" : "tag tag-accent"}>
+            {tripStateBadge(trip, today)}
           </span>
           <PersonChips people={travelers} />
           <button
@@ -197,9 +257,152 @@ export function TripDetail({
       )}
       {tab === "days" && <DayView tripId={trip.id} people={travelers} api={api} />}
       {tab === "travelers" && (
-        <TravelersTab people={travelers} arrivalOn={trip.startsOn} today={today} api={api} />
+        <TravelersTab
+          people={travelers}
+          arrivalOn={trip.startsOn}
+          today={today}
+          api={api}
+          tripId={trip.id}
+          onRemoved={() => setReloadKey((n) => n + 1)}
+        />
       )}
       {tab === "checklist" && <ChecklistTab tripId={trip.id} people={people} api={api} />}
+
+      {/*
+        The manage footer renders for writers only: every control in it is a
+        guaranteed 403 for a viewer, and a button that can only fail is the
+        same false offer MaskedValue exists to avoid.
+      */}
+      {canWrite && (
+        <footer style={{ marginTop: 28 }}>
+          <hr className="hr" />
+          {actionError && (
+            <p className="warning" role="alert">
+              {actionError}
+            </p>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {state === "cancelled" ? (
+              <>
+                <span className="text-muted" style={{ fontSize: 12.5 }}>
+                  This trip is cancelled. It is hidden from the dashboard until restored.
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={actionBusy}
+                  onClick={() => void setTripStatus("planning")}
+                >
+                  Restore trip
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setConfirmingCancel(true)}
+              >
+                Cancel trip
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ marginLeft: "auto" }}
+              onClick={() => {
+                setDeleteArmed(false);
+                setConfirmingDelete(true);
+              }}
+            >
+              Delete trip
+            </button>
+          </div>
+        </footer>
+      )}
+
+      {editing && (
+        <TripForm
+          // Remount per trip, the same rule People applies to PersonForm:
+          // TripForm seeds its state from props once.
+          key={trip.id}
+          people={people}
+          trip={trip}
+          api={api}
+          onSaved={() => {
+            setEditing(false);
+            setReloadKey((n) => n + 1);
+          }}
+          onClose={() => setEditing(false)}
+        />
+      )}
+
+      {confirmingCancel && (
+        <Dialog title="Cancel this trip?" onClose={() => setConfirmingCancel(false)}>
+          <p style={{ margin: 0, fontSize: 13.5 }}>
+            {trip.title} stays here and can be restored later. Nothing is deleted.
+          </p>
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setConfirmingCancel(false)}
+            >
+              Keep trip
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={actionBusy}
+              onClick={() => void setTripStatus("cancelled")}
+            >
+              Cancel trip
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      {confirmingDelete && (
+        <Dialog
+          title={`Delete ${trip.title}?`}
+          onClose={() => {
+            setConfirmingDelete(false);
+            setDeleteArmed(false);
+          }}
+        >
+          <p style={{ margin: 0, fontSize: 13.5 }}>
+            This permanently deletes the trip and also removes {bookings.length}{" "}
+            {bookings.length === 1 ? "booking" : "bookings"}, its checklist, and its
+            traveller list. It cannot be undone — cancelling instead keeps everything.
+          </p>
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                setConfirmingDelete(false);
+                setDeleteArmed(false);
+              }}
+            >
+              Keep trip
+            </button>
+            {deleteArmed ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={actionBusy}
+                onClick={() => void deleteTrip()}
+              >
+                Yes, permanently delete
+              </button>
+            ) : (
+              // The second confirm: the first click only arms the button.
+              <button type="button" className="btn btn-primary" onClick={() => setDeleteArmed(true)}>
+                Delete trip
+              </button>
+            )}
+          </div>
+        </Dialog>
+      )}
 
       {addingBooking && (
         <BookingDialog
