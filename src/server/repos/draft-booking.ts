@@ -233,6 +233,23 @@ export class DraftBookingRepo extends TenantRepo {
   }
 
   /**
+   * The pending draft, or the specific reason there is none: NotFoundError
+   * for an unknown/cross-household id, ValidationError for a draft already
+   * resolved. The accept route (#7) calls this BEFORE writing anything —
+   * with its create-trip/booking-then-markAccepted ordering, skipping this
+   * check would leave an orphaned booking (and possibly a trip) behind the
+   * ValidationError that markAccepted throws for a resolved draft.
+   */
+  async requirePending(id: string): Promise<DraftBooking> {
+    const draft = await this.findById(id);
+    if (!draft) throw new NotFoundError("Draft booking not found in this household");
+    if (draft.status !== "pending") {
+      throw new ValidationError(`Only a pending draft can be accepted or edited; this one is ${draft.status}`);
+    }
+    return draft;
+  }
+
+  /**
    * Edits a PENDING draft's reviewable fields (#7's edit-before-accept).
    * Accepted/dismissed drafts are immutable audit records. The merged result
    * is validated whole, so an edit can neither blank the title nor leave a
