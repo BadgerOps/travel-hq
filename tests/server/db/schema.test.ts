@@ -9,16 +9,18 @@ async function tableNames(): Promise<string[]> {
   return results.map((r) => r.name);
 }
 
-describe("0001_initial schema", () => {
+describe("migrated schema", () => {
   beforeEach(async () => {
     // Clean the rows a prior test may have left; the schema itself persists.
     await env.DB.exec("DELETE FROM household");
   });
 
-  it("creates every core table and no inbound_email", async () => {
+  it("creates every core table (0001) plus the card tables (0002), and no inbound_email", async () => {
     expect(await tableNames()).toEqual([
       "booking",
       "booking_person",
+      "card",
+      "card_perk",
       "checklist_item",
       "household",
       "household_member",
@@ -50,5 +52,29 @@ describe("0001_initial schema", () => {
     const booking = await env.DB.prepare("SELECT id FROM booking WHERE id = ?").bind("b1").first();
     expect(trip).toBeNull();
     expect(booking).toBeNull();
+  });
+
+  it("cascades a household delete down to cards, and a card delete down to its perks", async () => {
+    const now = new Date().toISOString();
+    await env.DB.prepare("INSERT INTO household (id, name, created_at) VALUES (?, ?, ?)")
+      .bind("hh-a", "A", now)
+      .run();
+    await env.DB.prepare("INSERT INTO card (id, household_id, name, created_at) VALUES (?, ?, ?, ?)")
+      .bind("c1", "hh-a", "Sapphire Reserve", now)
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO card_perk (id, household_id, card_id, name, kind, value_cents, cadence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind("k1", "hh-a", "c1", "Travel credit", "statement_credit", 30000, "annual", now)
+      .run();
+
+    await env.DB.prepare("DELETE FROM card WHERE id = ?").bind("c1").run();
+    expect(await env.DB.prepare("SELECT id FROM card_perk WHERE id = ?").bind("k1").first()).toBeNull();
+
+    await env.DB.prepare("INSERT INTO card (id, household_id, name, created_at) VALUES (?, ?, ?, ?)")
+      .bind("c2", "hh-a", "Amex Platinum", now)
+      .run();
+    await env.DB.prepare("DELETE FROM household WHERE id = ?").bind("hh-a").run();
+    expect(await env.DB.prepare("SELECT id FROM card WHERE id = ?").bind("c2").first()).toBeNull();
   });
 });

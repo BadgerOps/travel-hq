@@ -14,3 +14,15 @@ export type { TripRollup } from "../../server/repos/rollup.js";
 export type { CreatePersonInput, UpdatePersonInput } from "../../server/repos/person.js";
 export type { CreateTripInput } from "../../server/repos/trip.js";
 export type { CreateBookingInput } from "../../server/repos/booking.js";
+export type {
+  Card,
+  CardPerk,
+  CardWithPerks,
+  PerkWithStatus,
+  PerkKind,
+  PerkCadence,
+  CreateCardInput,
+  UpdateCardInput,
+  CreatePerkInput,
+  UpdatePerkInput,
+} from "../../server/repos/card.js";

@@ -15,7 +15,15 @@ export type TripRollup = {
    * look inconsistent with.
    */
   draftCount: number;
-  points: { program: string; used: number }[];
+  /**
+   * `balance` is the household's available points in that program, summed
+   * over the card portfolio (card.points_balance) — null when no card carries
+   * the program. Program-level on purpose: a booking records points_program,
+   * not which card paid, so per-card attribution would be invented data (see
+   * the card-perks design spec). Optional in the type so pre-cards client
+   * fixtures remain valid; the server always includes it.
+   */
+  points: { program: string; used: number; balance?: number | null }[];
 };
 
 export class RollupRepo extends TenantRepo {
@@ -51,7 +59,7 @@ export class RollupRepo extends TenantRepo {
       tripId,
     );
 
-    const points = await this.all<{ program: string; used: number }>(
+    const used = await this.all<{ program: string; used: number }>(
       `SELECT points_program AS program, COALESCE(SUM(points_used), 0) AS used
          FROM booking
         WHERE {scope} AND trip_id = ?2
@@ -63,12 +71,29 @@ export class RollupRepo extends TenantRepo {
       tripId,
     );
 
+    // The card portfolio's balance per program (issue #2): lets the rollup
+    // say "12,500 UR used · 85,000 available" instead of a bare usage count.
+    // Queried only when the trip actually used points -- most trips don't,
+    // and the join is in JS because bookings know a program, never a card.
+    let balances = new Map<string, number>();
+    if (used.length > 0) {
+      const rows = await this.all<{ program: string; balance: number }>(
+        `SELECT points_program AS program, COALESCE(SUM(points_balance), 0) AS balance
+           FROM card
+          WHERE {scope}
+            AND points_program IS NOT NULL
+            AND points_balance IS NOT NULL
+          GROUP BY points_program`,
+      );
+      balances = new Map(rows.map((r) => [r.program, r.balance]));
+    }
+
     return {
       bookedCents,
       plannedCents,
       totalCents: bookedCents + plannedCents,
       draftCount: draft?.count ?? 0,
-      points,
+      points: used.map((p) => ({ ...p, balance: balances.get(p.program) ?? null })),
     };
   }
 }

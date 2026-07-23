@@ -27,6 +27,23 @@ describe("CostRollup", () => {
     expect(screen.getByText("18,500 SkyMiles")).toBeInTheDocument();
   });
 
+  it("shows the card portfolio's balance beside a program when one is known", () => {
+    render(
+      <CostRollup
+        rollup={{
+          bookedCents: 0, plannedCents: 0, totalCents: 0, draftCount: 0,
+          points: [
+            { program: "UR", used: 12_500, balance: 85_000 },
+            { program: "SkyMiles", used: 18_500, balance: null },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText(/12,500 UR · of 85,000 available/)).toBeInTheDocument();
+    // A null balance (no card carries the program) adds nothing.
+    expect(screen.getByText("18,500 SkyMiles")).toBeInTheDocument();
+  });
+
   it("separates planned from booked when both exist", () => {
     render(
       <CostRollup

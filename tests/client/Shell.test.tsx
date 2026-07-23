@@ -19,7 +19,7 @@ describe("Shell", () => {
   it("renders the brand and the primary nav links", () => {
     renderAt("/");
     expect(screen.getByText("Travel HQ")).toBeInTheDocument();
-    for (const label of ["Today", "Trips", "Checklist", "People"]) {
+    for (const label of ["Today", "Trips", "Checklist", "People", "Cards"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }
   });
@@ -35,10 +35,13 @@ describe("Shell", () => {
     );
   });
 
-  it("renders the cards stub as non-interactive", () => {
-    renderAt("/");
-    const cards = screen.getByText(/Cards/);
-    expect(cards.tagName).not.toBe("A");
+  it("renders Cards as a real nav link (the phase-1 stub is gone)", () => {
+    renderAt("/cards");
+    expect(screen.queryByText(/Cards · soon/)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Cards" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("renders its children", () => {

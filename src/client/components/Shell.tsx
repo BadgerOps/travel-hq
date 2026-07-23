@@ -7,6 +7,7 @@ const NAV = [
   { href: "/trips", label: "Trips" },
   { href: "/checklist", label: "Checklist" },
   { href: "/people", label: "People" },
+  { href: "/cards", label: "Cards" },
 ];
 
 export function Shell({
@@ -48,11 +49,6 @@ export function Shell({
             {label}
           </Link>
         ))}
-
-        {/* Phase 2. Deliberately not a link. */}
-        <span className="text-muted" style={{ fontSize: 13.5 }}>
-          Cards · soon
-        </span>
 
         <Link
           href="/import"

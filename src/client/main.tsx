@@ -7,6 +7,7 @@ import { Trips } from "./pages/Trips.js";
 import { TripDetail } from "./pages/TripDetail.js";
 import { Checklist } from "./pages/Checklist.js";
 import { People } from "./pages/People.js";
+import { Cards } from "./pages/Cards.js";
 import { Import } from "./pages/Import.js";
 import { IdentityProvider, useIdentity } from "./api/identity.js";
 import "./styles.css";
@@ -32,6 +33,7 @@ function App() {
           </Route>
           <Route path="/checklist" component={() => <Checklist />} />
           <Route path="/people" component={() => <People />} />
+          <Route path="/cards" component={() => <Cards />} />
           <Route path="/import" component={() => <Import />} />
           <Route>
             <h3>Not found</h3>
