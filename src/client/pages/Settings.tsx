@@ -214,7 +214,9 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
                 placeholder={"you@example.com\nairline.com"} value={allowlistText}
                 onChange={(e) => setAllowlistText(e.target.value)} readOnly={!canWrite} />
               <p className="text-muted" style={helpStyle}>
-                One address or domain per line. An empty list disables email ingest.
+                One address or domain per line. Exact addresses can use verified DKIM
+                when Cloudflare omits its authentication verdict; domain entries require
+                Cloudflare verification. An empty list disables email ingest.
               </p>
             </div>
             <div className="field">

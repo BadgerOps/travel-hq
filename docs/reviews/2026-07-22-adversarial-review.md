@@ -27,7 +27,7 @@ security-hardening branch:
    ARC-Authentication-Results form. A planted pass could be selected over a
    genuine trusted SPF failure.
 
-One major operational blocker and six medium/minor issues remain. They are
+Six medium/minor issues remain. They are
 tracked in GitHub and summarized below so the review remains useful as a single
 artifact.
 
@@ -86,7 +86,7 @@ Remediation:
 Reference:
 <https://blog.cloudflare.com/email-routing-subdomains/#arc>
 
-## Outstanding findings
+## Resolved operational findings
 
 ### O1 — Major: live Email Routing may expose no usable authentication verdict
 
@@ -97,19 +97,21 @@ Authentication-Results and only an upstream ARC record containing no
 SPF/DKIM/DMARC verdict:
 <https://github.com/cloudflare/workerd/issues/6740>.
 
-This matches the app's Gmail-forwarding use case. The application must not
-weaken to envelope/allowlist-only trust, but staying fail-closed can reject all
-legitimate forwarded confirmations.
+Production Activity for a legitimate Fastmail forward reported SPF, DKIM, and
+DMARC `pass`, while the Worker rejected it because no trusted result header was
+available. The application now preserves trusted Cloudflare verdicts as its
+primary path and independently verifies aligned DKIM when the verdict is
+missing. The fallback requires an exact-address allowlist entry, one matching
+outer `From`, a SHA-256 signature that signs `From` and the full body, and a
+current DNS key. Explicit Cloudflare failures, bare-domain entries, unaligned
+or partial-body signatures, and resolver failures remain fail-closed.
 
-Required action:
+The production setup guide contains the repeatable direct, forwarded, and
+controlled-spoof smoke test. The supplied forwarded-message Activity record is
+the live reproduction; the post-merge run remains an operational deployment
+check rather than a code blocker.
 
-- deploy a diagnostic handler on the actual production rule;
-- test direct vendor mail and Gmail-forwarded mail;
-- record redacted authentication-related header names/values;
-- prove legitimate mail becomes `received` and an allowlisted-sender spoof
-  remains `rejected`;
-- if the Cloudflare limitation persists, use an authenticated application-level
-  forwarder or independent DKIM/SPF verification.
+## Outstanding findings
 
 ### O2 — Medium: temporal and numeric validation is inconsistent
 

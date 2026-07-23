@@ -1,4 +1,4 @@
-# Issue 28 review
+# Issue 20 review
 
 ## Verdict
 
@@ -6,36 +6,53 @@
 
 ## Findings
 
-No blocking, high-, medium-, or low-severity findings remain.
+No blocking, major, moderate, or minor code findings remain.
 
-The review checked:
+The first review pass found two non-security availability/consistency issues:
 
-- key plaintext/ciphertext cannot enter settings responses or activity output;
-- tri-state key updates and the mask-glyph rejection happen before storage;
-- save-time provider/key validation and runtime-only credential fallback;
-- Anthropic API/schema failures cannot create partial or invalid drafts;
-- the actual provider is recorded after fallback;
-- extraction tests are authorized, bounded, and persist nothing;
-- inbound activity is tenant-scoped and selects metadata columns only;
-- provider/model/key/instruction UI behavior, including key management while
-  Workers AI is selected;
-- migration constraints/defaults, concrete changelog/version updates, and
-  dependency scope;
-- tests, typecheck, build, Worker dry-run bundle, and diff integrity.
+1. A malformed first DKIM signature could throw before a later valid aligned
+   signature was checked.
+2. One Planner sentence still named the removed `mailauth` prototype.
 
-## Scope and regression review
+Both were returned to Coder/Tester. Per-signature failures are now isolated, a
+real RSA regression proves a later valid signature succeeds, the spec is
+consistent, and typecheck passes after the fix.
 
-The changes stay within issue #28 and its required minimal issue-#8 activity
-slice. Existing `.ics` preference, fail-soft ingest behavior, sender
-verification, and draft atomicity remain intact. The reusable draft result card
-is narrow and prepares the same presentation primitive for issue #7 without
-implementing that queue.
+## Review notes
+
+- Security boundary: the allowlist is still mandatory. Missing Cloudflare
+  verdicts reach independent DKIM only for an exact-address entry; explicit
+  trusted failures and domain-only entries reject before raw input or DNS.
+- Cryptography: only RSA/SHA-256, minimum 1024-bit keys, valid signature time,
+  strict signing-domain/outer-From alignment, a signed `From`, and a complete
+  body are accepted. SHA-1, `l=`, invalid keys, unsupported services/hashes,
+  unaligned identities, and tampering fail closed.
+- Parser behavior: one outer `From` must equal the normalized envelope sender;
+  duplicate/malformed tag lists, malformed headers, excess signatures, and
+  multiple From fields fail closed. Signed-header selection walks repeated
+  fields from the bottom as RFC 6376 requires.
+- Resource bounds: raw mail remains capped at 1 MB, rejected bodies are not
+  persisted, at most ten signatures are attempted, DNS goes only to the fixed
+  Cloudflare DoH endpoint, and lookups time out after five seconds.
+- Scope: no schema/routing/deployment changes and no new runtime dependency.
+  Package and lock versions match `0.3.1`; the changelog uses a concrete
+  section and contains no `Unreleased` entry.
+- Verification: focused cryptographic and UI tests, the final 640-test full
+  suite, typecheck, build, production dry bundle, dependency audit, and diff
+  checks pass.
 
 ## Residual risks
 
-- Anthropic and Workers AI behavior is transport-stubbed in tests; no live
-  provider call was made.
-- The Worker was bundled with Wrangler dry-run but not deployed, so real Email
-  Routing and production D1 migration application remain deployment checks.
-- Visual behavior is component-tested but not covered by screenshot or
-  cross-browser testing.
+- The new path cannot be proven against the production Email Routing rule
+  before merge/deploy. The documented post-deploy direct, Fastmail-forwarded,
+  and controlled-spoof smoke test remains mandatory. The supplied Activity
+  record proves the original failure, not the remediation.
+- Strict alignment intentionally rejects a valid DKIM signature whose `d=`
+  domain is only organizationally related to, rather than exactly equal to,
+  the outer From domain. That is safer for this exact-address fallback but may
+  require the primary Cloudflare verdict for some providers.
+- RSA/SHA-256 is deliberately the only independent fallback algorithm.
+  Ed25519-only or otherwise unsupported signers remain rejected and use
+  `FALLBACK_FORWARD_TO`.
+- A Cloudflare DoH outage causes fail-closed rejection/forwarding until DNS
+  recovers.

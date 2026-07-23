@@ -8,6 +8,8 @@ import {
 } from "./ingest/providers.js";
 import type { AnthropicClientFactory } from "./ingest/providers.js";
 import { loadKeyring } from "./crypto/envelope.js";
+import { resolveDnsTxt, verifyAlignedDkim } from "./ingest/dkim.js";
+import type { DnsTxtResolver } from "./ingest/dkim.js";
 
 /**
  * The slice of the Worker's bindings the email() handler needs.
@@ -20,6 +22,8 @@ export type EmailIngestEnv = {
   AI?: ExtractionAi;
   /** Test seam only; production uses the official SDK's client. */
   anthropicClientFactory?: AnthropicClientFactory;
+  /** Test seam only; production resolves DKIM TXT keys through DNS over HTTPS. */
+  dkimResolver?: DnsTxtResolver;
   /**
    * Optional Email Routing destination address. Every message that is NOT
    * stored as `received` (unclaimed recipient, rejected sender, internal
@@ -44,7 +48,11 @@ const TRUNCATION_MARKER = "\n[truncated by travel-hq ingest]";
 /** Keep stored reasons short and single-purpose; #8 renders them verbatim. */
 const MAX_ERROR_CHARS = 500;
 
-export type SenderVerdict = { ok: true } | { ok: false; reason: string };
+export type CloudflareAuthVerdict = "pass" | "fail" | "unavailable";
+export type SenderVerdict =
+  | { decision: "accept"; source: "cloudflare" }
+  | { decision: "verify-dkim" }
+  | { decision: "reject"; reason: string };
 
 /**
  * Real ingest for the email() handler (issue #4). Fail-soft end to end: this
@@ -56,11 +64,11 @@ export type SenderVerdict = { ok: true } | { ok: false; reason: string };
  *   (if configured) and NEVER write — an unclaimed address must not be able
  *   to create rows anywhere.
  * - Sender verification: the envelope From: must be on the household's
- *   allowlist AND a Cloudflare-authored Authentication-Results or
- *   ARC-Authentication-Results record must carry passing DMARC/SPF results.
- *   Anything less is stored as a metadata-only `rejected` row for auditability
- *   and forwarded to the fallback. Attacker-controlled raw bodies are never
- *   persisted for rejected mail.
+ *   allowlist AND authenticated. A Cloudflare-authored DMARC/SPF pass is the
+ *   primary path. When Email Routing omits those verdicts, an exact-address
+ *   allowlist entry may use independent, aligned DKIM verification of the raw
+ *   message. Anything less is stored as a metadata-only `rejected` row and
+ *   forwarded to the fallback.
  * - Storage: the verified message is stored raw (headers + body, truncated at
  *   MAX_RAW_BYTES) with parsed metadata as a `received` row — the durable
  *   record the extractor (#6) and review queue (#7) read. Storing raw before
@@ -102,7 +110,7 @@ export async function handleInboundEmail(
 
   try {
     const verdict = verifySender(message.from, message.headers, match.settings.senderAllowlist);
-    if (!verdict.ok) {
+    if (verdict.decision === "reject") {
       // Verify before reading the stream, and retain metadata only. The
       // forwarding address is public by design; storing up to 1 MB for every
       // rejected message lets any spammer exhaust D1 cheaply.
@@ -112,6 +120,20 @@ export async function handleInboundEmail(
     }
 
     const raw = await readRawLimited(message.raw);
+    if (verdict.decision === "verify-dkim") {
+      const dkim = await verifyAlignedDkim(
+        raw,
+        message.from,
+        env.dkimResolver ?? resolveDnsTxt,
+      );
+      if (!dkim.ok) {
+        console.warn("[email-ingest] independent DKIM fallback rejected message", dkim.reason);
+        await repo.create({ ...meta, raw: "", status: "rejected", error: dkim.reason });
+        await forwardToFallback(message, env);
+        return;
+      }
+      console.info("[email-ingest] accepted via independent aligned DKIM fallback");
+    }
     stored = await repo.create({ ...meta, raw, status: "received" });
   } catch (err) {
     console.error("[email-ingest] ingest failed; storing a failed row", err);
@@ -154,24 +176,43 @@ export async function handleInboundEmail(
 }
 
 /**
- * A sender is acceptable only when BOTH hold: on the household's allowlist
- * and authenticated by DMARC/SPF. No implicit trust — an empty allowlist
- * rejects everyone, and missing auth results reject even allowlisted senders.
- * The reason names every failed leg so the owner can fix the right one (#8).
+ * Prechecks the envelope sender before the raw stream is read. A trusted
+ * Cloudflare pass accepts any allowlist shape. If Cloudflare omitted a usable
+ * verdict, only an exact-address entry can proceed to independent DKIM
+ * verification; a domain entry is intentionally too broad for that fallback.
  */
 export function verifySender(
   from: string,
   headers: Headers,
   allowlist: string[],
 ): SenderVerdict {
-  const reasons: string[] = [];
-  if (!senderAllowed(from, allowlist)) {
-    reasons.push("sender is not on the household allowlist");
+  const allowed = senderAllowed(from, allowlist);
+  const authentication = cloudflareAuthentication(headers);
+
+  if (!allowed) {
+    const reasons = ["sender is not on the household allowlist"];
+    if (authentication === "fail") {
+      reasons.push("sender did not pass DMARC/SPF authentication");
+    } else if (authentication === "unavailable") {
+      reasons.push("Cloudflare authentication verdict unavailable");
+    }
+    return { decision: "reject", reason: reasons.join("; ") };
   }
-  if (!senderAuthenticated(headers)) {
-    reasons.push("sender did not pass DMARC/SPF authentication");
+
+  if (authentication === "pass") {
+    return { decision: "accept", source: "cloudflare" };
   }
-  return reasons.length === 0 ? { ok: true } : { ok: false, reason: reasons.join("; ") };
+  if (authentication === "fail") {
+    return { decision: "reject", reason: "sender did not pass DMARC/SPF authentication" };
+  }
+  if (exactSenderAllowed(from, allowlist)) {
+    return { decision: "verify-dkim" };
+  }
+  return {
+    decision: "reject",
+    reason:
+      "Cloudflare authentication verdict unavailable; aligned DKIM fallback requires an exact-address allowlist entry",
+  };
 }
 
 /**
@@ -191,22 +232,28 @@ export function senderAllowed(from: string, allowlist: string[]): boolean {
   });
 }
 
+function exactSenderAllowed(from: string, allowlist: string[]): boolean {
+  const address = from.trim().toLowerCase();
+  return address !== "" && allowlist.some((entry) => entry.includes("@") && entry === address);
+}
+
 /**
  * Fail-safe reading of the authentication result header(s) produced by
  * Cloudflare Email Routing. Cloudflare documents its original-sender results
  * in ARC-Authentication-Results, while some deliveries/runtimes expose
  * Authentication-Results. Defensive on purpose:
  *
- * - No result authored by mx.cloudflare.net → unauthenticated. A sender may
- *   plant either header in the RFC 5322 message, so verdict text from any other
- *   authserv-id is untrusted even when it says pass.
+ * - No DMARC/SPF result authored by mx.cloudflare.net → unavailable. A sender
+ *   may plant either header in the RFC 5322 message, so verdict text from any
+ *   other authserv-id is untrusted even when it says pass.
  * - DMARC verdicts in trusted records → EVERY one must be pass.
  * - No DMARC verdict → fall back to SPF, same all-must-pass rule.
- * - Neither mechanism reported → unauthenticated.
+ * - A reported non-pass is an explicit failure and never eligible for DKIM
+ *   fallback.
  */
-export function senderAuthenticated(headers: Headers): boolean {
+export function cloudflareAuthentication(headers: Headers): CloudflareAuthVerdict {
   const results = trustedCloudflareResults(headers);
-  if (results.length === 0) return false;
+  if (results.length === 0) return "unavailable";
   const verdicts = (mechanism: string): string[] =>
     results.flatMap((result) =>
       [...result.matchAll(new RegExp(`\\b${mechanism}=([a-z0-9]+)`, "gi"))].map((m) =>
@@ -214,10 +261,15 @@ export function senderAuthenticated(headers: Headers): boolean {
       ),
     );
   const dmarc = verdicts("dmarc");
-  if (dmarc.length > 0) return dmarc.every((v) => v === "pass");
+  if (dmarc.length > 0) return dmarc.every((v) => v === "pass") ? "pass" : "fail";
   const spf = verdicts("spf");
-  if (spf.length > 0) return spf.every((v) => v === "pass");
-  return false;
+  if (spf.length > 0) return spf.every((v) => v === "pass") ? "pass" : "fail";
+  return "unavailable";
+}
+
+/** Compatibility helper for callers that only need a passing/not-passing bit. */
+export function senderAuthenticated(headers: Headers): boolean {
+  return cloudflareAuthentication(headers) === "pass";
 }
 
 const CLOUDFLARE_AUTHSERV_ID = "mx.cloudflare.net";

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 - 2026-07-23
+
+- Fixed legitimate forwarded-email rejection when Cloudflare omits its
+  authentication-result headers by independently verifying aligned DKIM for
+  exact-address allowlist entries.
+- Kept explicit Cloudflare failures, domain-only fallback, unaligned or
+  partial-body signatures, and DNS failures fail-closed; documented the
+  production direct/forwarded/spoof smoke test.
+- Added a bounded Worker-native RSA/SHA-256 verifier using Web Crypto and a
+  fixed DNS-over-HTTPS resolver, with a clean dependency audit.
+
 ## 0.3.0 - 2026-07-23
 
 - Added configurable Workers AI and Anthropic extraction providers, encrypted
