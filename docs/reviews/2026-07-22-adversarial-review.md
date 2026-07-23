@@ -27,10 +27,9 @@ security-hardening branch:
    ARC-Authentication-Results form. A planted pass could be selected over a
    genuine trusted SPF failure.
 
-One major operational blocker and six medium/minor issues remain. Issue-ready
-details follow; GitHub's current personal access token returned HTTP 403
-"Resource not accessible by personal access token" from both GraphQL and REST
-issue-creation paths, so the findings are preserved here.
+One major operational blocker and six medium/minor issues remain. They are
+tracked in GitHub and summarized below so the review remains useful as a single
+artifact.
 
 ## Fixed major findings
 
@@ -91,6 +90,8 @@ Reference:
 
 ### O1 — Major: live Email Routing may expose no usable authentication verdict
 
+Tracked in <https://github.com/BadgerOps/travel-hq/issues/20>.
+
 Cloudflare workerd issue #6740 reports Worker deliveries with no
 Authentication-Results and only an upstream ARC record containing no
 SPF/DKIM/DMARC verdict:
@@ -112,6 +113,8 @@ Required action:
 
 ### O2 — Medium: temporal and numeric validation is inconsistent
 
+Tracked in <https://github.com/BadgerOps/travel-hq/issues/23>.
+
 Evidence:
 
 - trip create accepts arbitrary `startsOn`/`endsOn`, while update validates
@@ -129,6 +132,8 @@ the model.
 
 ### O3 — Medium: multi-row invariants and transitions are not atomic
 
+Tracked in <https://github.com/BadgerOps/travel-hq/issues/21>.
+
 Evidence:
 
 - `BookingRepo.assignPerson()` writes `booking_person` and `trip_person` in two
@@ -145,6 +150,8 @@ failure/concurrency tests.
 
 ### O4 — Medium: high-severity advisory in the Cloudflare toolchain
 
+Tracked in <https://github.com/BadgerOps/travel-hq/issues/25>.
+
 `npm audit` reported four high findings on 2026-07-22. The root is
 `sharp@0.34.5` through `miniflare@4.20260721.0`, used by
 `wrangler@4.113.0` and `@cloudflare/vitest-pool-workers@0.18.7`.
@@ -158,6 +165,8 @@ large downgrade blindly.
 
 ### O5 — Medium: nested trip routes do not enforce parent-child integrity
 
+Tracked in <https://github.com/BadgerOps/travel-hq/issues/19>.
+
 The confirmation reveal route ignores its `:tripId` and looks up only
 `:bookingId`, so a booking can be revealed under another trip's URL within the
 same household. The travelers route returns `200 []` for an unknown trip while
@@ -168,6 +177,8 @@ semantics weaken audit context and future authorization assumptions. Require the
 booking to belong to the path trip and existence-check travelers' trip.
 
 ### O6 — Medium: raw verified email has no privacy lifecycle
+
+Tracked in <https://github.com/BadgerOps/travel-hq/issues/22>.
 
 Verified RFC 5322 messages are stored as plaintext in D1 and may contain names,
 contact details, loyalty numbers, confirmation codes, itineraries, and payment
@@ -180,6 +191,8 @@ test it. The major fix above intentionally removes raw only from rejected mail;
 verified mail remains available for the planned extractor.
 
 ### O7 — Minor: README describes mutually incompatible architectures
+
+Tracked in <https://github.com/BadgerOps/travel-hq/issues/24>.
 
 README correctly mentions a single Worker/D1 in its run section, but elsewhere
 describes Node plus `node:sqlite`, a separate nonexistent
