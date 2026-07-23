@@ -79,6 +79,20 @@ describe("Settings", () => {
     });
   });
 
+  it("saves an in-app household model change", async () => {
+    const api = renderSettings();
+    const model = await screen.findByLabelText("Extraction model");
+    await userEvent.clear(model);
+    await userEvent.type(model, "@cf/meta/custom-travel-model");
+    await userEvent.click(screen.getByRole("button", { name: /save settings/i }));
+
+    expect(await screen.findByText(/settings saved/i)).toBeInTheDocument();
+    expect(api.settings.update).toHaveBeenCalledWith(
+      expect.objectContaining({ aiModel: "@cf/meta/custom-travel-model" }),
+    );
+    expect(screen.getByText(/saved for this household in travel hq/i)).toBeInTheDocument();
+  });
+
   it("sends null for a cleared forward address", async () => {
     const api = renderSettings();
     await userEvent.clear(await screen.findByLabelText("Forward address"));

@@ -32,6 +32,37 @@ describe("BookingRepo", () => {
     expect(JSON.stringify(list)).not.toContain("ABCDX4T2");
   });
 
+  it("retains source-email provenance and enforces household scope", async () => {
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      "INSERT INTO inbound_email (id, household_id, from_address, to_address, raw, status, received_at) VALUES (?,?,?,?,?,?,?)",
+    ).bind("mail-a", "hh-a", "sender@example.com", "trips@example.com", "raw", "extracted", now).run();
+    await env.DB.prepare("INSERT INTO household (id,name,created_at) VALUES (?,?,?)")
+      .bind("hh-b", "B", now)
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO inbound_email (id, household_id, from_address, to_address, raw, status, received_at) VALUES (?,?,?,?,?,?,?)",
+    ).bind("mail-b", "hh-b", "sender@example.com", "trips@example.com", "raw", "extracted", now).run();
+
+    const repo = new BookingRepo(env.DB, ctxA, ring);
+    const booking = await repo.create({
+      tripId: "t1",
+      sourceInboundEmailId: "mail-a",
+      kind: "other",
+      title: "Hotel",
+      details: {},
+    });
+    expect(booking.sourceInboundEmailId).toBe("mail-a");
+
+    await expect(repo.create({
+      tripId: "t1",
+      sourceInboundEmailId: "mail-b",
+      kind: "other",
+      title: "Cross tenant",
+      details: {},
+    })).rejects.toThrow(NotFoundError);
+  });
+
   it("reveals the confirmation number through revealConfirmation", async () => {
     const repo = new BookingRepo(env.DB, ctxA, ring);
     const b = await repo.create({ tripId: "t1", kind: "other", title: "Hotel", confirmationNumber: "ABCDX4T2", details: {} });

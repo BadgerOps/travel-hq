@@ -185,7 +185,8 @@ export function Settings({
                 readOnly={!canWrite}
               />
               <p className="text-muted" style={{ margin: "4px 0 0", fontSize: 12.5 }}>
-                The Workers AI model that turns a forwarded email into a draft booking.
+                Saved for this household in Travel HQ. Wrangler supplies the Workers AI
+                connection; this model controls which AI extracts forwarded confirmations.
               </p>
             </div>
 

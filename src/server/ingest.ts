@@ -1,5 +1,8 @@
 import { HouseholdSettingsRepo } from "./repos/household-settings.js";
 import { InboundEmailRepo } from "./repos/inbound-email.js";
+import type { InboundEmail } from "./repos/inbound-email.js";
+import { extractInboundEmail } from "./ingest/extract.js";
+import type { ExtractionAi } from "./ingest/extract.js";
 
 /**
  * The slice of the Worker's bindings the email() handler needs. Deliberately
@@ -7,6 +10,8 @@ import { InboundEmailRepo } from "./repos/inbound-email.js";
  */
 export type EmailIngestEnv = {
   DB: D1Database;
+  /** Workers AI JSON-mode fallback for messages without calendar parts. */
+  AI?: ExtractionAi;
   /**
    * Optional Email Routing destination address. Every message that is NOT
    * stored as `received` (unclaimed recipient, rejected sender, internal
@@ -60,6 +65,7 @@ export async function handleInboundEmail(
   env: EmailIngestEnv,
 ): Promise<void> {
   let match;
+  let stored: InboundEmail;
   try {
     match = await HouseholdSettingsRepo.findHouseholdByForwardAddress(env.DB, message.to);
   } catch (err) {
@@ -98,7 +104,7 @@ export async function handleInboundEmail(
     }
 
     const raw = await readRawLimited(message.raw);
-    await repo.create({ ...meta, raw, status: "received" });
+    stored = await repo.create({ ...meta, raw, status: "received" });
   } catch (err) {
     console.error("[email-ingest] ingest failed; storing a failed row", err);
     try {
@@ -109,7 +115,21 @@ export async function handleInboundEmail(
       console.error("[email-ingest] could not store the failed row either", writeErr);
     }
     await forwardToFallback(message, env);
+    return;
   }
+
+  // Extraction owns its own fail-soft status transitions. Keep it outside the
+  // ingest catch so an unexpected extractor bug cannot create a second row for
+  // a message that was already stored successfully.
+  await extractInboundEmail(
+    {
+      db: env.DB,
+      ai: env.AI,
+      householdId: match.householdId,
+      aiModel: match.settings.aiModel,
+    },
+    stored,
+  );
 }
 
 /**
