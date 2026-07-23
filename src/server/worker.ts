@@ -1,35 +1,31 @@
 import { createApp } from "./index.js";
+import { handleInboundEmail } from "./ingest.js";
+import type { EmailIngestEnv } from "./ingest.js";
 
 // One app for the isolate; bindings arrive per request via env.
 const app = createApp();
 
 /**
- * Stub `email()` handler.
+ * Real ingest entry point (issue #4) — no longer the dormant stub.
  *
- * This is deliberately NOT real ingest. Real ingest (parse the message,
- * extract with Workers AI, write a draft via `InboundEmailRepo.create`) is
- * the deferred ingest plan (see
- * docs/superpowers/specs/2026-07-22-cloudflare-replatform-design.md,
- * "Ingest and extraction — DEFERRED"). Until that plan lands, this handler
- * does no parsing and no D1 writes — it only forwards the message to a
- * fallback mailbox if one is configured (`env.FALLBACK_FORWARD_TO`), else it
- * is a no-op.
+ * All logic lives in src/server/ingest.ts (handleInboundEmail): resolve the
+ * household from the envelope recipient, verify the sender (allowlist AND
+ * DMARC/SPF), and store the raw message as an inbound_email row. Fail-soft by
+ * contract: handleInboundEmail never throws and never calls setReject(), so a
+ * transient internal error can never bounce a real confirmation email — the
+ * worst case is a logged error plus a best-effort forward to
+ * env.FALLBACK_FORWARD_TO.
  *
- * The interim path for `trips@badgerops.foo` is NOT this handler at all:
- * Cloudflare Email Routing forwards it directly to a real mailbox at the
- * dashboard level (see docs/cloudflare-github-setup.md, "Email forwarding
- * (interim)"). This export exists so the Worker has the correct shape ready
- * for when Email Routing is later pointed at the Worker instead, and so a
- * message that does land here isn't silently swallowed.
+ * Nothing reaches this handler until the Email Routing rule for
+ * trips@badgerops.foo is switched from "Send to an email" to "Send to a
+ * Worker" (owner action; see docs/cloudflare-github-setup.md, "Email ingest").
  */
 async function email(
   message: ForwardableEmailMessage,
-  env: { FALLBACK_FORWARD_TO?: string },
+  env: EmailIngestEnv,
   _ctx: ExecutionContext,
 ): Promise<void> {
-  if (env.FALLBACK_FORWARD_TO) {
-    await message.forward(env.FALLBACK_FORWARD_TO);
-  }
+  await handleInboundEmail(message, env);
 }
 
 export default { fetch: app.fetch, email };

@@ -9,13 +9,13 @@ async function tableNames(): Promise<string[]> {
   return results.map((r) => r.name);
 }
 
-describe("0001_initial schema", () => {
+describe("migrated schema", () => {
   beforeEach(async () => {
     // Clean the rows a prior test may have left; the schema itself persists.
     await env.DB.exec("DELETE FROM household");
   });
 
-  it("creates every core table and no inbound_email", async () => {
+  it("creates every core table, including inbound_email", async () => {
     expect(await tableNames()).toEqual([
       "booking",
       "booking_person",
@@ -23,6 +23,7 @@ describe("0001_initial schema", () => {
       "household",
       "household_member",
       "household_settings",
+      "inbound_email",
       "loyalty_account",
       "person",
       "trip",
@@ -31,7 +32,7 @@ describe("0001_initial schema", () => {
     ]);
   });
 
-  it("cascades a household delete down to its trips and bookings", async () => {
+  it("cascades a household delete down to its trips, bookings, and inbound email", async () => {
     const now = new Date().toISOString();
     await env.DB.prepare("INSERT INTO household (id, name, created_at) VALUES (?, ?, ?)")
       .bind("hh-a", "A", now)
@@ -44,12 +45,19 @@ describe("0001_initial schema", () => {
     )
       .bind("b1", "hh-a", "t1", "other", "Hotel", now)
       .run();
+    await env.DB.prepare(
+      "INSERT INTO inbound_email (id, household_id, from_address, to_address, raw, status, received_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind("ie1", "hh-a", "a@example.com", "trips@badgerops.foo", "raw", "received", now)
+      .run();
 
     await env.DB.prepare("DELETE FROM household WHERE id = ?").bind("hh-a").run();
 
     const trip = await env.DB.prepare("SELECT id FROM trip WHERE id = ?").bind("t1").first();
     const booking = await env.DB.prepare("SELECT id FROM booking WHERE id = ?").bind("b1").first();
+    const email = await env.DB.prepare("SELECT id FROM inbound_email WHERE id = ?").bind("ie1").first();
     expect(trip).toBeNull();
     expect(booking).toBeNull();
+    expect(email).toBeNull();
   });
 });

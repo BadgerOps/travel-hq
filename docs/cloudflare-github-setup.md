@@ -130,29 +130,49 @@ Defined in `.github/workflows/` (added by the CI/CD plan):
 - **Merge to `master`** re-runs the full suite, then deploys to **production**.
   A red suite blocks the production deploy.
 
-## 5. Email forwarding (interim)
+## 5. Email ingest (Email Routing → Worker)
 
-The Worker exports an `email()` handler (`src/server/worker.ts`), but it is a
-**dormant stub**: no parsing, no Workers AI, no D1 writes. It only forwards to
-`env.FALLBACK_FORWARD_TO` if that var/secret happens to be set on the Worker,
-else it no-ops. It is **not wired to Email Routing** — nothing today points
-mail at this Worker, so the stub only matters once you deliberately switch the
-routing rule below to "Send to a Worker."
+The Worker's `email()` handler (`src/server/worker.ts`, logic in
+`src/server/ingest.ts`) is **real ingest**: it resolves the target household
+by matching the envelope recipient against
+`household_settings.forward_address`, verifies the sender (household
+allowlist **and** DMARC/SPF from the `Authentication-Results` header Email
+Routing stamps on the message), and stores the raw message plus parsed
+metadata as an `inbound_email` row — status `received` on success, or
+`rejected`/`failed` with a human-readable reason. It is fail-soft end to end:
+it never bounces the sender; anything **not** stored as `received` (unclaimed
+recipient, rejected sender, internal error) is forwarded best-effort to
+`env.FALLBACK_FORWARD_TO` when that var/secret is set, so mail is never
+silently lost. Extraction of `received` rows into draft bookings is issue #6;
+until it lands, stored mail simply waits in `received`.
 
-Until then, configure Cloudflare **Email Routing** to forward
-`trips@badgerops.foo` directly to a real mailbox so you can see confirmation
-emails and decide how to build ingest for real:
+### Switching the routing rule to the Worker (owner action)
+
+The interim dashboard rule forwards `trips@badgerops.foo` straight to a
+mailbox. Once this ingest code is deployed, switch that rule to the Worker.
+Before flipping it, prepare:
+
+1. Migrations are applied to the target environment
+   (`wrangler d1 migrations apply travel-hq-<env> --remote`) —
+   `0004_inbound_email.sql` must be live, or every message lands in the
+   fail-soft path.
+2. In the app's **Settings** page, set the household's **forward address** to
+   `trips@badgerops.foo` and add the expected senders (full addresses or bare
+   domains, e.g. `airline.com`) to the **sender allowlist**. An unclaimed
+   recipient is never stored, and an empty allowlist rejects every sender.
+3. Optionally set `FALLBACK_FORWARD_TO` on the Worker (var or secret) to an
+   Email Routing **verified destination address** — `message.forward()` only
+   works to verified destinations.
+
+Then flip the rule:
 
 Cloudflare dashboard → the `badgerops.foo` zone → Email → Email Routing →
-Routing rules → add a custom address `trips@badgerops.foo` → action **Send to**
-your mailbox. (Requires Email Routing to be enabled on the zone and the
-destination address verified.)
+Routing rules → edit the `trips@badgerops.foo` custom address → change the
+action from **Send to an email** to **Send to a Worker** → pick the production
+`travel-hq` Worker → save.
 
-When ingest is built later, this rule changes to **Send to a Worker** targeting
-the app Worker's `email()` handler, and the handler itself is replaced with
-real parsing/extraction/D1 writes (see the design spec's "Ingest and
-extraction — DEFERRED" section) — the stub is only a placeholder shape until
-then.
+To roll back at any time, switch the action back to **Send to an email**
+pointing at the mailbox; the Worker keeps working for anything already stored.
 
 ## 6. First run
 
@@ -166,6 +186,6 @@ then.
 ## What must never be committed
 
 The repo is public. Keep out of git: the Cloudflare API token, the encryption
-keys, any real family email addresses (the sender allowlist, when ingest is
-built, lives in D1 settings, not code). Only the public app hostname and
+keys, any real family email addresses (the sender allowlist lives in D1
+settings, not code). Only the public app hostname and
 non-secret config belong in `wrangler.toml`.
