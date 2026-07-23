@@ -8,6 +8,7 @@ import { TripDetail } from "./pages/TripDetail.js";
 import { Checklist } from "./pages/Checklist.js";
 import { People } from "./pages/People.js";
 import { Import } from "./pages/Import.js";
+import { Settings } from "./pages/Settings.js";
 import { IdentityProvider, useIdentity } from "./api/identity.js";
 import "./styles.css";
 
@@ -33,6 +34,7 @@ function App() {
           <Route path="/checklist" component={() => <Checklist />} />
           <Route path="/people" component={() => <People />} />
           <Route path="/import" component={() => <Import />} />
+          <Route path="/settings" component={() => <Settings />} />
           <Route>
             <h3>Not found</h3>
           </Route>

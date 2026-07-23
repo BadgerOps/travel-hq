@@ -22,6 +22,7 @@ describe("0001_initial schema", () => {
       "checklist_item",
       "household",
       "household_member",
+      "household_settings",
       "loyalty_account",
       "person",
       "trip",

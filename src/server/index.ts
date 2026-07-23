@@ -8,6 +8,7 @@ import { trips } from "./routes/trips.js";
 import { itinerary } from "./routes/itinerary.js";
 import { bookings } from "./routes/bookings.js";
 import { checklist } from "./routes/checklist.js";
+import { settings } from "./routes/settings.js";
 import { mapError } from "./routes/errors.js";
 
 export type AppBindings = {
@@ -84,6 +85,7 @@ export function createApp(overrides: AppOverrides = {}) {
   app.route("/api", itinerary);
   app.route("/api/bookings", bookings);
   app.route("/api/checklist", checklist);
+  app.route("/api/settings", settings);
 
   app.get("/healthz", (c) => c.text("ok"));
 

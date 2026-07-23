@@ -7,6 +7,7 @@ const NAV = [
   { href: "/trips", label: "Trips" },
   { href: "/checklist", label: "Checklist" },
   { href: "/people", label: "People" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function Shell({

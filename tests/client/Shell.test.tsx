@@ -19,7 +19,7 @@ describe("Shell", () => {
   it("renders the brand and the primary nav links", () => {
     renderAt("/");
     expect(screen.getByText("Travel HQ")).toBeInTheDocument();
-    for (const label of ["Today", "Trips", "Checklist", "People"]) {
+    for (const label of ["Today", "Trips", "Checklist", "People", "Settings"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }
   });
