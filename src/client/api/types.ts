@@ -12,5 +12,5 @@ export type { Identity } from "../../server/auth.js";
 export type { ChecklistItem } from "../../server/repos/checklist.js";
 export type { TripRollup } from "../../server/repos/rollup.js";
 export type { CreatePersonInput, UpdatePersonInput } from "../../server/repos/person.js";
-export type { CreateTripInput } from "../../server/repos/trip.js";
+export type { CreateTripInput, UpdateTripInput } from "../../server/repos/trip.js";
 export type { CreateBookingInput } from "../../server/repos/booking.js";

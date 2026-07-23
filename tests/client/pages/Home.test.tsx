@@ -15,7 +15,16 @@ const TRIP_ACTIVE = {
   notes: null,
 };
 
-const TRIP_FUTURE = { ...TRIP_ACTIVE, startsOn: "2027-01-01", endsOn: "2027-01-05" };
+// `planning`, not the vestigial `active` this fixture used to carry: stored
+// `active` now forces the active state regardless of dates (resolveTripState),
+// and the idle-hero case below is specifically about a trip whose DATES are in
+// the future with nobody having forced anything.
+const TRIP_FUTURE = {
+  ...TRIP_ACTIVE,
+  startsOn: "2027-01-01",
+  endsOn: "2027-01-05",
+  status: "planning" as const,
+};
 
 function booking(over: Record<string, unknown> = {}) {
   return {

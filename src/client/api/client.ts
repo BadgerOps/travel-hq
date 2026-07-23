@@ -12,6 +12,7 @@ import type {
   Trip,
   TripRollup,
   UpdatePersonInput,
+  UpdateTripInput,
 } from "./types.js";
 
 export class ApiError extends Error {
@@ -92,10 +93,18 @@ export function createApi(config: ApiConfig = {}) {
       rollup: (tripId: string) => request<TripRollup>(`/api/trips/${seg(tripId)}/rollup`),
       travelers: (tripId: string) => request<Person[]>(`/api/trips/${seg(tripId)}/travelers`),
       create: (input: CreateTripInput) => request<Trip>("/api/trips", jsonBody("POST", input)),
+      update: (tripId: string, input: UpdateTripInput) =>
+        request<Trip>(`/api/trips/${seg(tripId)}`, jsonBody("PUT", input)),
+      delete: (tripId: string) =>
+        // No body: the route reads the id from the path and never calls
+        // c.req.json(). Sending a content-type here would be a lie.
+        request<void>(`/api/trips/${seg(tripId)}`, { method: "DELETE" }),
       addTraveler: (tripId: string, personId: string) =>
         // No body: the route reads both ids from the path and never calls
         // c.req.json(). Sending a content-type here would be a lie.
         request<void>(`/api/trips/${seg(tripId)}/people/${seg(personId)}`, { method: "PUT" }),
+      removeTraveler: (tripId: string, personId: string) =>
+        request<void>(`/api/trips/${seg(tripId)}/people/${seg(personId)}`, { method: "DELETE" }),
       createBooking: (tripId: string, input: Omit<CreateBookingInput, "tripId">) =>
         request<Booking>(`/api/trips/${seg(tripId)}/bookings`, jsonBody("POST", input)),
     },

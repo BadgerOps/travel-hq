@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus } from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
 import type { Person, Trip } from "../api/types.js";
+import { compareTrips } from "../lib/dates.js";
 import { errorMessage } from "../lib/errors.js";
 import { TripCard } from "../home/TripCard.js";
 import { TripForm } from "../components/TripForm.js";
@@ -38,13 +39,11 @@ export function Trips({
     };
   }, [api]);
 
-  // Soonest first; undated trips last. Matches the API's own ordering and the
-  // Home grid's.
-  const ordered = (trips ?? []).slice().sort((a, b) => {
-    if (a.startsOn === null) return b.startsOn === null ? 0 : 1;
-    if (b.startsOn === null) return -1;
-    return a.startsOn.localeCompare(b.startsOn);
-  });
+  // The shared state-aware comparator (lib/dates.ts), same as the Home grid:
+  // active, then upcoming soonest-first, then past/complete most-recent-first,
+  // cancelled last. Unlike Home this page shows cancelled trips — it is the
+  // page you restore one from — with their "Cancelled" badge.
+  const ordered = (trips ?? []).slice().sort((a, b) => compareTrips(a, b, today));
 
   return (
     <>
