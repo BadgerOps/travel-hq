@@ -6,11 +6,13 @@ import type {
   CreatePersonInput,
   CreateTripInput,
   DocumentField,
+  HouseholdSettings,
   Identity,
   ItineraryDay,
   Person,
   Trip,
   TripRollup,
+  UpdateHouseholdSettingsInput,
   UpdatePersonInput,
 } from "./types.js";
 
@@ -127,6 +129,11 @@ export function createApi(config: ApiConfig = {}) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ done }),
         }),
+    },
+    settings: {
+      get: () => request<HouseholdSettings>("/api/settings"),
+      update: (input: UpdateHouseholdSettingsInput) =>
+        request<HouseholdSettings>("/api/settings", jsonBody("PUT", input)),
     },
   };
 }
