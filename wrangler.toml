@@ -59,6 +59,19 @@ binding = "AI"
 
 # --- production (deployed from master; its own D1) --------------------------
 [env.production]
+
+# Persist every Worker invocation and console log in Cloudflare Workers
+# Observability. Full sampling is intentional while diagnosing email ingest;
+# lower logs.head_sampling_rate later if production volume warrants it.
+[env.production.observability]
+enabled = true
+
+[env.production.observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
+
 [env.production.assets]
 directory = "dist"
 not_found_handling = "single-page-application"
