@@ -11,22 +11,18 @@ import type {
 import { errorMessage } from "../lib/errors.js";
 import { useCanWrite } from "../api/identity.js";
 import { DraftBookingCard } from "../components/DraftBookingCard.js";
+import { SUPPORTED_WORKERS_AI_MODELS } from "../../shared/workers-ai-models.js";
 
 /* Fallback presets only — the dropdown normally lists what the account can
    actually run, pulled from /api/settings/ai-models (the server caches the
    Cloudflare catalog). These cover an unreachable catalog: offline, or
    Workers AI itself down. */
-const FALLBACK_WORKERS_MODELS: CatalogModel[] = [
-  { name: "@cf/meta/llama-3.1-8b-instruct", description: "" },
-  { name: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", description: "" },
-  { name: "@cf/mistralai/mistral-small-3.1-24b-instruct", description: "" },
-];
+const FALLBACK_WORKERS_MODELS: CatalogModel[] = [...SUPPORTED_WORKERS_AI_MODELS];
 const ANTHROPIC_MODELS = [
   "claude-opus-4-8",
   "claude-sonnet-5",
   "claude-haiku-4-5",
 ] as const;
-const CUSTOM_MODEL = "__custom__";
 const MAX_INSTRUCTIONS = 2_000;
 
 type KeyMode = "unchanged" | "replace" | "remove";
@@ -205,8 +201,6 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
     return <p className="warning" role="alert">{loadFailed}</p>;
   }
 
-  const modelChoice = workersModels.some((m) => m.name === aiModel) ? aiModel : CUSTOM_MODEL;
-
   return (
     <>
       <SettingsHeader />
@@ -249,25 +243,17 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
               <>
                 <div className="field">
                   <label htmlFor="st-model-preset">Extraction model</label>
-                  <select id="st-model-preset" className="input" value={modelChoice}
-                    onChange={(e) => {
-                      if (e.target.value !== CUSTOM_MODEL) setAiModel(e.target.value);
-                      else if (modelChoice !== CUSTOM_MODEL) setAiModel("");
-                    }} disabled={!canWrite}>
+                  <select id="st-model-preset" className="input" value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)} disabled={!canWrite}>
                     {workersModels.map(({ name, description }) => (
                       <option value={name} key={name} title={description || undefined}>{name}</option>
                     ))}
-                    <option value={CUSTOM_MODEL}>Custom model id…</option>
                   </select>
+                  <p className="text-muted" style={helpStyle}>
+                    Only current models verified with Travel HQ&apos;s structured extraction schema
+                    are listed.
+                  </p>
                 </div>
-                {modelChoice === CUSTOM_MODEL && (
-                  <div className="field">
-                    <label htmlFor="st-custom-model">Custom Workers AI model id</label>
-                    <input id="st-custom-model" className="input" value={aiModel}
-                      onChange={(e) => setAiModel(e.target.value)} readOnly={!canWrite} />
-                    <p className="text-muted" style={helpStyle}>Saved for this household in Travel HQ.</p>
-                  </div>
-                )}
               </>
             ) : (
               <div className="field">

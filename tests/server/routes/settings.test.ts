@@ -121,6 +121,17 @@ describe("/api/settings", () => {
     expect(res.status).toBe(400);
   });
 
+  it("rejects a Workers AI model that cannot satisfy the extraction schema", async () => {
+    const res = await putJson(
+      app,
+      JSON.stringify({ aiModel: "@cf/google/gemma-4-26b-a4b-it" }),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "aiModel must be a supported Workers AI extraction model",
+    });
+  });
+
   it("rejects a forward address already claimed by another household with 400", async () => {
     await putJson(app, JSON.stringify({ forwardAddress: "trips@badgerops.foo" }));
     const otherApp = appAs({ ...identity, userId: "u2", householdId: "hh-b" });

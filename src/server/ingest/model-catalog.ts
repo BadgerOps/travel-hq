@@ -1,13 +1,21 @@
 /**
  * Workers AI model catalog: pulled through the AI binding's search API
- * (`env.AI.models()`), filtered to text-generation models (the only task the
- * extraction provider can run), and cached per catalog instance so the
- * Cloudflare endpoint is hit at most once per TTL per isolate.
+ * (`env.AI.models()`), intersected with the models verified against Travel
+ * HQ's JSON schema, and cached per catalog instance so the Cloudflare
+ * endpoint is hit at most once per TTL per isolate.
  *
  * The catalog is a createApp() override (like anthropicClientFactory) so
  * tests inject a fresh instance with a fake clock; production uses one
  * module-scope instance, which is exactly the isolate-lifetime cache we want.
  */
+
+import {
+  SUPPORTED_WORKERS_AI_MODELS,
+  isSupportedWorkersAiModel,
+} from "../../shared/workers-ai-models.js";
+import type { CatalogModel } from "../../shared/workers-ai-models.js";
+
+export type { CatalogModel } from "../../shared/workers-ai-models.js";
 
 export const MODEL_CATALOG_TTL_MS = 6 * 60 * 60 * 1000;
 const PAGE_SIZE = 50;
@@ -33,8 +41,6 @@ type SearchedModel = {
   description?: string | null;
   task?: { name?: string | null } | null;
 };
-
-export type CatalogModel = { name: string; description: string };
 
 export class WorkersAiModelCatalog {
   private cached: { at: number; models: CatalogModel[] } | null = null;
@@ -72,10 +78,16 @@ export class WorkersAiModelCatalog {
         // The task param already filters server-side; re-check here so a
         // pass-through quirk can't leak classifiers into the dropdown.
         if (m.task?.name && m.task.name !== TEXT_GENERATION) continue;
+        if (!isSupportedWorkersAiModel(m.name)) continue;
         if (m.name) seen.set(m.name, { name: m.name, description: m.description ?? "" });
       }
       if (batch.length < PAGE_SIZE) break;
     }
-    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+    // Stable, intentional order: the recommended model stays first while
+    // catalog descriptions replace the concise offline descriptions.
+    return SUPPORTED_WORKERS_AI_MODELS.flatMap((fallback) => {
+      const live = seen.get(fallback.name);
+      return live ? [{ ...fallback, description: live.description || fallback.description }] : [];
+    });
   }
 }

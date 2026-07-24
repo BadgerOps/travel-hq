@@ -28,7 +28,7 @@ describe("HouseholdSettingsRepo", () => {
   });
 
   it("pins the default model id, which #6 imports", () => {
-    expect(DEFAULT_AI_MODEL).toBe("@cf/meta/llama-3.1-8b-instruct");
+    expect(DEFAULT_AI_MODEL).toBe("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
   });
 
   it("round-trips forward address, allowlist, and model", async () => {
@@ -122,6 +122,41 @@ describe("HouseholdSettingsRepo", () => {
     await expect(repo.updateSettings({ aiModel: "   " })).rejects.toThrow(ValidationError);
   });
 
+  it("rejects arbitrary or incompatible Workers AI model ids", async () => {
+    const repo = new HouseholdSettingsRepo(env.DB, ctxA);
+    await expect(
+      repo.updateSettings({ aiModel: "@cf/google/gemma-4-26b-a4b-it" }),
+    ).rejects.toThrow(/supported Workers AI extraction model/);
+    await expect(repo.updateSettings({ aiModel: "@cf/custom/model" })).rejects.toThrow(
+      ValidationError,
+    );
+  });
+
+  it("falls back safely when a stored model is no longer supported", async () => {
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `INSERT INTO household_settings
+         (household_id, forward_address, sender_allowlist, ai_model, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      "hh-a",
+      "trips@badgerops.foo",
+      "[]",
+      "@cf/google/gemma-4-26b-a4b-it",
+      now,
+      now,
+    ).run();
+
+    const repo = new HouseholdSettingsRepo(env.DB, ctxA);
+    expect((await repo.getSettings()).aiModel).toBe(DEFAULT_AI_MODEL);
+    const updated = await repo.updateSettings({ senderAllowlist: ["badger@example.com"] });
+    expect(updated.aiModel).toBe(DEFAULT_AI_MODEL);
+    const row = await env.DB.prepare(
+      "SELECT ai_model FROM household_settings WHERE household_id = ?",
+    ).bind("hh-a").first<{ ai_model: string }>();
+    expect(row?.ai_model).toBe(DEFAULT_AI_MODEL);
+  });
+
   it("enforces provider, instructions, encrypted key tri-state, and the mask trap", async () => {
     const repo = new HouseholdSettingsRepo(env.DB, ctxA, ring);
     await expect(
@@ -160,7 +195,10 @@ describe("HouseholdSettingsRepo", () => {
     ).bind("hh-a").first<{ anthropic_api_key: string }>();
     expect(after).toEqual(before);
 
-    await repo.updateSettings({ extractionInstructions: "Keep this", aiModel: "@cf/new" });
+    await repo.updateSettings({
+      extractionInstructions: "Keep this",
+      aiModel: "@cf/openai/gpt-oss-20b",
+    });
     expect((await repo.getSettings()).anthropicKeyConfigured).toBe(true);
     const cleared = await repo.updateSettings({
       aiProvider: "workers-ai",

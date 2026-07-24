@@ -53,24 +53,29 @@ function request(app: ReturnType<typeof createApp>, lister: unknown) {
 }
 
 describe("GET /api/settings/ai-models", () => {
-  it("returns text-generation models only, sorted by name", async () => {
+  it("returns only live catalog models verified for structured extraction", async () => {
     const { app, lister } = makeApp([
       entry("@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
       entry("@cf/huggingface/distilbert-sst-2-int8", CLASSIFIER),
       entry("@cf/meta/llama-3.1-8b-instruct"),
+      entry("@cf/openai/gpt-oss-20b"),
     ]);
     const res = await request(app, lister);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { models: { name: string; description: string }[] };
     expect(body.models.map((m) => m.name)).toEqual([
-      "@cf/meta/llama-3.1-8b-instruct",
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      "@cf/openai/gpt-oss-20b",
     ]);
-    expect(body.models[0]!.description).toBe("@cf/meta/llama-3.1-8b-instruct desc");
+    expect(body.models[0]!.description).toBe(
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast desc",
+    );
   });
 
   it("serves the second request from cache without re-pulling", async () => {
-    const { app, lister } = makeApp([entry("@cf/meta/llama-3.1-8b-instruct")]);
+    const { app, lister } = makeApp([
+      entry("@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
+    ]);
     await request(app, lister);
     const res = await request(app, lister);
     expect(((await res.json()) as { models: unknown[] }).models).toHaveLength(1);
@@ -79,7 +84,9 @@ describe("GET /api/settings/ai-models", () => {
 
   it("re-pulls after the TTL expires", async () => {
     let t = 0;
-    const { app, lister } = makeApp([entry("@cf/meta/llama-3.1-8b-instruct")], () => t);
+    const { app, lister } = makeApp([
+      entry("@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
+    ], () => t);
     await request(app, lister);
     t = MODEL_CATALOG_TTL_MS + 1;
     await request(app, lister);
@@ -89,13 +96,14 @@ describe("GET /api/settings/ai-models", () => {
   it("paginates when the catalog is larger than one page", async () => {
     // 60 models with a per_page of 50 (the catalog's page size) forces a
     // second pull; a full second page then requires a third, empty, pull.
-    const many = Array.from({ length: 60 }, (_, i) =>
+    const many = Array.from({ length: 55 }, (_, i) =>
       entry(`@cf/test/model-${String(i).padStart(2, "0")}`),
     );
+    many.push(entry("@cf/openai/gpt-oss-20b"));
     const { app, lister } = makeApp(many);
     const res = await request(app, lister);
-    const body = (await res.json()) as { models: unknown[] };
-    expect(body.models).toHaveLength(60);
+    const body = (await res.json()) as { models: { name: string }[] };
+    expect(body.models.map((m) => m.name)).toEqual(["@cf/openai/gpt-oss-20b"]);
     expect(lister.mock.calls.length).toBeGreaterThan(1);
   });
 
@@ -118,7 +126,7 @@ describe("GET /api/settings/ai-models", () => {
     let fail = false;
     const models = () => {
       if (fail) throw new Error("upstream down");
-      return [entry("@cf/meta/llama-3.1-8b-instruct")];
+      return [entry("@cf/meta/llama-3.3-70b-instruct-fp8-fast")];
     };
     const { app, lister } = makeApp(models as never, () => t);
     await request(app, lister);
@@ -126,6 +134,8 @@ describe("GET /api/settings/ai-models", () => {
     t = MODEL_CATALOG_TTL_MS + 1;
     const res = await request(app, lister);
     const body = (await res.json()) as { models: { name: string }[] };
-    expect(body.models.map((m) => m.name)).toEqual(["@cf/meta/llama-3.1-8b-instruct"]);
+    expect(body.models.map((m) => m.name)).toEqual([
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    ]);
   });
 });
