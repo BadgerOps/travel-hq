@@ -12,6 +12,10 @@ import { verifyAlignedDkim } from "../../src/server/ingest/dkim.js";
 import type { DnsTxtResolver } from "../../src/server/ingest/dkim.js";
 import { HouseholdSettingsRepo } from "../../src/server/repos/household-settings.js";
 import type { HouseholdContext } from "../../src/server/repos/base.js";
+import {
+  DELTA_BOOKINGS_90_DAYS,
+  DELTA_ITINERARY_90_DAYS,
+} from "../fixtures/delta-itinerary.js";
 
 const ctxA: HouseholdContext = { householdId: "hh-a", userId: "u1", role: "owner" };
 const ctxB: HouseholdContext = { householdId: "hh-b", userId: "u2", role: "owner" };
@@ -191,6 +195,64 @@ describe("email() ingest", () => {
       "SELECT source, title, confirmation_number FROM draft_booking",
     ).first<{ source: string; title: string; confirmation_number: string }>();
     expect(draft).toEqual({ source: "ai", title: "Dawn Ranch", confirmation_number: "ABC123" });
+  });
+
+  it("extracts all three shifted Delta flights from a mocked authenticated email", async () => {
+    const ai = {
+      run: vi.fn(async (_model: string, input: {
+        messages: Array<{ role: string; content: string }>;
+      }) => {
+        const prompt = input.messages.at(-1)?.content ?? "";
+        expect(prompt).toContain("TRIP90");
+        expect(prompt).toContain("10/21/2026");
+        expect(prompt).toContain("DL 9674");
+        return {
+          choices: [{
+            message: {
+              content: `Extraction result:\n${JSON.stringify({ bookings: DELTA_BOOKINGS_90_DAYS })}`,
+            },
+          }],
+        };
+      }),
+    };
+    const rawText = [
+      "From: Delta Air Lines <receipts@delta.example>",
+      "To: badger@example.com",
+      "Subject: Fwd: Delta.com Trip Information",
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      DELTA_ITINERARY_90_DAYS,
+    ].join("\r\n");
+
+    await worker.email(
+      fakeMessage({
+        headers: {
+          "Authentication-Results": AUTH_PASS,
+          Subject: "Fwd: Delta.com Trip Information",
+        },
+        rawText,
+      }),
+      { DB: env.DB, AI: ai },
+      {} as ExecutionContext,
+    );
+
+    expect(ai.run).toHaveBeenCalledTimes(1);
+    expect((await storedRows()).map((row) => row.status)).toEqual(["extracted"]);
+    const { results } = await env.DB.prepare(
+      `SELECT ordinal, title, starts_at, starts_at_tz, ends_at, ends_at_tz,
+              confirmation_number, source
+         FROM draft_booking ORDER BY ordinal`,
+    ).all();
+    expect(results).toMatchObject(DELTA_BOOKINGS_90_DAYS.map((booking, ordinal) => ({
+      ordinal,
+      title: booking.title,
+      starts_at: booking.startsAt,
+      starts_at_tz: booking.startsAtTz,
+      ends_at: booking.endsAt,
+      ends_at_tz: booking.endsAtTz,
+      confirmation_number: "TRIP90",
+      source: "ai",
+    })));
   });
 
   it("stores a verified message as a received row scoped to the right household", async () => {

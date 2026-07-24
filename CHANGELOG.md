@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0 - 2026-07-24
+
+- Added authenticated PDF itinerary uploads that convert documents with
+  Workers AI, preserve an inbound audit record, and create reviewable booking
+  drafts through the household's configured extraction provider.
+- Replaced the Import placeholder with upload progress, extraction errors, and
+  draft previews, while keeping imports unavailable to viewer roles.
+- Hardened Workers AI response handling for valid JSON wrapped in Markdown
+  fences or model prose without accepting malformed JSON.
+
 ## 0.3.1 - 2026-07-23
 
 - Fixed legitimate forwarded-email rejection when Cloudflare omits its

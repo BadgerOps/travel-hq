@@ -25,6 +25,7 @@ import type {
   UpdatePerkInput,
   UpdateTripInput,
   ExtractedBooking,
+  FileImportResult,
 } from "./types.js";
 
 export class ApiError extends Error {
@@ -188,6 +189,18 @@ export function createApi(config: ApiConfig = {}) {
     },
     inboundEmails: {
       list: () => request<InboundEmailMetadata[]>("/api/inbound-emails"),
+    },
+    imports: {
+      file: (file: File) => {
+        const form = new FormData();
+        form.set("file", file);
+        return request<FileImportResult>("/api/imports/file", {
+          method: "POST",
+          // The browser owns the multipart boundary; setting content-type
+          // manually here would produce an unreadable request.
+          body: form,
+        });
+      },
     },
   };
 }

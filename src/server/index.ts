@@ -11,6 +11,7 @@ import { checklist } from "./routes/checklist.js";
 import { cards } from "./routes/cards.js";
 import { settings } from "./routes/settings.js";
 import { inboundEmails } from "./routes/inbound-emails.js";
+import { imports } from "./routes/imports.js";
 import { mapError } from "./routes/errors.js";
 import { createAnthropicClient } from "./ingest/providers.js";
 import type { AnthropicClientFactory } from "./ingest/providers.js";
@@ -113,6 +114,7 @@ export function createApp(overrides: AppOverrides = {}) {
   app.route("/api/cards", cards);
   app.route("/api/settings", settings);
   app.route("/api/inbound-emails", inboundEmails);
+  app.route("/api/imports", imports);
 
   app.get("/healthz", (c) => c.text("ok"));
 

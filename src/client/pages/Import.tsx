@@ -1,33 +1,145 @@
-import { EnvelopeSimple } from "@phosphor-icons/react";
+import { useState } from "react";
+import { EnvelopeSimple, FilePdf, UploadSimple } from "@phosphor-icons/react";
+import { api as defaultApi, ApiError } from "../api/client.js";
+import type { FileImportResult } from "../api/types.js";
+import { useCanWrite } from "../api/identity.js";
+import { DraftBookingCard } from "../components/DraftBookingCard.js";
+import { errorMessage } from "../lib/errors.js";
 
-/**
- * Email import (forwarding a confirmation email in, parsing it, and
- * reviewing the extracted draft) is DEFERRED — it depends on the ingest
- * subsystem (src/server/ingest/, the inbound-email repo/route), which is not
- * part of this deployment. Rebuilt in the deferred ingest plan, alongside the
- * server-side pieces it needs. This stub keeps the `/import` route and nav
- * entry alive so linking to it never 404s, without promising a feature that
- * is not there yet.
- */
-export function Import() {
+export function Import({ api = defaultApi }: { api?: typeof defaultApi }) {
+  const canWrite = useCanWrite();
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<FileImportResult | null>(null);
+
+  async function upload(event: React.FormEvent) {
+    event.preventDefault();
+    if (!file) {
+      setError("Choose a PDF file to import.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const imported = await api.imports.file(file);
+      setResult(imported);
+      if (imported.status === "failed") {
+        setError(imported.error ?? "The itinerary could not be extracted.");
+      }
+    } catch (err) {
+      setError(importErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <>
       <header style={{ marginBottom: 20 }}>
         <h3 style={{ marginBottom: 4 }}>Import bookings</h3>
         <p className="text-muted" style={{ margin: 0 }}>
-          Everything would land as a draft for review — nothing writes silently.
+          Upload an itinerary or forward a confirmation. Everything lands as a draft for review.
         </p>
       </header>
 
-      <div className="card" style={{ maxWidth: 560, alignItems: "flex-start", gap: 10 }}>
+      {!canWrite ? (
+        <div className="card" style={{ maxWidth: 560, alignItems: "flex-start", gap: 10 }}>
+          <span className="card-title">Owners and adults only</span>
+          <p className="card-body" style={{ margin: 0 }}>
+            Viewers can see trips, but only owners and adults can import new draft bookings.
+          </p>
+        </div>
+      ) : (
+        <form
+          className="card"
+          style={{ maxWidth: 620, alignItems: "flex-start", gap: 12 }}
+          onSubmit={upload}
+        >
+          <span className="card-title">
+            <FilePdf size={18} style={{ marginRight: 6, verticalAlign: "-3px" }} />
+            Import a PDF itinerary
+          </span>
+          <p className="card-body" style={{ margin: 0 }}>
+            Choose a PDF up to 10 MiB. Travel HQ reads it with your configured extraction model.
+          </p>
+          <label>
+            PDF file
+            <input
+              type="file"
+              accept=".pdf,application/pdf"
+              disabled={busy}
+              onChange={(event) => {
+                setFile(event.currentTarget.files?.[0] ?? null);
+                setError(null);
+                setResult(null);
+              }}
+            />
+          </label>
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            <UploadSimple size={14} />
+            {busy ? "Importing…" : "Import PDF"}
+          </button>
+          {error && (
+            <p className="warning" role="alert" style={{ margin: 0 }}>
+              {error}
+            </p>
+          )}
+        </form>
+      )}
+
+      {result?.status === "extracted" && (
+        <section style={{ marginTop: 24 }}>
+          <h4 style={{ marginBottom: 4 }}>
+            {result.bookings.length} {result.bookings.length === 1 ? "draft" : "drafts"} ready for
+            review
+          </h4>
+          <p className="text-muted" style={{ marginTop: 0 }}>
+            Check each booking before adding it to a trip.
+          </p>
+          <div style={{ display: "grid", gap: 12 }}>
+            {result.bookings.map((booking, index) => (
+              <DraftBookingCard
+                key={`${result.inboundEmailId}-${index}`}
+                booking={booking}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {result?.status === "received" && (
+        <p className="text-muted" role="status" style={{ marginTop: 16 }}>
+          The import was saved and is waiting for extraction. It will appear in recent ingest
+          activity while it is queued.
+        </p>
+      )}
+
+      <div className="card" style={{ maxWidth: 620, alignItems: "flex-start", gap: 8, marginTop: 16 }}>
         <span className="card-title">
           <EnvelopeSimple size={16} style={{ marginRight: 6, verticalAlign: "-2px" }} />
-          Not available yet
+          Email import
         </span>
         <p className="card-body" style={{ margin: 0 }}>
-          Email import isn't available on this deployment yet.
+          Forward confirmations to the address configured in Settings. Authenticated messages use
+          the same extractor and appear as drafts.
         </p>
       </div>
     </>
   );
+}
+
+function importErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 413) return "That PDF is too large. Choose a file no larger than 10 MiB.";
+    if (err.status === 415) return "Only PDF itinerary files can be imported.";
+    if (err.status === 422 || err.status === 502) {
+      return "Travel HQ could not read that PDF. Try exporting or printing it to a new PDF.";
+    }
+    if (err.status === 503) {
+      return "The extraction provider is unavailable. Check the model settings and try again.";
+    }
+  }
+  return errorMessage(err);
 }

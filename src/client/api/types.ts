@@ -34,3 +34,4 @@ export type {
 export type { InboundEmailMetadata } from "../../server/repos/inbound-email.js";
 export type { ExtractedBooking } from "../../server/ingest/extracted.js";
 export type { CatalogModel } from "../../server/ingest/model-catalog.js";
+export type { FileImportResult } from "../../server/routes/imports.js";
