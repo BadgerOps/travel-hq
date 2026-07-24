@@ -4,6 +4,7 @@ import { createHash, createSign, generateKeyPairSync } from "node:crypto";
 import worker from "../../src/server/worker.js";
 import {
   cloudflareAuthentication,
+  cloudflareAuthenticationDiagnostic,
   senderAuthenticated,
   MAX_RAW_BYTES,
 } from "../../src/server/ingest.js";
@@ -615,11 +616,37 @@ describe("senderAuthenticated (trusted authentication-result parsing)", () => {
     expect(senderAuthenticated(h("mx.cloudflare.net; DMARC=PASS"))).toBe(true);
   });
 
+  it("reports bounded, content-free authentication evidence for observability", () => {
+    expect(
+      cloudflareAuthenticationDiagnostic(
+        h("mx.cloudflare.net; dmarc=pass; spf=pass, mx.cloudflare.net; dmarc=fail"),
+      ),
+    ).toEqual({
+      verdict: "fail",
+      trustedRecords: 2,
+      dmarc: ["pass", "fail"],
+      spf: ["pass"],
+    });
+  });
+
   it("falls back to SPF only when no DMARC verdict is present", () => {
     expect(senderAuthenticated(h("mx.cloudflare.net; spf=pass"))).toBe(true);
     expect(senderAuthenticated(h("mx.cloudflare.net; spf=softfail"))).toBe(false);
     // An explicit DMARC fail is not rescued by a passing SPF.
     expect(senderAuthenticated(h("mx.cloudflare.net; spf=pass; dmarc=fail"))).toBe(false);
+  });
+
+  it("does not mistake a DMARC policy property for an authentication verdict", () => {
+    const headers = h(
+      "mx.cloudflare.net; dmarc=pass header.from=badgerops.net policy.dmarc=quarantine; spf=pass smtp.mailfrom=badgerops.net",
+    );
+    expect(senderAuthenticated(headers)).toBe(true);
+    expect(cloudflareAuthenticationDiagnostic(headers)).toEqual({
+      verdict: "pass",
+      trustedRecords: 1,
+      dmarc: ["pass"],
+      spf: ["pass"],
+    });
   });
 
   it("treats a header with neither mechanism as unauthenticated", () => {

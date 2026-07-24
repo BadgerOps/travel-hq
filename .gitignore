@@ -5,6 +5,7 @@ result-*
 .direnv/
 *.tsbuildinfo
 .superpowers/
+.pipeline/
 .dev-secrets/
 *.db
 *.db-wal
