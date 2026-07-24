@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { Shell } from "../../src/client/components/Shell.js";
@@ -83,5 +84,45 @@ describe("Shell", () => {
 
     renderAt("/", { email: "badger@example.com", role: "owner" });
     expect(screen.getByTitle("badger@example.com")).toHaveTextContent("B");
+  });
+
+  it("opens the avatar menu with the account email and Settings/Cards links", async () => {
+    const user = userEvent.setup();
+    renderAt("/", { email: "badger@example.com", role: "owner" });
+
+    const button = screen.getByRole("button", { name: "Account menu" });
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("nav-user-menu")).not.toBeInTheDocument();
+
+    await user.click(button);
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    const menu = within(screen.getByTestId("nav-user-menu"));
+    expect(menu.getByText("badger@example.com")).toBeInTheDocument();
+    expect(menu.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    expect(menu.getByRole("link", { name: "Cards" })).toBeInTheDocument();
+  });
+
+  it("closes the avatar menu on Escape and returns focus to the button", async () => {
+    const user = userEvent.setup();
+    renderAt("/", { email: "badger@example.com", role: "owner" });
+
+    const button = screen.getByRole("button", { name: "Account menu" });
+    await user.click(button);
+    expect(screen.getByTestId("nav-user-menu")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("nav-user-menu")).not.toBeInTheDocument();
+    expect(button).toHaveFocus();
+  });
+
+  it("closes the avatar menu when a menu link navigates", async () => {
+    const user = userEvent.setup();
+    renderAt("/", { email: "badger@example.com", role: "owner" });
+
+    await user.click(screen.getByRole("button", { name: "Account menu" }));
+    await user.click(
+      within(screen.getByTestId("nav-user-menu")).getByRole("link", { name: "Settings" }),
+    );
+    expect(screen.queryByTestId("nav-user-menu")).not.toBeInTheDocument();
   });
 });
