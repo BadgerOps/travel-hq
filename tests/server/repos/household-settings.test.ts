@@ -37,11 +37,13 @@ describe("HouseholdSettingsRepo", () => {
       forwardAddress: "trips@badgerops.foo",
       senderAllowlist: ["badger@example.com", "airline.com"],
       aiModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      aiMaxTokens: 6_144,
     });
     expect(await repo.getSettings()).toMatchObject({
       forwardAddress: "trips@badgerops.foo",
       senderAllowlist: ["badger@example.com", "airline.com"],
       aiModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      aiMaxTokens: 6_144,
     });
   });
 
@@ -130,6 +132,14 @@ describe("HouseholdSettingsRepo", () => {
     await expect(repo.updateSettings({ aiModel: "@cf/custom/model" })).rejects.toThrow(
       ValidationError,
     );
+  });
+
+  it("round-trips and validates the Workers AI output-token budget", async () => {
+    const repo = new HouseholdSettingsRepo(env.DB, ctxA);
+    expect((await repo.updateSettings({ aiMaxTokens: 2_048 })).aiMaxTokens).toBe(2_048);
+    for (const aiMaxTokens of [255, 8_193, 2048.5]) {
+      await expect(repo.updateSettings({ aiMaxTokens })).rejects.toThrow(ValidationError);
+    }
   });
 
   it("falls back safely when a stored model is no longer supported", async () => {

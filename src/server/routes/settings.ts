@@ -9,6 +9,10 @@ import type { UpdateHouseholdSettingsInput } from "../repos/household-settings.j
 import type { AppEnv } from "../index.js";
 import { MAX_AI_TEXT_CHARS, extractBookings } from "../ingest/extract.js";
 import { resolveExtractionProvider } from "../ingest/providers.js";
+import {
+  MAX_WORKERS_AI_MAX_TOKENS,
+  MIN_WORKERS_AI_MAX_TOKENS,
+} from "../../shared/workers-ai-models.js";
 
 /**
  * Same tri-state convention as the person update schema: an absent key means
@@ -21,6 +25,12 @@ const updateSettingsSchema = z
     forwardAddress: z.string().min(1).nullable().optional(),
     senderAllowlist: z.array(z.string().min(1)).optional(),
     aiModel: z.string().min(1).optional(),
+    aiMaxTokens: z
+      .number()
+      .int()
+      .min(MIN_WORKERS_AI_MAX_TOKENS)
+      .max(MAX_WORKERS_AI_MAX_TOKENS)
+      .optional(),
     aiProvider: z.enum(AI_PROVIDERS).optional(),
     anthropicModel: z.string().min(1).optional(),
     anthropicApiKey: z.string().min(1).nullable().optional(),

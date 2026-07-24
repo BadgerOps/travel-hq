@@ -50,12 +50,15 @@ describe("migrated schema", () => {
       .all<{ name: string; dflt_value: string | null }>();
     expect(columns.results.map((column) => column.name)).toEqual(expect.arrayContaining([
       "ai_provider",
+      "ai_max_tokens",
       "anthropic_model",
       "anthropic_api_key",
       "extraction_instructions",
     ]));
     expect(columns.results.find((column) => column.name === "ai_provider")?.dflt_value)
       .toContain("workers-ai");
+    expect(columns.results.find((column) => column.name === "ai_max_tokens")?.dflt_value)
+      .toBe("4096");
 
     const now = new Date().toISOString();
     await env.DB.prepare("INSERT INTO household (id,name,created_at) VALUES (?,?,?)")

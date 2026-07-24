@@ -25,7 +25,7 @@ const PROMPT = { system: "fixed rules", user: "confirmation" };
 describe("extraction providers", () => {
   it("uses Workers AI JSON schema mode and validates the complete result", async () => {
     const run = vi.fn(async () => ({ response: { bookings: [BOOKING] } }));
-    const provider = new WorkersAiProvider({ run }, "@cf/test");
+    const provider = new WorkersAiProvider({ run }, "@cf/test", 2_048);
     expect(await provider.extract(PROMPT)).toMatchObject([{ title: "Dawn Ranch" }]);
     expect(run).toHaveBeenCalledWith("@cf/test", {
       messages: [
@@ -33,7 +33,39 @@ describe("extraction providers", () => {
         { role: "user", content: "confirmation" },
       ],
       response_format: { type: "json_schema", json_schema: EXTRACTED_JSON_SCHEMA },
+      max_tokens: 2_048,
     });
+  });
+
+  it("retries a 5024 schema failure in JSON-object mode with the schema in the prompt", async () => {
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("5024: JSON Model couldn't be met"))
+      .mockResolvedValueOnce({ response: { bookings: [BOOKING] } });
+    const provider = new WorkersAiProvider({ run }, "@cf/meta/llama-3.3", 4_096);
+
+    expect(await provider.extract(PROMPT)).toMatchObject([{ title: "Dawn Ranch" }]);
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenNthCalledWith(2, "@cf/meta/llama-3.3", {
+      messages: [
+        {
+          role: "system",
+          content: expect.stringContaining(JSON.stringify(EXTRACTED_JSON_SCHEMA)),
+        },
+        { role: "user", content: "confirmation" },
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 4_096,
+    });
+  });
+
+  it("does not retry unrelated Workers AI failures", async () => {
+    const run = vi.fn(async () => {
+      throw new Error("rate limited");
+    });
+    const provider = new WorkersAiProvider({ run }, "@cf/test");
+    await expect(provider.extract(PROMPT)).rejects.toThrow(/rate limited/);
+    expect(run).toHaveBeenCalledTimes(1);
   });
 
   it("accepts the OpenAI-compatible response envelope used by current models", async () => {
@@ -56,9 +88,17 @@ describe("extraction providers", () => {
     await expect(malformed.extract(PROMPT)).rejects.toThrow(/not valid JSON/);
 
     const empty = new WorkersAiProvider({
-      run: vi.fn(async () => ({ choices: [{ message: { content: "" } }] })),
+      run: vi.fn(async () => ({
+        choices: [{
+          finish_reason: "length",
+          message: { content: "", reasoning: "used the available budget" },
+        }],
+        usage: { completion_tokens: 256, total_tokens: 1_024 },
+      })),
     }, "@cf/test");
-    await expect(empty.extract(PROMPT)).rejects.toThrow(/no response/);
+    await expect(empty.extract(PROMPT)).rejects.toThrow(
+      /model=@cf\/test, finish_reason=length, reasoning_chars=25, output_tokens=256, total_tokens=1024/,
+    );
 
     const refused = new WorkersAiProvider({
       run: vi.fn(async () => ({
@@ -111,6 +151,7 @@ describe("extraction providers", () => {
       forwardAddress: "trips@example.com",
       senderAllowlist: [],
       aiModel: "@cf/fallback",
+      aiMaxTokens: 2_048,
       aiProvider: "anthropic",
       anthropicModel: "claude-opus-4-8",
       anthropicKeyConfigured: true,
@@ -126,6 +167,9 @@ describe("extraction providers", () => {
     });
     expect(provider?.name).toBe("workers-ai");
     await provider?.extract(PROMPT);
-    expect(run).toHaveBeenCalled();
+    expect(run).toHaveBeenCalledWith(
+      "@cf/fallback",
+      expect.objectContaining({ max_tokens: 2_048 }),
+    );
   });
 });

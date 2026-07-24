@@ -11,7 +11,12 @@ import type {
 import { errorMessage } from "../lib/errors.js";
 import { useCanWrite } from "../api/identity.js";
 import { DraftBookingCard } from "../components/DraftBookingCard.js";
-import { SUPPORTED_WORKERS_AI_MODELS } from "../../shared/workers-ai-models.js";
+import {
+  DEFAULT_WORKERS_AI_MAX_TOKENS,
+  MAX_WORKERS_AI_MAX_TOKENS,
+  MIN_WORKERS_AI_MAX_TOKENS,
+  SUPPORTED_WORKERS_AI_MODELS,
+} from "../../shared/workers-ai-models.js";
 
 /* Fallback presets only — the dropdown normally lists what the account can
    actually run, pulled from /api/settings/ai-models (the server caches the
@@ -32,6 +37,7 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
   const [forwardAddress, setForwardAddress] = useState("");
   const [allowlistText, setAllowlistText] = useState("");
   const [aiModel, setAiModel] = useState("");
+  const [aiMaxTokens, setAiMaxTokens] = useState(String(DEFAULT_WORKERS_AI_MAX_TOKENS));
   const [aiProvider, setAiProvider] = useState<AiProvider>("workers-ai");
   const [workersModels, setWorkersModels] = useState<CatalogModel[]>(FALLBACK_WORKERS_MODELS);
   const [anthropicModel, setAnthropicModel] = useState<string>(ANTHROPIC_MODELS[0]);
@@ -62,6 +68,7 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
         setForwardAddress(s.forwardAddress ?? "");
         setAllowlistText(s.senderAllowlist.join("\n"));
         setAiModel(s.aiModel);
+        setAiMaxTokens(String(s.aiMaxTokens ?? DEFAULT_WORKERS_AI_MAX_TOKENS));
         setAiProvider(s.aiProvider ?? "workers-ai");
         setAnthropicModel(s.anthropicModel ?? ANTHROPIC_MODELS[0]);
         setAnthropicKeyConfigured(s.anthropicKeyConfigured ?? false);
@@ -121,6 +128,18 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
       setSaveError("A Workers AI model id is required.");
       return;
     }
+    const parsedAiMaxTokens = Number(aiMaxTokens);
+    if (
+      aiProvider === "workers-ai" &&
+      (!Number.isInteger(parsedAiMaxTokens) ||
+        parsedAiMaxTokens < MIN_WORKERS_AI_MAX_TOKENS ||
+        parsedAiMaxTokens > MAX_WORKERS_AI_MAX_TOKENS)
+    ) {
+      setSaveError(
+        `Maximum output tokens must be an integer from ${MIN_WORKERS_AI_MAX_TOKENS} to ${MAX_WORKERS_AI_MAX_TOKENS}.`,
+      );
+      return;
+    }
     if (
       aiProvider === "anthropic" &&
       (keyMode === "remove" || (!anthropicKeyConfigured && anthropicApiKey.trim() === ""))
@@ -133,6 +152,7 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
       forwardAddress: address === "" ? null : address,
       senderAllowlist: allowlist,
       aiModel: aiModel.trim(),
+      aiMaxTokens: parsedAiMaxTokens,
       aiProvider,
       anthropicModel,
       extractionInstructions,
@@ -150,6 +170,7 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
       setForwardAddress(next.forwardAddress ?? "");
       setAllowlistText(next.senderAllowlist.join("\n"));
       setAiModel(next.aiModel);
+      setAiMaxTokens(String(next.aiMaxTokens));
       setAiProvider(next.aiProvider);
       setAnthropicModel(next.anthropicModel);
       setAnthropicKeyConfigured(next.anthropicKeyConfigured);
@@ -207,7 +228,7 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
       {settings === null && <p className="text-muted">Loading…</p>}
       {settings !== null && (
         <div style={{ display: "grid", gap: 24, maxWidth: 640 }}>
-          <form onSubmit={save} className="card" style={{ display: "grid", gap: 14 }}>
+          <form noValidate onSubmit={save} className="card" style={{ display: "grid", gap: 14 }}>
             <h4>Extraction agent</h4>
             {saveError && <p className="warning" role="alert" style={{ margin: 0 }}>{saveError}</p>}
             {saved && <p className="text-muted" role="status" style={{ margin: 0 }}>Settings saved.</p>}
@@ -250,8 +271,26 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
                     ))}
                   </select>
                   <p className="text-muted" style={helpStyle}>
-                    Only current models verified with Travel HQ&apos;s structured extraction schema
-                    are listed.
+                    Only current extraction-compatible models are listed. If strict schema mode
+                    fails, Travel HQ retries with validated JSON mode.
+                  </p>
+                </div>
+                <div className="field">
+                  <label htmlFor="st-ai-max-tokens">Maximum output tokens</label>
+                  <input
+                    id="st-ai-max-tokens"
+                    className="input"
+                    type="number"
+                    min={MIN_WORKERS_AI_MAX_TOKENS}
+                    max={MAX_WORKERS_AI_MAX_TOKENS}
+                    step={256}
+                    value={aiMaxTokens}
+                    onChange={(e) => setAiMaxTokens(e.target.value)}
+                    readOnly={!canWrite}
+                  />
+                  <p className="text-muted" style={helpStyle}>
+                    Includes reasoning and the structured result. Use 4096 for forwarded
+                    itineraries; lower values cost less but can truncate extraction.
                   </p>
                 </div>
               </>

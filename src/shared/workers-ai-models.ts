@@ -1,8 +1,9 @@
 /**
- * Workers AI models that have been exercised against Travel HQ's constrained
- * JSON schema request. The public Workers AI catalog contains text-generation
- * models that are deprecated, require a separate licence, or do not implement
- * JSON Schema, so being present in the catalog is not sufficient.
+ * Workers AI models observed accepting structured-output requests and eligible
+ * for Travel HQ extraction. Cloudflare can still reject a particular complex
+ * schema at runtime, so the provider has a validated JSON-object fallback.
+ * The public catalog also contains deprecated, separately licensed, and
+ * incompatible models, so catalog presence alone is not sufficient.
  */
 export const SUPPORTED_WORKERS_AI_MODELS = [
   {
@@ -50,6 +51,9 @@ export const SUPPORTED_WORKERS_AI_MODELS = [
 export type CatalogModel = { name: string; description: string };
 
 export const DEFAULT_WORKERS_AI_MODEL = SUPPORTED_WORKERS_AI_MODELS[0].name;
+export const DEFAULT_WORKERS_AI_MAX_TOKENS = 4_096;
+export const MIN_WORKERS_AI_MAX_TOKENS = 256;
+export const MAX_WORKERS_AI_MAX_TOKENS = 8_192;
 
 const SUPPORTED_MODEL_NAMES = new Set<string>(
   SUPPORTED_WORKERS_AI_MODELS.map(({ name }) => name),

@@ -6,6 +6,7 @@ import type {
   IngestHouseholdSettings,
 } from "../repos/household-settings.js";
 import type { Keyring } from "../crypto/envelope.js";
+import { DEFAULT_WORKERS_AI_MAX_TOKENS } from "../../shared/workers-ai-models.js";
 
 export type ExtractionPrompt = {
   system: string;
@@ -17,7 +18,10 @@ export type ExtractionAi = {
     model: string,
     inputs: {
       messages: { role: "system" | "user"; content: string }[];
-      response_format: { type: "json_schema"; json_schema: unknown };
+      response_format:
+        | { type: "json_schema"; json_schema: unknown }
+        | { type: "json_object" };
+      max_tokens: number;
     },
   ): Promise<unknown>;
 };
@@ -33,22 +37,52 @@ export class WorkersAiProvider implements ExtractionProvider {
   constructor(
     private readonly ai: ExtractionAi,
     private readonly model: string,
+    private readonly maxTokens = DEFAULT_WORKERS_AI_MAX_TOKENS,
   ) {}
 
   async extract(prompt: ExtractionPrompt): Promise<ExtractedBooking[]> {
+    const messages = [
+      { role: "system" as const, content: prompt.system },
+      { role: "user" as const, content: prompt.user },
+    ];
     let result: unknown;
     try {
       result = await this.ai.run(this.model, {
-        messages: [
-          { role: "system", content: prompt.system },
-          { role: "user", content: prompt.user },
-        ],
+        messages,
         response_format: { type: "json_schema", json_schema: EXTRACTED_JSON_SCHEMA },
+        max_tokens: this.maxTokens,
       });
     } catch (err) {
-      throw providerError("Workers AI", err);
+      if (!isJsonSchemaFailure(err)) throw providerError("Workers AI", err);
+
+      // Cloudflare explicitly documents that a supported model can still
+      // reject a complex schema with 5024. Retry in JSON-object mode, put the
+      // schema in the fixed system instruction, then apply our normal Zod
+      // validation to the result.
+      console.warn(
+        `[extract] Workers AI model ${this.model} could not meet JSON Schema; retrying JSON-object mode`,
+      );
+      try {
+        result = await this.ai.run(this.model, {
+          messages: [
+            {
+              role: "system",
+              content: [
+                prompt.system,
+                "Return only one JSON object matching this schema:",
+                JSON.stringify(EXTRACTED_JSON_SCHEMA),
+              ].join("\n"),
+            },
+            { role: "user", content: prompt.user },
+          ],
+          response_format: { type: "json_object" },
+          max_tokens: this.maxTokens,
+        });
+      } catch (fallbackErr) {
+        throw providerError("Workers AI JSON fallback", fallbackErr);
+      }
     }
-    return validateExtracted(workersPayload(result));
+    return validateExtracted(workersPayload(result, this.model));
   }
 }
 
@@ -162,12 +196,12 @@ export async function resolveExtractionProvider({
       );
     }
   }
-  return ai ? new WorkersAiProvider(ai, settings.aiModel) : undefined;
+  return ai ? new WorkersAiProvider(ai, settings.aiModel, settings.aiMaxTokens) : undefined;
 }
 
-function workersPayload(result: unknown): unknown {
+function workersPayload(result: unknown, model: string): unknown {
   if (result === null || typeof result !== "object") {
-    throw new ExtractionError("The model returned no response");
+    throw noWorkersResponse(model, result);
   }
 
   if ("response" in result) {
@@ -180,7 +214,10 @@ function workersPayload(result: unknown): unknown {
   // Newer Workers AI models use the OpenAI-compatible chat-completions
   // envelope instead of the legacy top-level `response` field.
   const choices = (result as {
-    choices?: Array<{ message?: { content?: unknown; refusal?: unknown } }>;
+    choices?: Array<{
+      finish_reason?: unknown;
+      message?: { content?: unknown; reasoning?: unknown; refusal?: unknown };
+    }>;
   }).choices;
   const message = choices?.[0]?.message;
   if (message?.refusal) {
@@ -189,7 +226,7 @@ function workersPayload(result: unknown): unknown {
   if (message?.content !== null && message?.content !== undefined && message.content !== "") {
     return parseWorkersJson(message.content);
   }
-  throw new ExtractionError("The model returned no response");
+  throw noWorkersResponse(model, result);
 }
 
 function parseWorkersJson(payload: unknown): unknown {
@@ -199,6 +236,41 @@ function parseWorkersJson(payload: unknown): unknown {
   } catch {
     throw new ExtractionError("The model response was not valid JSON");
   }
+}
+
+function isJsonSchemaFailure(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /\b5024\b|JSON (?:Model|Mode) couldn't be met/i.test(message);
+}
+
+function noWorkersResponse(model: string, result: unknown): ExtractionError {
+  const details = [`model=${model}`];
+  if (result !== null && typeof result === "object") {
+    const record = result as {
+      choices?: Array<{
+        finish_reason?: unknown;
+        message?: { content?: unknown; reasoning?: unknown };
+      }>;
+      usage?: {
+        output_tokens?: unknown;
+        completion_tokens?: unknown;
+        total_tokens?: unknown;
+      };
+    };
+    const choice = record.choices?.[0];
+    if (typeof choice?.finish_reason === "string") {
+      details.push(`finish_reason=${choice.finish_reason}`);
+    }
+    if (typeof choice?.message?.reasoning === "string") {
+      details.push(`reasoning_chars=${choice.message.reasoning.length}`);
+    }
+    const outputTokens = record.usage?.output_tokens ?? record.usage?.completion_tokens;
+    if (typeof outputTokens === "number") details.push(`output_tokens=${outputTokens}`);
+    if (typeof record.usage?.total_tokens === "number") {
+      details.push(`total_tokens=${record.usage.total_tokens}`);
+    }
+  }
+  return new ExtractionError(`The model returned no response (${details.join(", ")})`);
 }
 
 function providerError(provider: string, err: unknown): ExtractionError {
