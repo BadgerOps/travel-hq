@@ -20,6 +20,7 @@ export type ExtractionContext = {
   provider?: ExtractionProvider;
   ai?: ExtractionAi;
   aiModel?: string;
+  aiMaxTokens?: number;
   extractionInstructions?: string;
 };
 
@@ -62,7 +63,9 @@ export async function extractInboundEmail(ctx: ExtractionContext, email: Inbound
     } else {
       const provider =
         ctx.provider ??
-        (ctx.ai && ctx.aiModel ? new WorkersAiProvider(ctx.ai, ctx.aiModel) : undefined);
+        (ctx.ai && ctx.aiModel
+          ? new WorkersAiProvider(ctx.ai, ctx.aiModel, ctx.aiMaxTokens)
+          : undefined);
       if (!provider) {
         console.warn(
           `[extract] no AI binding and no calendar part; leaving inbound email ${email.id} queued as received`,

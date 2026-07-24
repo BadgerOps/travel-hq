@@ -10,6 +10,7 @@ const SAFE_DEFAULTS = {
   forwardAddress: null,
   senderAllowlist: [],
   aiModel: DEFAULT_AI_MODEL,
+  aiMaxTokens: 4_096,
   aiProvider: "workers-ai",
   anthropicModel: "claude-opus-4-8",
   anthropicKeyConfigured: false,
@@ -60,6 +61,7 @@ describe("/api/settings", () => {
         forwardAddress: "trips@badgerops.foo",
         senderAllowlist: ["badger@example.com", "airline.com"],
         aiModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        aiMaxTokens: 6_144,
       }),
     );
     expect(put.status).toBe(200);
@@ -68,6 +70,7 @@ describe("/api/settings", () => {
       forwardAddress: "trips@badgerops.foo",
       senderAllowlist: ["badger@example.com", "airline.com"],
       aiModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      aiMaxTokens: 6_144,
     });
   });
 
@@ -130,6 +133,13 @@ describe("/api/settings", () => {
     expect(await res.json()).toEqual({
       error: "aiModel must be a supported Workers AI extraction model",
     });
+  });
+
+  it("rejects an invalid Workers AI output-token budget", async () => {
+    for (const aiMaxTokens of [255, 8_193, 1024.5]) {
+      const res = await putJson(app, JSON.stringify({ aiMaxTokens }));
+      expect(res.status).toBe(400);
+    }
   });
 
   it("rejects a forward address already claimed by another household with 400", async () => {

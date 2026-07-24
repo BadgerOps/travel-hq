@@ -3,7 +3,10 @@ import type { HouseholdContext } from "./base.js";
 import { assertNotMasked } from "../crypto/envelope.js";
 import type { Keyring } from "../crypto/envelope.js";
 import {
+  DEFAULT_WORKERS_AI_MAX_TOKENS,
   DEFAULT_WORKERS_AI_MODEL,
+  MAX_WORKERS_AI_MAX_TOKENS,
+  MIN_WORKERS_AI_MAX_TOKENS,
   isSupportedWorkersAiModel,
 } from "../../shared/workers-ai-models.js";
 
@@ -24,6 +27,8 @@ export type HouseholdSettings = {
   senderAllowlist: string[];
   /** The Workers AI model id the extractor runs. */
   aiModel: string;
+  /** Maximum output tokens available to Workers AI, including reasoning. */
+  aiMaxTokens: number;
   aiProvider: AiProvider;
   anthropicModel: string;
   /** The only credential state exposed outside the repository. */
@@ -45,6 +50,7 @@ export type UpdateHouseholdSettingsInput = {
   forwardAddress?: string | null;
   senderAllowlist?: string[];
   aiModel?: string;
+  aiMaxTokens?: number;
   aiProvider?: AiProvider;
   anthropicModel?: string;
   /** absent = keep, null = clear, string = encrypt and replace */
@@ -69,6 +75,7 @@ export function defaultHouseholdSettings(): HouseholdSettings {
     forwardAddress: null,
     senderAllowlist: [],
     aiModel: DEFAULT_AI_MODEL,
+    aiMaxTokens: DEFAULT_WORKERS_AI_MAX_TOKENS,
     aiProvider: "workers-ai",
     anthropicModel: DEFAULT_ANTHROPIC_MODEL,
     anthropicKeyConfigured: false,
@@ -80,6 +87,7 @@ type Row = {
   forward_address: string | null;
   sender_allowlist: string;
   ai_model: string;
+  ai_max_tokens: number;
   ai_provider: string;
   anthropic_model: string;
   anthropic_api_key: string | null;
@@ -139,6 +147,10 @@ export class HouseholdSettingsRepo extends TenantRepo {
       input.aiModel === undefined
         ? normalizeStoredWorkersAiModel(current?.ai_model)
         : normalizeWorkersAiModel(input.aiModel);
+    const aiMaxTokens =
+      input.aiMaxTokens === undefined
+        ? normalizeStoredWorkersAiMaxTokens(current?.ai_max_tokens)
+        : normalizeWorkersAiMaxTokens(input.aiMaxTokens);
     const aiProvider =
       input.aiProvider === undefined
         ? normalizeStoredProvider(current?.ai_provider)
@@ -194,12 +206,13 @@ export class HouseholdSettingsRepo extends TenantRepo {
       await this.run(
         `UPDATE household_settings
             SET forward_address = ?2, sender_allowlist = ?3, ai_model = ?4,
-                ai_provider = ?5, anthropic_model = ?6, anthropic_api_key = ?7,
-                extraction_instructions = ?8, updated_at = ?9
+                ai_max_tokens = ?5, ai_provider = ?6, anthropic_model = ?7,
+                anthropic_api_key = ?8, extraction_instructions = ?9, updated_at = ?10
           WHERE {scope}`,
         forwardAddress,
         senderAllowlist,
         aiModel,
+        aiMaxTokens,
         aiProvider,
         anthropicModel,
         anthropicApiKey,
@@ -211,6 +224,7 @@ export class HouseholdSettingsRepo extends TenantRepo {
         forward_address: forwardAddress,
         sender_allowlist: senderAllowlist,
         ai_model: aiModel,
+        ai_max_tokens: aiMaxTokens,
         ai_provider: aiProvider,
         anthropic_model: anthropicModel,
         anthropic_api_key: anthropicApiKey,
@@ -244,7 +258,7 @@ export class HouseholdSettingsRepo extends TenantRepo {
     if (address === "") return undefined;
     const row = await db
       .prepare(
-        `SELECT household_id, forward_address, sender_allowlist, ai_model
+        `SELECT household_id, forward_address, sender_allowlist, ai_model, ai_max_tokens
                 , ai_provider, anthropic_model, anthropic_api_key, extraction_instructions
            FROM household_settings
           WHERE forward_address = ?`,
@@ -257,7 +271,7 @@ export class HouseholdSettingsRepo extends TenantRepo {
 
   private async getRow(): Promise<Row | undefined> {
     return this.get<Row>(
-      `SELECT forward_address, sender_allowlist, ai_model, ai_provider,
+      `SELECT forward_address, sender_allowlist, ai_model, ai_max_tokens, ai_provider,
               anthropic_model, anthropic_api_key, extraction_instructions
          FROM household_settings WHERE {scope}`,
     );
@@ -282,6 +296,7 @@ function toSettings(r: Row): HouseholdSettings {
     forwardAddress: r.forward_address,
     senderAllowlist: parseAllowlist(r.sender_allowlist),
     aiModel: normalizeStoredWorkersAiModel(r.ai_model),
+    aiMaxTokens: normalizeStoredWorkersAiMaxTokens(r.ai_max_tokens),
     aiProvider: normalizeStoredProvider(r.ai_provider),
     anthropicModel: normalizeStoredModel(r.anthropic_model, DEFAULT_ANTHROPIC_MODEL),
     anthropicKeyConfigured: r.anthropic_api_key !== null,
@@ -367,6 +382,28 @@ function normalizeWorkersAiModel(model: string): string {
 function normalizeStoredWorkersAiModel(model: string | undefined): string {
   const normalized = model?.trim() ?? "";
   return isSupportedWorkersAiModel(normalized) ? normalized : DEFAULT_AI_MODEL;
+}
+
+function normalizeWorkersAiMaxTokens(value: number): number {
+  if (
+    !Number.isInteger(value) ||
+    value < MIN_WORKERS_AI_MAX_TOKENS ||
+    value > MAX_WORKERS_AI_MAX_TOKENS
+  ) {
+    throw new ValidationError(
+      `aiMaxTokens must be an integer from ${MIN_WORKERS_AI_MAX_TOKENS} to ${MAX_WORKERS_AI_MAX_TOKENS}`,
+    );
+  }
+  return value;
+}
+
+function normalizeStoredWorkersAiMaxTokens(value: number | undefined): number {
+  return value === undefined ||
+    !Number.isInteger(value) ||
+    value < MIN_WORKERS_AI_MAX_TOKENS ||
+    value > MAX_WORKERS_AI_MAX_TOKENS
+    ? DEFAULT_WORKERS_AI_MAX_TOKENS
+    : value;
 }
 
 function normalizeStoredModel(model: string, fallback: string): string {

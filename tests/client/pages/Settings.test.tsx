@@ -11,6 +11,7 @@ const SETTINGS = {
   forwardAddress: "trips@badgerops.foo",
   senderAllowlist: ["badger@example.com", "airline.com"],
   aiModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+  aiMaxTokens: 4_096,
   aiProvider: "workers-ai" as const,
   anthropicModel: "claude-opus-4-8",
   anthropicKeyConfigured: false,
@@ -97,6 +98,7 @@ describe("Settings", () => {
     expect(screen.getByLabelText("Extraction model")).toHaveValue(
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     );
+    expect(screen.getByLabelText("Maximum output tokens")).toHaveValue(4_096);
     expect(screen.getByText(/exact addresses can use verified DKIM/i)).toBeInTheDocument();
     expect(screen.getByText(/domain entries require Cloudflare verification/i)).toBeInTheDocument();
   });
@@ -140,7 +142,23 @@ describe("Settings", () => {
     expect(api.settings.update).toHaveBeenCalledWith(
       expect.objectContaining({ aiModel: "@cf/openai/gpt-oss-20b" }),
     );
-    expect(screen.getByText(/only current models verified/i)).toBeInTheDocument();
+    expect(screen.getByText(/only current extraction-compatible models/i)).toBeInTheDocument();
+  });
+
+  it("saves and validates the Workers AI output-token budget", async () => {
+    const api = renderSettings();
+    const tokens = await screen.findByLabelText("Maximum output tokens");
+    await userEvent.clear(tokens);
+    await userEvent.type(tokens, "6144");
+    await userEvent.click(screen.getByRole("button", { name: /save settings/i }));
+    expect(api.settings.update).toHaveBeenCalledWith(
+      expect.objectContaining({ aiMaxTokens: 6_144 }),
+    );
+
+    await userEvent.clear(tokens);
+    await userEvent.type(tokens, "9000");
+    await userEvent.click(screen.getByRole("button", { name: /save settings/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/256 to 8192/);
   });
 
   it("sends null for a cleared forward address", async () => {
