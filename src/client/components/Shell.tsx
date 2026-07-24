@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import {
   CheckSquare,
@@ -67,11 +67,7 @@ export function Shell({
           Import
         </Link>
 
-        {identity && (
-          <span className="nav-user" title={identity.email}>
-            {identity.email.slice(0, 1).toUpperCase()}
-          </span>
-        )}
+        {identity && <AccountMenu email={identity.email} />}
       </nav>
 
       <main className="page">{children}</main>
@@ -80,9 +76,71 @@ export function Shell({
   );
 }
 
-/* Mobile-only (styles.css hides it above 760px). Settings/Cards stay
-   reachable via the desktop nav only for now — mobile gets them behind the
-   avatar later, per the mobile/PWA handoff. */
+/* The avatar chip, now a disclosure button: on mobile the collapsed header
+   leaves Settings and Cards with no home in the tab bar, so they live here
+   (the handoff's "behind the avatar" note). Disclosure pattern, not
+   role="menu" — two links don't warrant arrow-key management. */
+function AccountMenu({ email }: { email: string }) {
+  const [open, setOpen] = useState(false);
+  const [location] = useLocation();
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  /* A menu link navigated — the popup's job is done. */
+  useEffect(() => {
+    setOpen(false);
+  }, [location]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="nav-user-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        ref={buttonRef}
+        className="nav-user"
+        title={email}
+        aria-label="Account menu"
+        aria-expanded={open}
+        aria-controls="nav-user-menu"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {email.slice(0, 1).toUpperCase()}
+      </button>
+      {open && (
+        <div className="nav-user-menu" id="nav-user-menu" data-testid="nav-user-menu">
+          <span className="nav-user-email">{email}</span>
+          <Link href="/settings" aria-current={location === "/settings" ? "page" : undefined}>
+            Settings
+          </Link>
+          <Link href="/cards" aria-current={location === "/cards" ? "page" : undefined}>
+            Cards
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Mobile-only (styles.css hides it above 760px). Settings/Cards live in the
+   AccountMenu above rather than the tab bar, per the mobile/PWA handoff. */
 const TABS = [
   { href: "/", label: "Today", Icon: House },
   { href: "/trips", label: "Trips", Icon: SuitcaseRolling },
