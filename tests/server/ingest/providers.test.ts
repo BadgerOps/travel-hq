@@ -81,6 +81,36 @@ describe("extraction providers", () => {
     expect(await provider.extract(PROMPT)).toMatchObject([{ title: "Dawn Ranch" }]);
   });
 
+  it("unwraps valid fenced and prose-wrapped JSON without relaxing JSON syntax", async () => {
+    const json = JSON.stringify({
+      bookings: [{ ...BOOKING, details: { note: "gate {A12}" } }],
+    });
+    const fenced = new WorkersAiProvider({
+      run: vi.fn(async () => ({ response: `\`\`\`json\n${json}\n\`\`\`` })),
+    }, "@cf/test");
+    await expect(fenced.extract(PROMPT)).resolves.toMatchObject([
+      { title: "Dawn Ranch", details: { note: "gate {A12}" } },
+    ]);
+
+    const prose = new WorkersAiProvider({
+      run: vi.fn(async () => ({
+        choices: [{
+          message: { content: `<think>extraction complete</think>\nHere is the result:\n${json}\nDone.` },
+        }],
+      })),
+    }, "@cf/test");
+    await expect(prose.extract(PROMPT)).resolves.toMatchObject([
+      { confirmationNumber: "ABC123" },
+    ]);
+
+    const invalid = new WorkersAiProvider({
+      run: vi.fn(async () => ({
+        response: "Result: {'bookings': [],}",
+      })),
+    }, "@cf/test");
+    await expect(invalid.extract(PROMPT)).rejects.toThrow(/not valid JSON/);
+  });
+
   it("reports malformed, empty, and refused Workers AI responses clearly", async () => {
     const malformed = new WorkersAiProvider({
       run: vi.fn(async () => ({ choices: [{ message: { content: "not json" } }] })),

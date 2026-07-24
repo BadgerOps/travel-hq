@@ -231,11 +231,67 @@ function workersPayload(result: unknown, model: string): unknown {
 
 function parseWorkersJson(payload: unknown): unknown {
   if (typeof payload !== "string") return payload;
-  try {
-    return JSON.parse(payload) as unknown;
-  } catch {
-    throw new ExtractionError("The model response was not valid JSON");
+
+  const trimmed = payload.trim();
+  const direct = tryParseJson(trimmed);
+  if (direct.ok) return direct.value;
+
+  // JSON-mode models occasionally wrap an otherwise valid response in a
+  // Markdown fence despite being told not to. Prefer the complete fenced
+  // value before looking for an object inside surrounding prose.
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced) {
+    const parsed = tryParseJson(fenced[1]!.trim());
+    if (parsed.ok) return parsed.value;
   }
+
+  // Some reasoning models include a short preface or a <think> block around
+  // the answer. Find a balanced JSON object without treating braces inside
+  // JSON strings as structure. Each candidate is still parsed strictly:
+  // comments, single quotes, trailing commas, and truncated output fail.
+  for (let start = trimmed.indexOf("{"); start >= 0; start = trimmed.indexOf("{", start + 1)) {
+    const candidate = balancedObjectAt(trimmed, start);
+    if (!candidate) continue;
+    const parsed = tryParseJson(candidate);
+    if (parsed.ok) return parsed.value;
+  }
+
+  throw new ExtractionError("The model response was not valid JSON");
+}
+
+type JsonAttempt =
+  | { ok: true; value: unknown }
+  | { ok: false };
+
+function tryParseJson(value: string): JsonAttempt {
+  try {
+    return { ok: true, value: JSON.parse(value) as unknown };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function balancedObjectAt(value: string, start: number): string | undefined {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < value.length; index++) {
+    const char = value[index]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === "{") depth++;
+    if (char === "}" && --depth === 0) return value.slice(start, index + 1);
+  }
+  return undefined;
 }
 
 function isJsonSchemaFailure(err: unknown): boolean {
