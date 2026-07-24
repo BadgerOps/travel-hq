@@ -394,6 +394,9 @@ textarea.input { min-height: 90px; resize: vertical; }
   align-items: center;
   gap: var(--space-4);
   padding: 14px 28px;
+  /* clears the status bar when the PWA runs edge-to-edge (viewport-fit=cover);
+     env() is 0 in a normal browser window, so this is the plain 14px there */
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
   border-bottom: 1px solid var(--color-divider);
   flex-wrap: wrap;
 }
@@ -432,7 +435,44 @@ textarea.input { min-height: 90px; resize: vertical; }
   user-select: none;
   background: var(--color-accent-800);
   color: var(--color-accent-100);
+  /* it's a <button> now (opens the account menu) */
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
 }
+
+/* Account menu — disclosure anchored under the avatar. Declared after the
+   .top-nav rules so its link styling wins the specificity ties (no nav
+   underline treatment inside the popup). */
+.nav-user-wrap { position: relative; display: inline-flex; }
+.nav-user-menu {
+  position: absolute; top: calc(100% + 10px); right: 0; z-index: 50;
+  min-width: 200px;
+  display: flex; flex-direction: column;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+.nav-user-email {
+  padding: 6px 12px 10px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  border-bottom: 1px solid var(--color-divider);
+  margin-bottom: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 240px;
+}
+.nav-user-menu a {
+  display: flex; align-items: center;
+  min-height: 40px; padding: 0 12px;
+  border-radius: var(--radius-sm);
+  color: inherit; text-decoration: none; font-size: 13.5px;
+  border-bottom: none;
+}
+.nav-user-menu a:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.nav-user-menu a[aria-current="page"] { color: var(--color-accent); border-bottom: none; }
 
 .page { padding: var(--space-8) 28px; max-width: 1240px; margin: 0 auto; }
 
@@ -441,13 +481,18 @@ textarea.input { min-height: 90px; resize: vertical; }
 .bottom-tabs { display: none; }
 
 @media (max-width: 760px) {
-  /* header collapses to brand + avatar */
-  .top-nav a:not(.nav-brand):not(.btn), .top-nav .btn { display: none; }
-  .top-nav { padding: 6px 16px; }
+  /* header collapses to brand + avatar — direct children only, so the
+     account-menu links (nested in .nav-user-wrap) stay visible */
+  .top-nav > a:not(.nav-brand), .top-nav > .btn { display: none; }
+  .top-nav {
+    padding: 10px 16px;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  }
   .nav-user { width: 32px; height: 32px; font-size: 13px; }
+  .nav-user-menu a { min-height: 44px; }
 
   /* room for the tab bar */
-  .page { padding: clamp(16px, 4vw, 26px) clamp(14px, 3.5vw, 28px) 110px; }
+  .page { padding: clamp(16px, 4vw, 26px) clamp(14px, 3.5vw, 28px) 124px; }
 
   .bottom-tabs {
     position: fixed; inset: auto 0 0 0; z-index: 40;
@@ -455,7 +500,10 @@ textarea.input { min-height: 90px; resize: vertical; }
     border-top: 1px solid var(--color-divider);
     background: color-mix(in srgb, var(--color-bg) 92%, transparent);
     backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
+    /* 14px floor keeps the icons out of the app-switcher swipe zone even
+       when the safe-area inset is 0 (in-browser); on a home-indicator
+       iPhone the inset stacks on top of it */
+    padding: 8px 6px calc(14px + env(safe-area-inset-bottom, 0px));
   }
   .bottom-tabs a {
     flex: 1; min-height: 48px;
