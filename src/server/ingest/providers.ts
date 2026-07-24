@@ -166,18 +166,39 @@ export async function resolveExtractionProvider({
 }
 
 function workersPayload(result: unknown): unknown {
-  if (result !== null && typeof result === "object" && "response" in result) {
+  if (result === null || typeof result !== "object") {
+    throw new ExtractionError("The model returned no response");
+  }
+
+  if ("response" in result) {
     const response = (result as { response: unknown }).response;
-    if (typeof response === "string") {
-      try {
-        return JSON.parse(response) as unknown;
-      } catch {
-        throw new ExtractionError("The model response was not valid JSON");
-      }
+    if (response !== null && response !== undefined && response !== "") {
+      return parseWorkersJson(response);
     }
-    if (response !== null && response !== undefined) return response;
+  }
+
+  // Newer Workers AI models use the OpenAI-compatible chat-completions
+  // envelope instead of the legacy top-level `response` field.
+  const choices = (result as {
+    choices?: Array<{ message?: { content?: unknown; refusal?: unknown } }>;
+  }).choices;
+  const message = choices?.[0]?.message;
+  if (message?.refusal) {
+    throw new ExtractionError("The model refused the extraction request");
+  }
+  if (message?.content !== null && message?.content !== undefined && message.content !== "") {
+    return parseWorkersJson(message.content);
   }
   throw new ExtractionError("The model returned no response");
+}
+
+function parseWorkersJson(payload: unknown): unknown {
+  if (typeof payload !== "string") return payload;
+  try {
+    return JSON.parse(payload) as unknown;
+  } catch {
+    throw new ExtractionError("The model response was not valid JSON");
+  }
 }
 
 function providerError(provider: string, err: unknown): ExtractionError {

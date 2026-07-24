@@ -3,6 +3,7 @@ import { FloppyDisk, Flask, Key, Robot, Trash } from "@phosphor-icons/react";
 import { api as defaultApi, ApiError } from "../api/client.js";
 import type {
   AiProvider,
+  CatalogModel,
   ExtractedBooking,
   HouseholdSettings,
   InboundEmailMetadata,
@@ -10,18 +11,18 @@ import type {
 import { errorMessage } from "../lib/errors.js";
 import { useCanWrite } from "../api/identity.js";
 import { DraftBookingCard } from "../components/DraftBookingCard.js";
+import { SUPPORTED_WORKERS_AI_MODELS } from "../../shared/workers-ai-models.js";
 
-const WORKERS_MODELS = [
-  "@cf/meta/llama-3.1-8b-instruct",
-  "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-  "@cf/mistralai/mistral-small-3.1-24b-instruct",
-] as const;
+/* Fallback presets only — the dropdown normally lists what the account can
+   actually run, pulled from /api/settings/ai-models (the server caches the
+   Cloudflare catalog). These cover an unreachable catalog: offline, or
+   Workers AI itself down. */
+const FALLBACK_WORKERS_MODELS: CatalogModel[] = [...SUPPORTED_WORKERS_AI_MODELS];
 const ANTHROPIC_MODELS = [
   "claude-opus-4-8",
   "claude-sonnet-5",
   "claude-haiku-4-5",
 ] as const;
-const CUSTOM_MODEL = "__custom__";
 const MAX_INSTRUCTIONS = 2_000;
 
 type KeyMode = "unchanged" | "replace" | "remove";
@@ -32,6 +33,7 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
   const [allowlistText, setAllowlistText] = useState("");
   const [aiModel, setAiModel] = useState("");
   const [aiProvider, setAiProvider] = useState<AiProvider>("workers-ai");
+  const [workersModels, setWorkersModels] = useState<CatalogModel[]>(FALLBACK_WORKERS_MODELS);
   const [anthropicModel, setAnthropicModel] = useState<string>(ANTHROPIC_MODELS[0]);
   const [anthropicKeyConfigured, setAnthropicKeyConfigured] = useState(false);
   const [anthropicApiKey, setAnthropicApiKey] = useState("");
@@ -83,6 +85,18 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
           if (!cancelled && !(err instanceof ApiError && err.status === 403)) {
             setActivityError(errorMessage(err));
           }
+        },
+      );
+    }
+
+    const listModels = api.settings.aiModels;
+    if (listModels) {
+      listModels().then(
+        (r) => {
+          if (!cancelled && r.models.length > 0) setWorkersModels(r.models);
+        },
+        () => {
+          /* catalog unreachable: the fallback presets stay */
         },
       );
     }
@@ -187,10 +201,6 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
     return <p className="warning" role="alert">{loadFailed}</p>;
   }
 
-  const modelChoice = WORKERS_MODELS.includes(aiModel as (typeof WORKERS_MODELS)[number])
-    ? aiModel
-    : CUSTOM_MODEL;
-
   return (
     <>
       <SettingsHeader />
@@ -233,23 +243,17 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
               <>
                 <div className="field">
                   <label htmlFor="st-model-preset">Extraction model</label>
-                  <select id="st-model-preset" className="input" value={modelChoice}
-                    onChange={(e) => {
-                      if (e.target.value !== CUSTOM_MODEL) setAiModel(e.target.value);
-                      else if (modelChoice !== CUSTOM_MODEL) setAiModel("");
-                    }} disabled={!canWrite}>
-                    {WORKERS_MODELS.map((model) => <option value={model} key={model}>{model}</option>)}
-                    <option value={CUSTOM_MODEL}>Custom model id…</option>
+                  <select id="st-model-preset" className="input" value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)} disabled={!canWrite}>
+                    {workersModels.map(({ name, description }) => (
+                      <option value={name} key={name} title={description || undefined}>{name}</option>
+                    ))}
                   </select>
+                  <p className="text-muted" style={helpStyle}>
+                    Only current models verified with Travel HQ&apos;s structured extraction schema
+                    are listed.
+                  </p>
                 </div>
-                {modelChoice === CUSTOM_MODEL && (
-                  <div className="field">
-                    <label htmlFor="st-custom-model">Custom Workers AI model id</label>
-                    <input id="st-custom-model" className="input" value={aiModel}
-                      onChange={(e) => setAiModel(e.target.value)} readOnly={!canWrite} />
-                    <p className="text-muted" style={helpStyle}>Saved for this household in Travel HQ.</p>
-                  </div>
-                )}
               </>
             ) : (
               <div className="field">

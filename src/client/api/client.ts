@@ -3,6 +3,7 @@ import type {
   BookingStatus,
   Card,
   CardWithPerks,
+  CatalogModel,
   ChecklistItem,
   CreateBookingInput,
   CreateCardInput,
@@ -182,6 +183,8 @@ export function createApi(config: ApiConfig = {}) {
           "/api/settings/extraction-test",
           jsonBody("POST", input),
         ),
+      aiModels: () =>
+        request<{ models: CatalogModel[]; error?: string }>("/api/settings/ai-models"),
     },
     inboundEmails: {
       list: () => request<InboundEmailMetadata[]>("/api/inbound-emails"),

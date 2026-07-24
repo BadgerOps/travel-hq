@@ -2,13 +2,13 @@ import { TenantRepo, ForbiddenError, ValidationError } from "./base.js";
 import type { HouseholdContext } from "./base.js";
 import { assertNotMasked } from "../crypto/envelope.js";
 import type { Keyring } from "../crypto/envelope.js";
+import {
+  DEFAULT_WORKERS_AI_MODEL,
+  isSupportedWorkersAiModel,
+} from "../../shared/workers-ai-models.js";
 
-/**
- * The one place the default extractor model is spelled out. The ingest
- * extractor (issue #6) imports this rather than repeating the literal, so a
- * future model bump is a one-line change here.
- */
-export const DEFAULT_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+/** Backwards-compatible server export of the shared extractor default. */
+export const DEFAULT_AI_MODEL = DEFAULT_WORKERS_AI_MODEL;
 export const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8";
 export const AI_PROVIDERS = ["workers-ai", "anthropic"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
@@ -136,7 +136,9 @@ export class HouseholdSettingsRepo extends TenantRepo {
         ? (current?.sender_allowlist ?? "[]")
         : JSON.stringify(normalizeAllowlist(input.senderAllowlist));
     const aiModel =
-      input.aiModel === undefined ? (current?.ai_model ?? DEFAULT_AI_MODEL) : normalizeModel(input.aiModel);
+      input.aiModel === undefined
+        ? normalizeStoredWorkersAiModel(current?.ai_model)
+        : normalizeWorkersAiModel(input.aiModel);
     const aiProvider =
       input.aiProvider === undefined
         ? normalizeStoredProvider(current?.ai_provider)
@@ -279,7 +281,7 @@ function toSettings(r: Row): HouseholdSettings {
   return {
     forwardAddress: r.forward_address,
     senderAllowlist: parseAllowlist(r.sender_allowlist),
-    aiModel: r.ai_model,
+    aiModel: normalizeStoredWorkersAiModel(r.ai_model),
     aiProvider: normalizeStoredProvider(r.ai_provider),
     anthropicModel: normalizeStoredModel(r.anthropic_model, DEFAULT_ANTHROPIC_MODEL),
     anthropicKeyConfigured: r.anthropic_api_key !== null,
@@ -352,6 +354,19 @@ function normalizeModel(model: string, field = "aiModel"): string {
     throw new ValidationError(`${field} must not be blank`);
   }
   return normalized;
+}
+
+function normalizeWorkersAiModel(model: string): string {
+  const normalized = normalizeModel(model);
+  if (!isSupportedWorkersAiModel(normalized)) {
+    throw new ValidationError("aiModel must be a supported Workers AI extraction model");
+  }
+  return normalized;
+}
+
+function normalizeStoredWorkersAiModel(model: string | undefined): string {
+  const normalized = model?.trim() ?? "";
+  return isSupportedWorkersAiModel(normalized) ? normalized : DEFAULT_AI_MODEL;
 }
 
 function normalizeStoredModel(model: string, fallback: string): string {

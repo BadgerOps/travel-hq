@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Settings } from "../../../src/client/pages/Settings.js";
 import { ApiError } from "../../../src/client/api/client.js";
@@ -10,7 +10,7 @@ import type { Identity, InboundEmailMetadata } from "../../../src/client/api/typ
 const SETTINGS = {
   forwardAddress: "trips@badgerops.foo",
   senderAllowlist: ["badger@example.com", "airline.com"],
-  aiModel: "@cf/meta/llama-3.1-8b-instruct",
+  aiModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
   aiProvider: "workers-ai" as const,
   anthropicModel: "claude-opus-4-8",
   anthropicKeyConfigured: false,
@@ -23,6 +23,9 @@ function makeApi(over: Record<string, unknown> = {}) {
       get: vi.fn(async () => SETTINGS),
       update: vi.fn(async (input: Record<string, unknown>) => ({ ...SETTINGS, ...input })),
       testExtraction: vi.fn(async () => ({ bookings: [] })),
+      // Empty catalog: the component keeps its built-in presets, so the
+      // existing tests see the same options they always did.
+      aiModels: vi.fn(async () => ({ models: [] })),
       ...over,
     },
     inboundEmails: { list: vi.fn(async (): Promise<InboundEmailMetadata[]> => []) },
@@ -45,6 +48,46 @@ function renderSettings(api = makeApi(), role: Identity["role"] = "owner") {
 }
 
 describe("Settings", () => {
+  it("populates the Workers AI model presets from the catalog endpoint", async () => {
+    const api = makeApi({
+      aiModels: vi.fn(async () => ({
+        models: [
+          {
+            name: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+            description: "Meta's 70B instruct",
+          },
+          { name: "@cf/openai/gpt-oss-20b", description: "OpenAI GPT-OSS 20B" },
+        ],
+      })),
+    });
+    renderSettings(api);
+    const select = await screen.findByLabelText("Extraction model");
+    expect(
+      await within(select).findByRole("option", { name: "@cf/openai/gpt-oss-20b" }),
+    ).toBeInTheDocument();
+    expect(within(select).getAllByRole("option")).toHaveLength(2);
+    expect(screen.queryByText(/custom model id/i)).not.toBeInTheDocument();
+    expect(api.settings.aiModels).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the built-in presets when the catalog pull fails", async () => {
+    const api = makeApi({
+      aiModels: vi.fn(async () => {
+        throw new Error("catalog down");
+      }),
+    });
+    renderSettings(api);
+    const select = await screen.findByLabelText("Extraction model");
+    expect(
+      within(select).getByRole("option", {
+        name: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(select).getByRole("option", { name: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders the three agent-configuration fields from the server", async () => {
     renderSettings();
     expect(await screen.findByLabelText("Forward address")).toHaveValue("trips@badgerops.foo");
@@ -52,7 +95,7 @@ describe("Settings", () => {
       "badger@example.com\nairline.com",
     );
     expect(screen.getByLabelText("Extraction model")).toHaveValue(
-      "@cf/meta/llama-3.1-8b-instruct",
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     );
     expect(screen.getByText(/exact addresses can use verified DKIM/i)).toBeInTheDocument();
     expect(screen.getByText(/domain entries require Cloudflare verification/i)).toBeInTheDocument();
@@ -63,12 +106,12 @@ describe("Settings", () => {
       get: vi.fn(async () => ({
         forwardAddress: null,
         senderAllowlist: [],
-        aiModel: "@cf/meta/llama-3.1-8b-instruct",
+        aiModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
       })),
     });
     renderSettings(api);
     expect(await screen.findByLabelText("Extraction model")).toHaveValue(
-      "@cf/meta/llama-3.1-8b-instruct",
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     );
     expect(screen.getByLabelText("Forward address")).toHaveValue("");
   });
@@ -83,23 +126,21 @@ describe("Settings", () => {
     expect(api.settings.update).toHaveBeenCalledWith(expect.objectContaining({
       forwardAddress: "trips@badgerops.foo",
       senderAllowlist: ["one@example.com", "hotels.com"],
-      aiModel: "@cf/meta/llama-3.1-8b-instruct",
+      aiModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     }));
   });
 
   it("saves an in-app household model change", async () => {
     const api = renderSettings();
     const model = await screen.findByLabelText("Extraction model");
-    await userEvent.selectOptions(model, "__custom__");
-    const custom = screen.getByLabelText("Custom Workers AI model id");
-    await userEvent.type(custom, "@cf/meta/custom-travel-model");
+    await userEvent.selectOptions(model, "@cf/openai/gpt-oss-20b");
     await userEvent.click(screen.getByRole("button", { name: /save settings/i }));
 
     expect(await screen.findByText(/settings saved/i)).toBeInTheDocument();
     expect(api.settings.update).toHaveBeenCalledWith(
-      expect.objectContaining({ aiModel: "@cf/meta/custom-travel-model" }),
+      expect.objectContaining({ aiModel: "@cf/openai/gpt-oss-20b" }),
     );
-    expect(screen.getByText(/saved for this household in travel hq/i)).toBeInTheDocument();
+    expect(screen.getByText(/only current models verified/i)).toBeInTheDocument();
   });
 
   it("sends null for a cleared forward address", async () => {
@@ -154,12 +195,10 @@ describe("Settings", () => {
     });
     renderSettings(api);
     const model = await screen.findByLabelText("Extraction model");
-    await userEvent.selectOptions(model, "__custom__");
-    const custom = screen.getByLabelText("Custom Workers AI model id");
-    await userEvent.type(custom, "@cf/meta/custom-travel-model");
+    await userEvent.selectOptions(model, "@cf/openai/gpt-oss-20b");
     await userEvent.click(screen.getByRole("button", { name: /save settings/i }));
     expect(await screen.findByRole("alert")).toBeInTheDocument();
-    expect(custom).toHaveValue("@cf/meta/custom-travel-model");
+    expect(model).toHaveValue("@cf/openai/gpt-oss-20b");
   });
 
   it("renders the ingest-activity placeholder with an honest empty state", async () => {

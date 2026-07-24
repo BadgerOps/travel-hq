@@ -71,6 +71,18 @@ settings.put("/", async (c) => {
   return c.json(await repo.updateSettings(parsed.data satisfies UpdateHouseholdSettingsInput));
 });
 
+// Any household member may list the catalog -- it is public Cloudflare model
+// metadata, not household data, so it skips the repo's owner/adult gate.
+// Failures use the extraction-test soft-error envelope (200 + error field):
+// the dropdown falls back to its built-in presets rather than surfacing a 5xx.
+settings.get("/ai-models", async (c) => {
+  try {
+    return c.json({ models: await c.get("modelCatalog").list(c.env.AI) });
+  } catch {
+    return c.json({ models: [], error: "Workers AI is unavailable" });
+  }
+});
+
 settings.post("/extraction-test", async (c) => {
   let body: unknown;
   try {

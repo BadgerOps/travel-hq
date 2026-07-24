@@ -36,6 +36,38 @@ describe("extraction providers", () => {
     });
   });
 
+  it("accepts the OpenAI-compatible response envelope used by current models", async () => {
+    const run = vi.fn(async () => ({
+      choices: [{
+        message: {
+          role: "assistant",
+          content: JSON.stringify({ bookings: [BOOKING] }),
+        },
+      }],
+    }));
+    const provider = new WorkersAiProvider({ run }, "@cf/openai/gpt-oss-20b");
+    expect(await provider.extract(PROMPT)).toMatchObject([{ title: "Dawn Ranch" }]);
+  });
+
+  it("reports malformed, empty, and refused Workers AI responses clearly", async () => {
+    const malformed = new WorkersAiProvider({
+      run: vi.fn(async () => ({ choices: [{ message: { content: "not json" } }] })),
+    }, "@cf/test");
+    await expect(malformed.extract(PROMPT)).rejects.toThrow(/not valid JSON/);
+
+    const empty = new WorkersAiProvider({
+      run: vi.fn(async () => ({ choices: [{ message: { content: "" } }] })),
+    }, "@cf/test");
+    await expect(empty.extract(PROMPT)).rejects.toThrow(/no response/);
+
+    const refused = new WorkersAiProvider({
+      run: vi.fn(async () => ({
+        choices: [{ message: { content: "", refusal: "cannot comply" } }],
+      })),
+    }, "@cf/test");
+    await expect(refused.extract(PROMPT)).rejects.toThrow(/refused/);
+  });
+
   it("uses Anthropic structured output without a live model call", async () => {
     const create = vi.fn(async () => ({
       content: [{ type: "text", text: JSON.stringify({ bookings: [BOOKING] }) }],
