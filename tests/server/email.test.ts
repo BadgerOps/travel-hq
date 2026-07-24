@@ -636,6 +636,19 @@ describe("senderAuthenticated (trusted authentication-result parsing)", () => {
     expect(senderAuthenticated(h("mx.cloudflare.net; spf=pass; dmarc=fail"))).toBe(false);
   });
 
+  it("does not mistake a DMARC policy property for an authentication verdict", () => {
+    const headers = h(
+      "mx.cloudflare.net; dmarc=pass header.from=badgerops.net policy.dmarc=quarantine; spf=pass smtp.mailfrom=badgerops.net",
+    );
+    expect(senderAuthenticated(headers)).toBe(true);
+    expect(cloudflareAuthenticationDiagnostic(headers)).toEqual({
+      verdict: "pass",
+      trustedRecords: 1,
+      dmarc: ["pass"],
+      spf: ["pass"],
+    });
+  });
+
   it("treats a header with neither mechanism as unauthenticated", () => {
     expect(senderAuthenticated(h("mx.cloudflare.net; dkim=pass"))).toBe(false);
     expect(cloudflareAuthentication(h("mx.cloudflare.net; dkim=pass"))).toBe(
