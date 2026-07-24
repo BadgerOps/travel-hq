@@ -33,3 +33,4 @@ export type {
 } from "../../server/repos/household-settings.js";
 export type { InboundEmailMetadata } from "../../server/repos/inbound-email.js";
 export type { ExtractedBooking } from "../../server/ingest/extracted.js";
+export type { CatalogModel } from "../../server/ingest/model-catalog.js";

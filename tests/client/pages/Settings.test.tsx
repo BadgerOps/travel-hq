@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Settings } from "../../../src/client/pages/Settings.js";
 import { ApiError } from "../../../src/client/api/client.js";
@@ -23,6 +23,9 @@ function makeApi(over: Record<string, unknown> = {}) {
       get: vi.fn(async () => SETTINGS),
       update: vi.fn(async (input: Record<string, unknown>) => ({ ...SETTINGS, ...input })),
       testExtraction: vi.fn(async () => ({ bookings: [] })),
+      // Empty catalog: the component keeps its built-in presets, so the
+      // existing tests see the same options they always did.
+      aiModels: vi.fn(async () => ({ models: [] })),
       ...over,
     },
     inboundEmails: { list: vi.fn(async (): Promise<InboundEmailMetadata[]> => []) },
@@ -45,6 +48,41 @@ function renderSettings(api = makeApi(), role: Identity["role"] = "owner") {
 }
 
 describe("Settings", () => {
+  it("populates the Workers AI model presets from the catalog endpoint", async () => {
+    const api = makeApi({
+      aiModels: vi.fn(async () => ({
+        models: [
+          { name: "@cf/meta/llama-3.1-8b-instruct", description: "Meta's 8B instruct" },
+          { name: "@cf/qwen/qwq-32b", description: "Qwen reasoning model" },
+        ],
+      })),
+    });
+    renderSettings(api);
+    const select = await screen.findByLabelText("Extraction model");
+    expect(
+      await within(select).findByRole("option", { name: "@cf/qwen/qwq-32b" }),
+    ).toBeInTheDocument();
+    // The two catalog entries plus the custom-id escape hatch.
+    expect(within(select).getAllByRole("option")).toHaveLength(3);
+    expect(api.settings.aiModels).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the built-in presets when the catalog pull fails", async () => {
+    const api = makeApi({
+      aiModels: vi.fn(async () => {
+        throw new Error("catalog down");
+      }),
+    });
+    renderSettings(api);
+    const select = await screen.findByLabelText("Extraction model");
+    expect(
+      within(select).getByRole("option", { name: "@cf/meta/llama-3.1-8b-instruct" }),
+    ).toBeInTheDocument();
+    expect(
+      within(select).getByRole("option", { name: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders the three agent-configuration fields from the server", async () => {
     renderSettings();
     expect(await screen.findByLabelText("Forward address")).toHaveValue("trips@badgerops.foo");

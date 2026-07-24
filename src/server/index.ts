@@ -14,6 +14,7 @@ import { inboundEmails } from "./routes/inbound-emails.js";
 import { mapError } from "./routes/errors.js";
 import { createAnthropicClient } from "./ingest/providers.js";
 import type { AnthropicClientFactory } from "./ingest/providers.js";
+import { WorkersAiModelCatalog } from "./ingest/model-catalog.js";
 
 export type AppBindings = {
   DB: D1Database;
@@ -36,6 +37,7 @@ export type AppEnv = {
     ring: Keyring;
     identity: Identity;
     anthropicClientFactory: AnthropicClientFactory;
+    modelCatalog: WorkersAiModelCatalog;
   };
 };
 
@@ -48,7 +50,11 @@ export type AppOverrides = {
   verify?: (req: Request, env: AppBindings) => Promise<Identity>;
   ring?: Keyring;
   anthropicClientFactory?: AnthropicClientFactory;
+  modelCatalog?: WorkersAiModelCatalog;
 };
+
+// Isolate-lifetime cache of the Workers AI model catalog (see model-catalog.ts).
+const defaultModelCatalog = new WorkersAiModelCatalog();
 
 // The Access verifier caches JWKS; cache it per env object so that survives
 // across requests within an isolate.
@@ -88,6 +94,7 @@ export function createApp(overrides: AppOverrides = {}) {
     c.set("db", env.DB);
     c.set("ring", overrides.ring ?? loadKeyring(env.ENCRYPTION_KEY));
     c.set("anthropicClientFactory", overrides.anthropicClientFactory ?? createAnthropicClient);
+    c.set("modelCatalog", overrides.modelCatalog ?? defaultModelCatalog);
     const verify = overrides.verify ? (req: Request) => overrides.verify!(req, env) : verifierFor(env);
     // A real verify() rejects only with AuthError; app.onError maps it to 401.
     c.set("identity", await verify(c.req.raw));
