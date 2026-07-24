@@ -1,6 +1,13 @@
 import type { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { PaperPlaneTilt, TrayArrowDown } from "@phosphor-icons/react";
+import {
+  CheckSquare,
+  House,
+  PaperPlaneTilt,
+  SuitcaseRolling,
+  TrayArrowDown,
+  Users,
+} from "@phosphor-icons/react";
 
 const NAV = [
   { href: "/", label: "Today" },
@@ -27,7 +34,7 @@ export function Shell({
 
   return (
     <>
-      <nav className="top-nav">
+      <nav className="top-nav" aria-label="Primary">
         <Link
           href="/"
           className="nav-brand"
@@ -68,6 +75,37 @@ export function Shell({
       </nav>
 
       <main className="page">{children}</main>
+      <BottomTabs />
     </>
+  );
+}
+
+/* Mobile-only (styles.css hides it above 760px). Settings/Cards stay
+   reachable via the desktop nav only for now — mobile gets them behind the
+   avatar later, per the mobile/PWA handoff. */
+const TABS = [
+  { href: "/", label: "Today", Icon: House },
+  { href: "/trips", label: "Trips", Icon: SuitcaseRolling },
+  { href: "/import", label: "Import", Icon: TrayArrowDown },
+  { href: "/checklist", label: "Checklist", Icon: CheckSquare },
+  { href: "/people", label: "People", Icon: Users },
+];
+
+export function BottomTabs() {
+  const [location] = useLocation();
+  return (
+    <nav className="bottom-tabs" aria-label="Tabs">
+      {TABS.map(({ href, label, Icon }) => {
+        /* startsWith, unlike the top nav's exact match, so /trips/:id keeps
+           the Trips tab lit. */
+        const active = href === "/" ? location === "/" : location.startsWith(href);
+        return (
+          <Link key={href} href={href} aria-current={active ? "page" : undefined}>
+            <Icon size={20} weight={active ? "fill" : "regular"} />
+            <span>{label}</span>
+          </Link>
+        );
+      })}
+    </nav>
   );
 }

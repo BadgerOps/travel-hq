@@ -334,13 +334,13 @@ textarea.input { min-height: 90px; resize: vertical; }
   background: linear-gradient(135deg, #262a60 0%, #1a1c33 55%, var(--color-bg) 100%);
   border: 1px solid var(--color-accent-800);
   border-radius: var(--radius-lg);
-  padding: var(--space-6);
+  padding: clamp(16px, 3.5vw, 22px) clamp(16px, 3.5vw, 24px);
 }
 .hero-idle {
   background: linear-gradient(135deg, #1a1c33 0%, var(--color-bg) 100%);
   border: 1px solid var(--color-divider);
   border-radius: var(--radius-lg);
-  padding: var(--space-6);
+  padding: clamp(16px, 3.5vw, 22px) clamp(16px, 3.5vw, 24px);
 }
 
 /* Person avatar chip — 22px circle, 10px/600 initial. */
@@ -435,4 +435,39 @@ textarea.input { min-height: 90px; resize: vertical; }
 }
 
 .page { padding: var(--space-8) 28px; max-width: 1240px; margin: 0 auto; }
+
+/* ── Mobile: collapsed header + bottom tab bar (mobile/PWA handoff) ──────── */
+
+.bottom-tabs { display: none; }
+
+@media (max-width: 760px) {
+  /* header collapses to brand + avatar */
+  .top-nav a:not(.nav-brand):not(.btn), .top-nav .btn { display: none; }
+  .top-nav { padding: 6px 16px; }
+  .nav-user { width: 32px; height: 32px; font-size: 13px; }
+
+  /* room for the tab bar */
+  .page { padding: clamp(16px, 4vw, 26px) clamp(14px, 3.5vw, 28px) 110px; }
+
+  .bottom-tabs {
+    position: fixed; inset: auto 0 0 0; z-index: 40;
+    display: flex;
+    border-top: 1px solid var(--color-divider);
+    background: color-mix(in srgb, var(--color-bg) 92%, transparent);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
+  }
+  .bottom-tabs a {
+    flex: 1; min-height: 48px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    border-radius: var(--radius-sm);
+    color: var(--color-neutral-400); font-size: 10px; letter-spacing: .02em; text-decoration: none;
+  }
+  .bottom-tabs a[aria-current="page"] { color: var(--color-accent); }
+  .bottom-tabs a:active { background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
+
+  /* The handoff also drops toasts to 86px here (`.toast { bottom: 86px }`) —
+     omitted: the app has no toasts, only inline role="status" text. Restore
+     it if a toast layer ever lands. */
+}
 

@@ -7,11 +7,14 @@
 </head>
 <body>
 <x-dc>
-<helmet data-dc-atomics>
+<helmet data-dc-atomics="">
 <link rel="stylesheet" href="_ds/nocturne-8f927071-1ed7-411b-9402-596424195b73/styles.css">
 <script src="_ds/nocturne-8f927071-1ed7-411b-9402-596424195b73/_ds_bundle.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#161826">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
 <style>
 body{margin:0;background:var(--color-bg);font-family:var(--font-body,Inter,sans-serif)}
 a{color:var(--color-accent)}a:hover{color:var(--color-accent-300)}
@@ -26,7 +29,8 @@ a{color:var(--color-accent)}a:hover{color:var(--color-accent-300)}
 </helmet>
 
 <div style="min-height:100vh;color:var(--color-text)">
-<div style="display:flex;align-items:center;gap:22px;padding:14px 28px;border-bottom:1px solid var(--color-divider);flex-wrap:wrap">
+<sc-if value="{{ isDesktop }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;align-items:center;gap:28px;padding:14px 28px;border-bottom:1px solid var(--color-divider)">
   <div style="display:flex;align-items:center;gap:10px;margin-right:auto;cursor:pointer" onClick="{{ goHome }}"><i class="ph-fill ph-paper-plane-tilt" style="color:var(--color-accent);font-size:20px"></i><span style="font-weight:500;font-size:16px">Travel HQ</span></div>
   <span onClick="{{ goHome }}" style="font-size:13.5px;cursor:pointer;color:{{ navTodayColor }}" style-hover="color:var(--color-accent-300)">Today</span>
   <span onClick="{{ toastTrips }}" style="font-size:13.5px;color:var(--color-neutral-400);cursor:pointer" style-hover="color:var(--color-accent-300)">Trips</span>
@@ -34,18 +38,25 @@ a{color:var(--color-accent)}a:hover{color:var(--color-accent-300)}
   <span onClick="{{ toastPeople }}" style="font-size:13.5px;color:var(--color-neutral-400);cursor:pointer" style-hover="color:var(--color-accent-300)">People</span>
   <sc-if value="{{ showPhase2Nav }}" hint-placeholder-val="{{ true }}"><span style="font-size:13.5px;color:var(--color-neutral-600)">Cards · soon</span></sc-if>
   <button class="btn btn-secondary" style="font-size:12.5px;padding:6px 12px;border-color:{{ importBtnBorder }}" onClick="{{ goImport }}"><i class="ph ph-tray-arrow-down"></i> Import{{ importBadge }}</button>
-  <span class="av av-b">B</span>
+  <span class="av av-b" style="font-size: 15px; width: 25px; height: 25px">B</span>
 </div>
+</sc-if>
+<sc-if value="{{ isMobile }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:12px;padding:6px 16px;border-bottom:1px solid var(--color-divider)">
+  <div style="display:flex;align-items:center;gap:9px;margin-right:auto;cursor:pointer;min-height:44px" onClick="{{ goHome }}"><i class="ph-fill ph-paper-plane-tilt" style="color:var(--color-accent);font-size:20px"></i><span style="font-weight:500;font-size:16px">Travel HQ</span></div>
+  <span class="av av-b" style="width:32px;height:32px;font-size:13px">B</span>
+</div>
+</sc-if>
 
 <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
-<div style="max-width:1240px;margin:0 auto;padding:26px 28px 60px">
+<div style="max-width:1240px;margin:0 auto;padding:clamp(16px,4vw,26px) clamp(14px,3.5vw,28px) 110px">
   <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:22px;flex-wrap:wrap">
     <div><h3 style="margin:0 0 4px">Good morning, Badger</h3><p style="font-size:13px;color:var(--color-neutral-400);margin:0">{{ heroSubline }}</p></div>
     <span class="tag tag-accent" style="margin-left:auto">{{ heroTag }}</span>
   </div>
   <div style="display:flex;gap:24px;align-items:stretch;flex-wrap:wrap">
     <sc-if value="{{ tripActive }}" hint-placeholder-val="{{ true }}">
-    <div style="flex:1.5 1 480px;min-width:0;border-radius:var(--radius-lg);padding:22px 24px;background:linear-gradient(135deg,var(--color-section) 0%,#1a1c33 55%,var(--color-bg) 100%);border:1px solid var(--color-accent-800)">
+    <div style="flex:1.5 1 480px;min-width:0;border-radius:var(--radius-lg);padding:clamp(16px,3.5vw,22px) clamp(16px,3.5vw,24px);background:linear-gradient(135deg,var(--color-section) 0%,#1a1c33 55%,var(--color-bg) 100%);border:1px solid var(--color-accent-800)">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px"><h6 style="color:var(--color-accent-300);margin:0">Next up · in 40 min</h6><span style="margin-left:auto;font-size:11px;color:var(--color-neutral-400)">then 3 more today</span></div>
       <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
         <i class="ph ph-airplane-takeoff" style="font-size:30px;color:var(--color-accent)"></i>
@@ -62,7 +73,7 @@ a{color:var(--color-accent)}a:hover{color:var(--color-accent-300)}
     </div>
     </sc-if>
     <sc-if value="{{ tripIdle }}" hint-placeholder-val="{{ false }}">
-    <div style="flex:1.5 1 480px;min-width:0;border-radius:var(--radius-lg);padding:22px 24px;background:linear-gradient(135deg,#1a1c33 0%,var(--color-bg) 70%);border:1px solid var(--color-divider)">
+    <div style="flex:1.5 1 480px;min-width:0;border-radius:var(--radius-lg);padding:clamp(16px,3.5vw,22px) clamp(16px,3.5vw,24px);background:linear-gradient(135deg,#1a1c33 0%,var(--color-bg) 70%);border:1px solid var(--color-divider)">
       <h6 style="color:var(--color-neutral-500);margin:0 0 14px">Next trip · in 12 days</h6>
       <div style="display:flex;gap:14px;align-items:center">
         <i class="ph ph-confetti" style="font-size:30px;color:var(--color-accent)"></i>
@@ -91,7 +102,7 @@ a{color:var(--color-accent)}a:hover{color:var(--color-accent-300)}
     </div>
   </div>
   <div style="display:flex;align-items:baseline;gap:14px;margin:30px 0 14px"><h4 style="margin:0">Trips</h4><button class="btn btn-ghost" style="margin-left:auto;font-size:13px" onClick="{{ toastNewTrip }}"><i class="ph ph-plus"></i> New trip</button></div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr));gap:14px">
     <div class="card" style="padding:0;overflow:hidden;cursor:pointer" style-hover="box-shadow:var(--shadow-sm)" onClick="{{ toastTrips }}">
       <div style="position:relative;height:150px">
         <div style="position:absolute;inset:0;background:var(--color-neutral-900)"><x-import component-from-global-scope="image-slot" from="./image-slot.js" id="trip-guerneville" shape="rect" placeholder="Drop a Guerneville photo" hint-size="100%,150px" style="width:100%;height:100%"></x-import></div>
@@ -126,7 +137,7 @@ a{color:var(--color-accent)}a:hover{color:var(--color-accent-300)}
 </sc-if>
 
 <sc-if value="{{ isImport }}" hint-placeholder-val="{{ false }}">
-<div style="max-width:1240px;margin:0 auto;padding:26px 28px 60px">
+<div style="max-width:1240px;margin:0 auto;padding:clamp(16px,4vw,26px) clamp(14px,3.5vw,28px) 110px">
   <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:20px;flex-wrap:wrap">
     <div><h3 style="margin:0 0 4px">Import bookings</h3><p style="font-size:13px;color:var(--color-neutral-400);margin:0">Everything lands as a draft for review — nothing writes silently</p></div>
     <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
@@ -136,7 +147,7 @@ a{color:var(--color-accent)}a:hover{color:var(--color-accent-300)}
     </div>
   </div>
   <sc-if value="{{ tabIsPaste }}" hint-placeholder-val="{{ true }}">
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:22px;align-items:start">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));gap:22px;align-items:start">
     <div>
       <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px"><h6 style="color:var(--color-neutral-500);margin:0">Confirmation email</h6><button class="btn btn-ghost" style="margin-left:auto;font-size:12px" onClick="{{ loadSample }}"><i class="ph ph-envelope-open"></i> {{ sampleBtnLabel }}</button></div>
       <textarea class="input" style="min-height:280px;font-size:12.5px;line-height:1.7" placeholder="Paste the full text of a booking confirmation email here — airline, hotel, rental car…" value="{{ emailText }}" onChange="{{ onEmail }}"></textarea>
@@ -215,8 +226,18 @@ a{color:var(--color-accent)}a:hover{color:var(--color-accent-300)}
 </div>
 </sc-if>
 
+<sc-if value="{{ isMobile }}" hint-placeholder-val="{{ false }}">
+<div style="position:fixed;left:0;right:0;bottom:0;z-index:40;display:flex;border-top:1px solid var(--color-divider);background:color-mix(in srgb,var(--color-bg) 92%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);padding:4px 6px calc(4px + env(safe-area-inset-bottom,0px))">
+  <sc-for list="{{ tabs }}" as="tb" hint-placeholder-count="5">
+    <div onClick="{{ tb.go }}" style="flex:1;min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;border-radius:var(--radius-sm);color:{{ tb.color }}" style-hover="background:color-mix(in srgb,var(--color-text) 5%,transparent)" style-active="background:color-mix(in srgb,var(--color-accent) 12%,transparent)">
+      <i class="{{ tb.icon }}" style="font-size:20px"></i><span style="font-size:10px;letter-spacing:.02em">{{ tb.label }}</span>
+    </div>
+  </sc-for>
+</div>
+</sc-if>
+
 <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
-<div style="position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--color-surface);border:1px solid var(--color-accent-800);box-shadow:var(--shadow-md);border-radius:var(--radius-md);padding:11px 18px;font-size:13px;display:flex;gap:10px;align-items:center;animation:toast-in .18s ease;z-index:50;max-width:90vw"><i class="ph ph-info" style="color:var(--color-accent)"></i>{{ toast }}</div>
+<div style="position:fixed;left:50%;bottom:{{ toastBottom }};transform:translateX(-50%);background:var(--color-surface);border:1px solid var(--color-accent-800);box-shadow:var(--shadow-md);border-radius:var(--radius-md);padding:11px 18px;font-size:13px;display:flex;gap:10px;align-items:center;animation:toast-in .18s ease;z-index:50;max-width:90vw"><i class="ph ph-info" style="color:var(--color-accent)"></i>{{ toast }}</div>
 </sc-if>
 </div>
 
@@ -225,8 +246,18 @@ a{color:var(--color-accent)}a:hover{color:var(--color-accent-300)}
 class Component extends DCLogic {
   state = {
     view: 'home', tab: 'paste', emailText: '', draft: null, qi: 0,
-    added: [], done: {}, toast: '', confRevealed: false
+    added: [], done: {}, toast: '', confRevealed: false, isMobile: false
   };
+  componentDidMount() {
+    this._mq = window.matchMedia('(max-width: 760px)');
+    this._onMq = () => this.setState({ isMobile: this._mq.matches });
+    this._onMq();
+    this._mq.addEventListener('change', this._onMq);
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+  componentWillUnmount() {
+    if (this._mq) this._mq.removeEventListener('change', this._onMq);
+  }
   people = [
     { id: 'b', name: 'Badger', initial: 'B', avCls: 'av-b' },
     { id: 'a', name: 'Alex', initial: 'A', avCls: 'av-a' },
@@ -309,7 +340,17 @@ class Component extends DCLogic {
     const doneCount = Object.values(s.done).filter(Boolean).length;
     const tab = s.tab;
     const tagOff = 'var(--color-divider)';
+    const off = 'var(--color-neutral-400)', on = 'var(--color-accent)';
+    const tabs = [
+      { label: 'Today', icon: s.view === 'home' ? 'ph-fill ph-house' : 'ph ph-house', color: s.view === 'home' ? on : off, go: () => set({ view: 'home' }) },
+      { label: 'Trips', icon: 'ph ph-suitcase-rolling', color: off, go: () => this.say('Trip detail is design 1b on the exploration canvas \u2014 next build pass.') },
+      { label: 'Import', icon: s.view === 'import' ? 'ph-fill ph-tray-arrow-down' : 'ph ph-tray-arrow-down', color: s.view === 'import' ? on : off, go: () => set({ view: 'import' }) },
+      { label: 'Checklist', icon: 'ph ph-check-square', color: off, go: () => this.say('Cross-trip checklist \u2014 next build pass.') },
+      { label: 'People', icon: 'ph ph-users', color: off, go: () => this.say('People & documents \u2014 next build pass.') }
+    ];
     return {
+      isMobile: s.isMobile, isDesktop: !s.isMobile, tabs,
+      toastBottom: s.isMobile ? '86px' : '28px',
       isHome: s.view === 'home', isImport: s.view === 'import',
       tripActive, tripIdle: !tripActive,
       showPhase2Nav: this.props.showPhase2Nav ?? true,

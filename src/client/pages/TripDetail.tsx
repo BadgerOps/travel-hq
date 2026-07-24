@@ -183,7 +183,7 @@ export function TripDetail({
       </div>
 
       <header style={{ marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
           <h3 style={{ margin: 0 }}>{trip.title}</h3>
           {canWrite && (
             <button
