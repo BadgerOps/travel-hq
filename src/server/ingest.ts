@@ -285,9 +285,11 @@ export function cloudflareAuthenticationDiagnostic(
   const results = trustedCloudflareResults(headers);
   const verdicts = (mechanism: string): string[] =>
     results.flatMap((result) =>
-      [...result.matchAll(new RegExp(`\\b${mechanism}=([a-z0-9]+)`, "gi"))].map((m) =>
-        m[1]!.toLowerCase(),
-      ),
+      [
+        ...result.matchAll(
+          new RegExp(`(?:^|;)\\s*${mechanism}=([a-z0-9]+)`, "gi"),
+        ),
+      ].map((match) => match[1]!.toLowerCase()),
     );
   const dmarc = verdicts("dmarc");
   const spf = verdicts("spf");
