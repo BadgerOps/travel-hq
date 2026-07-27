@@ -1,15 +1,19 @@
-import { useEffect, useState } from "react";
-import { Plus } from "@phosphor-icons/react";
+import { Fragment, useEffect, useState } from "react";
+import { CheckSquare, Plus, Square } from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
 import type { ChecklistItem, Person, Trip } from "../api/types.js";
 import { errorMessage } from "../lib/errors.js";
 import { useCanWrite } from "../api/identity.js";
 import { PersonChip } from "../components/PersonChip.js";
 import { Dialog } from "../components/Dialog.js";
+import "./checklist.css";
 
 /**
  * Cross-trip checklist: every family task, across every trip, grouped by
- * trip so a family can see what's left on each one at a glance.
+ * trip so a family can see what's left on each one at a glance. Each trip
+ * is a card in the 1b right-rail checklist idiom: title + "n of m done"
+ * kicker, rows split by fading rules, check squares, right-aligned due
+ * dates (warning amber once overdue) and assignee chips.
  *
  * Load vs. write failure are kept distinct on purpose — see ChecklistTab,
  * which is the pattern this page copies. A rejected setDone must not
@@ -17,8 +21,11 @@ import { Dialog } from "../components/Dialog.js";
  */
 export function Checklist({
   api = defaultApi,
+  today = new Intl.DateTimeFormat("en-CA").format(new Date()),
 }: {
   api?: typeof defaultApi;
+  /** YYYY-MM-DD; injectable so "overdue" is deterministic under test. */
+  today?: string;
 }) {
   const [trips, setTrips] = useState<Trip[] | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
@@ -88,22 +95,17 @@ export function Checklist({
 
   return (
     <>
-      <header style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 20 }}>
-        <div>
-          <h3 style={{ marginBottom: 4 }}>Checklist</h3>
-          <p className="text-muted" style={{ margin: 0 }}>
-            Everything left to do, across every trip.
-          </p>
+      <header className="page-header">
+        <div className="page-title-group">
+          <h3>Checklist</h3>
+          <p className="page-subline">Everything left to do, across every trip.</p>
         </div>
         {canWrite && trips !== null && trips.length > 0 && (
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ marginLeft: "auto" }}
-            onClick={() => setAdding(true)}
-          >
-            <Plus size={14} /> Add task
-          </button>
+          <div className="page-actions">
+            <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
+              <Plus size={14} /> Add task
+            </button>
+          </div>
         )}
       </header>
 
@@ -139,6 +141,7 @@ export function Checklist({
           items={items!}
           people={people}
           canWrite={canWrite}
+          today={today}
           onToggle={toggle}
           onAdd={() => setAdding(true)}
         />
@@ -162,6 +165,7 @@ function ChecklistGroups({
   items,
   people,
   canWrite,
+  today,
   onToggle,
   onAdd,
 }: {
@@ -169,6 +173,7 @@ function ChecklistGroups({
   items: ChecklistItem[];
   people: Person[];
   canWrite: boolean;
+  today: string;
   onToggle: (item: ChecklistItem) => void;
   onAdd: () => void;
 }) {
@@ -200,7 +205,7 @@ function ChecklistGroups({
     .filter((t) => items.some((i) => i.tripId === t.id));
 
   return (
-    <div style={{ display: "grid", gap: 24 }}>
+    <div className="grid-cards">
       {orderedTrips.map((trip) => (
         <TripGroup
           key={trip.id}
@@ -208,6 +213,7 @@ function ChecklistGroups({
           items={items.filter((i) => i.tripId === trip.id)}
           people={people}
           canWrite={canWrite}
+          today={today}
           onToggle={onToggle}
         />
       ))}
@@ -220,12 +226,14 @@ function TripGroup({
   items,
   people,
   canWrite,
+  today,
   onToggle,
 }: {
   trip: Trip;
   items: ChecklistItem[];
   people: Person[];
   canWrite: boolean;
+  today: string;
   onToggle: (item: ChecklistItem) => void;
 }) {
   // Incomplete first, then done; within each, soonest due date first and
@@ -241,28 +249,36 @@ function TripGroup({
   const doneCount = items.filter((i) => i.doneAt !== null).length;
 
   return (
-    <section>
-      <h5 className="card-title" style={{ marginBottom: 4 }}>
+    <section className="card">
+      <h5 className="card-title" style={{ margin: 0 }}>
         {trip.title}
       </h5>
-      <h6 className="card-kicker" style={{ marginBottom: 10 }}>
+      <h6 className="card-kicker" style={{ margin: 0 }}>
         {doneCount} of {items.length} done
       </h6>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(min(320px, 100%), 1fr))",
-          gap: 8,
-        }}
-      >
-        {ordered.map((item) => {
+      <div className="checklist-rows">
+        {ordered.map((item, index) => {
           const assignee = people.find((p) => p.id === item.personId);
           const done = item.doneAt !== null;
+          const overdue = !done && item.dueOn !== null && item.dueOn < today;
+          const rowClass = done ? "checklist-row is-done" : "checklist-row";
           const content = (
             <>
-              <span style={{ fontSize: 13 }}>{item.label}</span>
-              {item.dueOn && <span className="card-meta">due {item.dueOn}</span>}
-              <span style={{ marginLeft: "auto" }}>
+              {done ? (
+                <CheckSquare size={17} weight="fill" color="var(--color-accent-600)" aria-hidden />
+              ) : (
+                <Square size={17} color="var(--color-neutral-500)" aria-hidden />
+              )}
+              <span
+                className="row-label"
+                style={done ? { textDecoration: "line-through" } : undefined}
+              >
+                {item.label}
+              </span>
+              <span className="row-side">
+                {item.dueOn && (
+                  <span className={overdue ? "row-due warning" : "row-due"}>due {item.dueOn}</span>
+                )}
                 {assignee ? (
                   <PersonChip person={assignee} />
                 ) : (
@@ -271,35 +287,27 @@ function TripGroup({
               </span>
             </>
           );
-          const style = {
-            flexDirection: "row" as const,
-            alignItems: "center" as const,
-            gap: 10,
-            textAlign: "left" as const,
-            opacity: done ? 0.45 : 1,
-            textDecoration: done ? "line-through" : "none",
-          };
+          // The fading rule sits between rows, never after the last one.
+          const rule = index > 0 && <hr className="hr" style={{ margin: 0 }} />;
 
           // A viewer's write is a guaranteed 403, so no clickable affordance
           // — same rule as ChecklistTab and MaskedValue.
           if (!canWrite) {
             return (
-              <div key={item.id} className="card" style={style}>
-                {content}
-              </div>
+              <Fragment key={item.id}>
+                {rule}
+                <div className={rowClass}>{content}</div>
+              </Fragment>
             );
           }
 
           return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onToggle(item)}
-              className="card"
-              style={{ ...style, cursor: "pointer" }}
-            >
-              {content}
-            </button>
+            <Fragment key={item.id}>
+              {rule}
+              <button type="button" onClick={() => onToggle(item)} className={rowClass}>
+                {content}
+              </button>
+            </Fragment>
           );
         })}
       </div>

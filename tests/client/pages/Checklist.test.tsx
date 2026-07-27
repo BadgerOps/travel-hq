@@ -219,7 +219,11 @@ describe("Checklist page", () => {
     await userEvent.click(row);
     expect(api.checklist.setDone).toHaveBeenCalledWith("c1", true);
     await vi.waitFor(() => {
-      expect(row).toHaveStyle({ textDecoration: "line-through" });
+      // The strike sits on the label span (1b row anatomy), not the whole
+      // row, so the due date and assignee chip stay legible.
+      expect(screen.getByText("Pack passports")).toHaveStyle({
+        textDecoration: "line-through",
+      });
     });
   });
 });
