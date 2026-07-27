@@ -1,0 +1,137 @@
+/* Import page (design exploration 2b) — method chips, two-pane review grid,
+   dashed drop zone, and the parsed-draft card anatomy.
+
+   Shared primitives (.page-header, .section-kicker, .card, .tag, .chip-row,
+   .hr, .btn) live in styles.css; everything here is import-area-only. The
+   draft-card block is also used by Settings' "Test extraction" preview, so
+   DraftBookingCard.tsx imports this file itself rather than relying on the
+   Import page having loaded it. */
+
+/* ── Method chips (header) ─────────────────────────────────────────────────
+   Upload is the implemented path and reads as the active 2b chip
+   (.tag-outline accent). Forward-to-address is informational — real, but
+   configured in Settings — so it takes the muted divider outline. */
+.import-methods { display: flex; flex-wrap: wrap; gap: 8px; }
+.import-chip { padding: 6px 12px; gap: 6px; text-decoration: none; }
+.import-chip svg { flex: none; }
+button.import-chip { cursor: pointer; background: transparent; font: inherit; font-size: 11px; }
+.import-chip--muted { border: 1px solid var(--color-divider); color: var(--color-neutral-400); }
+a.import-chip--muted:hover,
+button.import-chip--muted:hover {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+  color: var(--color-neutral-200);
+}
+.import-chip .import-chip-addr { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 28ch; }
+
+/* ── Two-pane review grid ──────────────────────────────────────────────────
+   min(420px, 100%) keeps the pane from propping the page open past a 390px
+   viewport while still collapsing to one column below ~2×420px. */
+.import-grid {
+  display: grid; gap: 22px 24px; align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+}
+.import-pane { min-width: 0; display: grid; gap: 12px; align-content: start; }
+.import-pane > .section-kicker { margin-bottom: 0; }
+
+/* ── Dashed drop zone (upload) ─────────────────────────────────────────────
+   The label wraps a visually-hidden file input: clicking anywhere browses,
+   the input keeps its "Itinerary file" accessible name, and keyboard focus
+   paints the ring on the zone via :focus-within. */
+.import-dropzone {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; text-align: center; cursor: pointer;
+  width: 100%; padding: clamp(24px, 4vw, 36px) 18px;
+  border: 1px dashed var(--color-neutral-800); border-radius: var(--radius-md);
+  color: var(--color-neutral-400);
+}
+.import-dropzone:hover,
+.import-dropzone.is-dragover {
+  border-color: var(--color-accent-800);
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+}
+.import-dropzone:has(> input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.import-dropzone.is-busy { opacity: 0.55; cursor: progress; }
+.import-dropzone > input[type="file"] {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  border: 0; clip-path: inset(50%); overflow: hidden; white-space: nowrap;
+}
+.import-dropzone .dz-icon { color: var(--color-accent); }
+.import-dropzone .dz-title { font-size: 13.5px; font-weight: 500; color: var(--color-neutral-200); }
+.import-dropzone .dz-title.dz-file { overflow-wrap: anywhere; }
+.import-dropzone .dz-hint { font-size: 11.5px; color: var(--color-neutral-500); }
+
+.import-upload { display: grid; gap: 12px; justify-items: start; }
+.import-upload .warning { margin: 0; }
+.import-note { margin: 0; font-size: 11.5px; color: var(--color-neutral-500); }
+
+/* ── Parsed draft card (2b anatomy) ────────────────────────────────────────
+   Accent-800 border on surface, icon + 15px title + Draft tag, then a 2-col
+   grid of uppercase 10.5px field labels split by a fading rule. */
+.draft-card { align-items: stretch; gap: 0; padding: 18px 20px; border: 1px solid var(--color-accent-800); }
+.draft-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.draft-head > svg { flex: none; color: var(--color-accent); margin-top: 3px; }
+.draft-titles { min-width: 0; display: grid; gap: 2px; }
+.draft-title { font-size: 15px; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }
+.draft-location { font-size: 12px; color: var(--color-neutral-400); }
+.draft-tag { margin-left: auto; flex: none; }
+.draft-rule { margin: 13px 0; }
+.draft-fields {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 18px; font-size: 12.5px;
+}
+.draft-field { min-width: 0; overflow-wrap: anywhere; }
+.draft-field-label {
+  display: block; font-size: 10.5px; color: var(--color-neutral-500);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px;
+}
+.draft-field-note { color: var(--color-neutral-500); }
+@media (max-width: 430px) {
+  .draft-fields { grid-template-columns: 1fr; }
+}
+
+/* ── Fresh extraction results (right pane, above the queue) ────────────── */
+.import-fresh { display: grid; gap: 4px; }
+.import-fresh h4 { margin: 0; }
+.import-fresh .text-muted { margin: 0; font-size: 12.5px; }
+.import-draft-list { display: grid; gap: 12px; margin-top: 8px; }
+
+/* ── Pending review queue ────────────────────────────────────────────────── */
+.import-queue { display: grid; gap: 14px; align-content: start; }
+.import-queue-head { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.import-queue-head > div { margin-right: auto; min-width: 0; }
+.import-queue-head h4 { margin: 0; }
+.import-queue-head p { margin: 4px 0 0; font-size: 12.5px; }
+.import-queue-head .btn { flex: none; }
+.import-queue .warning, .import-queue [role="status"] { margin: 0; }
+.import-queue-body { display: grid; gap: 16px; }
+
+.import-bulkbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.import-bulkbar .field { min-width: 180px; }
+.import-select-all { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; }
+
+.import-source-card { align-items: stretch; gap: 12px; }
+.import-suggest-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.import-draft-rows { display: grid; gap: 10px; }
+.import-draft-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px; align-items: start;
+}
+.import-draft-row > input[type="checkbox"] { margin-top: 21px; }
+.import-draft-row-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+
+/* Dashed waiting-queue hint row — 2b's "more emails waiting" shape doubles
+   as the caught-up empty state (all pending drafts render at once here, so
+   there is no "review next" pagination to point at). */
+.import-queue-empty {
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 16px; border-radius: var(--radius-md);
+  border: 1px dashed var(--color-neutral-800);
+  font-size: 12px; color: var(--color-neutral-400);
+}
+.import-queue-empty svg { flex: none; color: var(--color-neutral-500); }
+.import-queue-empty strong { display: block; font-size: 13px; font-weight: 500; color: var(--color-neutral-200); }
+.import-queue-empty p { margin: 2px 0 0; }
+
+/* Viewer notice — constrained by content, not a page-wide ribbon. */
+.import-viewer-card { align-items: flex-start; gap: 10px; max-width: 560px; }

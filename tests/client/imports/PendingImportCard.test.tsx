@@ -14,6 +14,7 @@ const createdTrip: Trip = {
   endsOn: "2026-07-30",
   status: "planning",
   notes: null,
+  photoUrl: null,
 };
 
 function draft(id: string, title: string): PendingImportDraft {
