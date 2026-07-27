@@ -8,6 +8,8 @@ import { formatBookingWhen } from "../lib/dates.js";
 import { errorMessage } from "../lib/errors.js";
 import { formatMoney } from "../lib/money.js";
 import { Dialog } from "./Dialog.js";
+import { MaskedValue } from "./MaskedValue.js";
+import { StructuredDetails } from "./StructuredDetails.js";
 
 export function BookingDetailDialog({
   booking,
@@ -49,19 +51,23 @@ export function BookingDetailDialog({
         {booking.location && <div className="card-body">{booking.location}</div>}
         {booking.confirmationNumberMasked && (
           <div className="card-meta">
-            Confirmation {booking.confirmationNumberMasked}
+            Confirmation{" "}
+            <MaskedValue
+              masked={booking.confirmationNumberMasked}
+              onReveal={async () =>
+                (await api.trips.revealConfirmation(booking.tripId, booking.id)).value
+              }
+            />
           </div>
         )}
         {booking.costCents !== null && (
           <div className="card-meta">Cost {formatMoney(booking.costCents)}</div>
         )}
         {hasDetails(booking.details) && (
-          <details>
-            <summary>Structured booking data</summary>
-            <pre style={artifactTextStyle}>
-              {JSON.stringify(booking.details, null, 2)}
-            </pre>
-          </details>
+          <>
+            <h5 style={{ margin: "4px 0 0" }}>Booking details</h5>
+            <StructuredDetails value={booking.details} />
+          </>
         )}
 
         <hr className="hr" style={{ margin: "4px 0" }} />

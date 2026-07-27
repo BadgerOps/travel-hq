@@ -11,6 +11,7 @@ import type {
 import { errorMessage } from "../lib/errors.js";
 import { useCanWrite } from "../api/identity.js";
 import { DraftBookingCard } from "../components/DraftBookingCard.js";
+import { InboundEmailDetailDialog } from "../components/InboundEmailDetailDialog.js";
 import {
   DEFAULT_WORKERS_AI_MAX_TOKENS,
   MAX_WORKERS_AI_MAX_TOKENS,
@@ -47,6 +48,7 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
   const [extractionInstructions, setExtractionInstructions] = useState("");
   const [activity, setActivity] = useState<InboundEmailMetadata[]>([]);
   const [activityError, setActivityError] = useState<string | null>(null);
+  const [viewingEmail, setViewingEmail] = useState<InboundEmailMetadata | null>(null);
   const [loadFailed, setLoadFailed] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -383,11 +385,26 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
               </div>
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
-                {activity.map((email, index) => (
-                  <article className="card" key={`${email.receivedAt}-${index}`}
-                    style={{ alignItems: "flex-start", gap: 6 }}>
-                    <div style={{ display: "flex", width: "100%", justifyContent: "space-between", gap: 12 }}>
-                      <strong>{email.subject || "(no subject)"}</strong>
+                {activity.map((email) => (
+                  <article className="card" key={email.id}
+                    onClick={() => setViewingEmail(email)}
+                    style={{ alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
+                    <div style={{
+                      display: "flex", width: "100%", justifyContent: "space-between",
+                      alignItems: "flex-start", gap: 12,
+                    }}>
+                      <button type="button" className="btn btn-ghost"
+                        aria-label={`View parsed data for ${email.subject || "(no subject)"}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setViewingEmail(email);
+                        }}
+                        style={{
+                          padding: 0, fontSize: 15, fontWeight: 500,
+                          textAlign: "left", justifyContent: "flex-start", whiteSpace: "normal",
+                        }}>
+                        {email.subject || "(no subject)"}
+                      </button>
                       <StatusChip status={email.status} />
                     </div>
                     <span className="card-body">From {email.from}</span>
@@ -400,6 +417,13 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
               </div>
             )}
           </section>
+          {viewingEmail && (
+            <InboundEmailDetailDialog
+              email={viewingEmail}
+              api={api}
+              onClose={() => setViewingEmail(null)}
+            />
+          )}
         </div>
       )}
     </>
@@ -407,10 +431,21 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
 }
 
 function StatusChip({ status }: { status: InboundEmailMetadata["status"] }) {
-  return <span style={{
-    border: "1px solid var(--color-divider)", borderRadius: 999, padding: "2px 8px",
-    fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em",
-  }}>{status}</span>;
+  // flexShrink/nowrap keep the pill its natural size next to a multi-line
+  // subject; the parent row pins it to the top with align-items: flex-start.
+  return (
+    <span
+      className={`tag ${status === "extracted" ? "tag-accent" : "tag-neutral"}`}
+      style={{
+        flexShrink: 0,
+        whiteSpace: "nowrap",
+        textTransform: "uppercase",
+        letterSpacing: "0.06em",
+      }}
+    >
+      {status}
+    </span>
+  );
 }
 
 function SettingsHeader() {

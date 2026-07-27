@@ -13,6 +13,7 @@ import type {
   DocumentField,
   HouseholdSettings,
   Identity,
+  InboundEmailDetail,
   InboundEmailMetadata,
   ItineraryDay,
   Person,
@@ -198,6 +199,7 @@ export function createApi(config: ApiConfig = {}) {
     },
     inboundEmails: {
       list: () => request<InboundEmailMetadata[]>("/api/inbound-emails"),
+      get: (id: string) => request<InboundEmailDetail>(`/api/inbound-emails/${seg(id)}`),
     },
     imports: {
       pending: () => request<PendingImportDraft[]>("/api/imports/pending"),
