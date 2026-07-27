@@ -67,4 +67,23 @@ describe("trip and checklist api", () => {
     expect(await api.trips.travelers("t1")).toEqual([{ id: "p1", displayName: "Ava" }]);
     expect(fetchMock).toHaveBeenCalledWith("/api/trips/t1/travelers", expect.anything());
   });
+
+  it("fetches a booking's parsed source artifact", async () => {
+    const artifact = {
+      inboundEmailId: "mail-1",
+      from: "sender@example.com",
+      to: "trips@example.com",
+      subject: "Reservation",
+      receivedAt: "2026-07-27T12:00:00.000Z",
+      textBody: "Your reservation is confirmed.",
+      calendars: [],
+    };
+    const fetchMock = mockFetch({ artifact });
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    expect(await api.bookings.artifact("booking/1")).toEqual({ artifact });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/bookings/booking%2F1/artifact",
+      expect.anything(),
+    );
+  });
 });

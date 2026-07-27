@@ -45,6 +45,33 @@ describe("PUT /api/people/:id", () => {
     expect(body.displayName).toBe("Ava Wright");
     expect(body.passportNumberMasked).toBe("••••2119");
   });
+  it("creates and updates optional contact fields", async () => {
+    const created = await jsonRequest("/api/people", "POST", {
+      displayName: "Finn",
+      email: "finn@example.com",
+      phone: "+1 208 555 0199",
+    });
+    expect(created.status).toBe(201);
+    const person = await created.json() as { id: string; email: string; phone: string };
+    expect(person).toMatchObject({
+      email: "finn@example.com",
+      phone: "+1 208 555 0199",
+    });
+    const updated = await jsonRequest(`/api/people/${person.id}`, "PUT", {
+      email: null,
+      phone: "+1 208 555 0101",
+    });
+    expect(await updated.json()).toMatchObject({
+      email: null,
+      phone: "+1 208 555 0101",
+    });
+  });
+  it("rejects an invalid contact email", async () => {
+    expect((await jsonRequest("/api/people", "POST", {
+      displayName: "Finn",
+      email: "not-an-email",
+    })).status).toBe(400);
+  });
   it("does not disturb the passport when the field is omitted", async () => {
     const id = await createAva();
     await jsonRequest(`/api/people/${id}`, "PUT", { displayName: "Ava Wright" });

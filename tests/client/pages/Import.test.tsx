@@ -33,6 +33,7 @@ function setup(role: Identity["role"] = "owner") {
       createTrip: vi.fn(),
       dismiss: vi.fn(),
     },
+    trips: { list: vi.fn(async () => []) },
   };
   asRole(role, <Import api={api as never} />);
   return { api, file };

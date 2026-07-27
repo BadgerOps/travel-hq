@@ -44,6 +44,22 @@ describe("DayView", () => {
     expect(screen.getByText("Badger's solo dinner")).toBeInTheDocument();
   });
 
+  it("opens booking details from a daily card", async () => {
+    const onBookingClick = vi.fn();
+    render(
+      <DayView
+        tripId="t1"
+        people={PEOPLE as never}
+        api={makeApi() as never}
+        onBookingClick={onBookingClick}
+      />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "View details for Shared flight" }),
+    );
+    expect(onBookingClick).toHaveBeenCalledWith(expect.objectContaining({ id: "b1" }));
+  });
+
   it("offers a filter chip per traveller", async () => {
     renderDayView();
     for (const name of ["Badger", "Ava"]) {

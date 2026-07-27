@@ -29,6 +29,7 @@ export function OverviewTab({
   rollup,
   api,
   onStatusChanged,
+  onBookingClick,
 }: {
   trip: Trip;
   bookings: Booking[];
@@ -41,6 +42,7 @@ export function OverviewTab({
    * "no dead controls" rule, applied to a component used in two places.
    */
   onStatusChanged?: () => void;
+  onBookingClick?: (booking: Booking) => void;
 }) {
   // Cancelled bookings are not part of the trip. The server already excludes
   // them from listByTrip and RollupRepo excludes them from the totals; the
@@ -99,15 +101,35 @@ export function OverviewTab({
                     <div
                       key={b.id}
                       className="card"
+                      onClick={() => onBookingClick?.(b)}
                       style={
                         provisional
-                          ? { border: "1px dashed var(--color-divider)", background: "none" }
-                          : undefined
+                          ? {
+                              border: "1px dashed var(--color-divider)",
+                              background: "none",
+                              cursor: onBookingClick ? "pointer" : undefined,
+                            }
+                          : { cursor: onBookingClick ? "pointer" : undefined }
                       }
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <Icon size={18} />
-                        <span style={{ fontSize: 15, fontWeight: 500 }}>{b.title}</span>
+                        {onBookingClick ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            aria-label={`View details for ${b.title}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onBookingClick(b);
+                            }}
+                            style={{ fontSize: 15, fontWeight: 500, padding: 0 }}
+                          >
+                            {b.title}
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 15, fontWeight: 500 }}>{b.title}</span>
+                        )}
                         {isDraft && <span className="tag">Draft</span>}
                         {needsBooking && <span className="tag">Needs booking</span>}
                         <span style={{ marginLeft: "auto" }}>
@@ -119,12 +141,14 @@ export function OverviewTab({
                       <div className="card-meta">
                         <span>{formatBookingWhen(b, "No date yet")}</span>
                         {b.confirmationNumberMasked && (
-                          <MaskedValue
-                            masked={b.confirmationNumberMasked}
-                            onReveal={async () =>
-                              (await api.trips.revealConfirmation(trip.id, b.id)).value
-                            }
-                          />
+                          <span onClick={(event) => event.stopPropagation()}>
+                            <MaskedValue
+                              masked={b.confirmationNumberMasked}
+                              onReveal={async () =>
+                                (await api.trips.revealConfirmation(trip.id, b.id)).value
+                              }
+                            />
+                          </span>
                         )}
                         {b.costCents !== null && (
                           <span style={{ marginLeft: "auto" }}>
@@ -138,7 +162,10 @@ export function OverviewTab({
                             style={{ fontSize: 11 }}
                             aria-label={`Book ${b.title}`}
                             disabled={busyId === b.id}
-                            onClick={() => void book(b.id)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void book(b.id);
+                            }}
                           >
                             Book →
                           </button>

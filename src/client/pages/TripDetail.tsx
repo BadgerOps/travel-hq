@@ -15,6 +15,7 @@ import { TripWarnings } from "../trip/TripWarnings.js";
 import { ChecklistTab } from "../trip/ChecklistTab.js";
 import { DayView } from "../dayview/DayView.js";
 import { BookingDialog } from "../trip/BookingDialog.js";
+import { BookingDetailDialog } from "../components/BookingDetailDialog.js";
 
 type Api = typeof defaultApi;
 
@@ -57,6 +58,7 @@ export function TripDetail({
   const [failed, setFailed] = useState(false);
   const [tab, setTab] = useState<TabId>(() => tabFromHash(window.location.hash));
   const [addingBooking, setAddingBooking] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [editing, setEditing] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -253,9 +255,17 @@ export function TripDetail({
           rollup={rollup}
           api={api}
           onStatusChanged={() => setReloadKey((n) => n + 1)}
+          onBookingClick={setSelectedBooking}
         />
       )}
-      {tab === "days" && <DayView tripId={trip.id} people={travelers} api={api} />}
+      {tab === "days" && (
+        <DayView
+          tripId={trip.id}
+          people={travelers}
+          api={api}
+          onBookingClick={setSelectedBooking}
+        />
+      )}
       {tab === "travelers" && (
         <TravelersTab
           people={travelers}
@@ -263,6 +273,8 @@ export function TripDetail({
           today={today}
           api={api}
           tripId={trip.id}
+          allPeople={people}
+          onAdded={() => setReloadKey((n) => n + 1)}
           onRemoved={() => setReloadKey((n) => n + 1)}
         />
       )}
@@ -414,6 +426,14 @@ export function TripDetail({
             setReloadKey((n) => n + 1);
           }}
           onClose={() => setAddingBooking(false)}
+        />
+      )}
+
+      {selectedBooking && (
+        <BookingDetailDialog
+          booking={selectedBooking}
+          api={api}
+          onClose={() => setSelectedBooking(null)}
         />
       )}
     </>

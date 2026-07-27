@@ -8,6 +8,7 @@ import { ActiveTripHero } from "../home/ActiveTripHero.js";
 import { IdleTripHero } from "../home/IdleTripHero.js";
 import { NextBestActions } from "../home/NextBestActions.js";
 import { TripCard } from "../home/TripCard.js";
+import { PendingImportCard } from "../imports/PendingImportCard.js";
 
 type Api = typeof defaultApi;
 
@@ -95,6 +96,15 @@ export function Home({
   }, [api, today]);
 
   const name = displayNameFor(identity?.email);
+  const pendingImports = (
+    <PendingImportCard
+      api={api}
+      style={{ marginBottom: 24 }}
+      onTripCreated={(trip) =>
+        setTrips((current) => [...(current ?? []), trip])
+      }
+    />
+  );
 
   if (error) return <p className="warning">{error}</p>;
   if (trips === null) return <p className="text-muted">Loading…</p>;
@@ -106,6 +116,7 @@ export function Home({
         <p className="text-muted">
           No trips yet. Add the family under People, then create your first trip.
         </p>
+        {pendingImports}
       </>
     );
   }
@@ -120,6 +131,7 @@ export function Home({
           Every trip is cancelled. Restore one from its trip page, or create a new one
           under Trips.
         </p>
+        {pendingImports}
       </>
     );
   }
@@ -151,6 +163,8 @@ export function Home({
           {heroTrip.title} · {tripStateBadge(heroTrip, today)}
         </span>
       </header>
+
+      {pendingImports}
 
       <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
         {active ? (

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { OverviewTab } from "../../../src/client/trip/OverviewTab.js";
+import type { Booking } from "../../../src/client/api/types.js";
 
 const TRIP = {
   id: "t1", title: "Wedding", destination: "Guerneville, CA",
@@ -24,7 +26,7 @@ function booking(over: Record<string, unknown> = {}) {
 const PEOPLE = [{ id: "p1", displayName: "Badger" }];
 const ZERO = { bookedCents: 0, plannedCents: 0, totalCents: 0, draftCount: 0, points: [] };
 
-function renderTab(bookings: unknown[]) {
+function renderTab(bookings: unknown[], onBookingClick?: (booking: Booking) => void) {
   return render(
     <OverviewTab
       trip={TRIP}
@@ -32,6 +34,7 @@ function renderTab(bookings: unknown[]) {
       people={PEOPLE as never}
       rollup={ZERO}
       api={{ trips: { revealConfirmation: vi.fn() } } as never}
+      onBookingClick={onBookingClick}
     />,
   );
 }
@@ -77,5 +80,14 @@ describe("OverviewTab", () => {
   it("renders an empty state with no bookings", () => {
     renderTab([]);
     expect(screen.getByText(/Nothing booked yet/i)).toBeInTheDocument();
+  });
+
+  it("opens booking details from the booking card", async () => {
+    const onBookingClick = vi.fn();
+    renderTab([booking()], onBookingClick);
+    await userEvent.click(
+      screen.getByRole("button", { name: "View details for DL1422 BOI → ATL" }),
+    );
+    expect(onBookingClick).toHaveBeenCalledWith(expect.objectContaining({ id: "b1" }));
   });
 });

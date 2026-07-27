@@ -77,6 +77,10 @@ function renderHome(
     // made the identical addition to its own fixtures when ChecklistTab was
     // built; this is the one edit task 8 makes to an earlier plan's test file.
     checklist: { list: vi.fn(async () => []), setDone: vi.fn() },
+    imports: {
+      pending: vi.fn(async () => []),
+      createTrip: vi.fn(),
+    },
     ...overrides,
   };
   const { hook } = memoryLocation({ path: "/" });
@@ -131,6 +135,39 @@ describe("Home", () => {
   it("greets the user", async () => {
     renderHome([TRIP_ACTIVE], [{ date: "2026-10-09", bookings: [BOOKING] }], "2026-10-09");
     expect(await screen.findByText(/Good (morning|afternoon|evening)/)).toBeInTheDocument();
+  });
+
+  it("shows pending imports on the home screen", async () => {
+    renderHome([TRIP_FUTURE], [], "2026-07-20", undefined, {
+      imports: {
+        pending: vi.fn(async () => [{
+          id: "draft-1",
+          inboundEmailId: "email-1",
+          title: "Silverwood RV Park Reservation",
+          kind: "other",
+          location: null,
+          startsAt: "2026-07-29T13:00:00.000Z",
+          startsAtTz: "America/Boise",
+          endsAt: "2026-07-30T10:00:00.000Z",
+          endsAtTz: "America/Boise",
+          confirmationNumber: null,
+          extractionSource: "ai",
+          localStartsOn: "2026-07-29",
+          localEndsOn: "2026-07-30",
+          source: {
+            from: "sol@example.com",
+            subject: "Fwd: Your Silverwood RV Park Reservation",
+            receivedAt: "2026-07-27T19:28:40.411Z",
+          },
+          suggestedTrip: null,
+        }]),
+        createTrip: vi.fn(),
+      },
+    });
+
+    expect(await screen.findByTestId("pending-import-card")).toHaveTextContent(
+      "Silverwood RV Park Reservation",
+    );
   });
 
   it("reports an expired session rather than a raw error string", async () => {

@@ -28,6 +28,10 @@ function makeApi(trips = [TRIP]) {
       addTraveler: vi.fn(async () => undefined),
     },
     people: { list: vi.fn(async () => PEOPLE) },
+    imports: {
+      pending: vi.fn(async () => []),
+      createTrip: vi.fn(),
+    },
   };
 }
 
@@ -45,6 +49,36 @@ describe("Trips", () => {
   it("lists trips", async () => {
     renderTrips();
     expect(await screen.findByText("Mary & Winter Wedding")).toBeInTheDocument();
+  });
+
+  it("shows pending imports on the trips screen", async () => {
+    const api = makeApi();
+    api.imports.pending.mockResolvedValueOnce([{
+      id: "draft-1",
+      inboundEmailId: "email-1",
+      title: "Silverwood RV Park Reservation",
+      kind: "other" as const,
+      location: null,
+      startsAt: "2026-07-29T13:00:00.000Z",
+      startsAtTz: "America/Boise",
+      endsAt: "2026-07-30T10:00:00.000Z",
+      endsAtTz: "America/Boise",
+      confirmationNumber: null,
+      extractionSource: "ai" as const,
+      localStartsOn: "2026-07-29",
+      localEndsOn: "2026-07-30",
+      source: {
+        from: "sol@example.com",
+        subject: "Fwd: Your Silverwood RV Park Reservation",
+        receivedAt: "2026-07-27T19:28:40.411Z",
+      },
+      suggestedTrip: null,
+    }] as never);
+    renderTrips(api);
+
+    expect(await screen.findByTestId("pending-import-card")).toHaveTextContent(
+      "Silverwood RV Park Reservation",
+    );
   });
 
   it("offers an empty state rather than a blank page", async () => {

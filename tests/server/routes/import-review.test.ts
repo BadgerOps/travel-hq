@@ -159,7 +159,7 @@ describe("import review routes", () => {
     ).toEqual([drafts[2]!.id]);
   });
 
-  it("rejects acceptance when the selected trip is not the unique date match", async () => {
+  it("allows a reviewer to manually assign an unmatched import to an existing trip", async () => {
     const selectedTrip = await new TripRepo(env.DB, ctx).create({
       title: "Too early",
       startsOn: "2026-10-01",
@@ -171,11 +171,29 @@ describe("import review routes", () => {
       draftIds: [drafts[0]!.id],
       tripId: selectedTrip.id,
     });
+    expect(res.status).toBe(200);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM booking").first())
+      .toEqual({ count: 1 });
+    expect(await DraftBookingRepo.forIngest(env.DB, "hh-a").listByStatus("pending"))
+      .toHaveLength(2);
+  });
+
+  it("does not manually assign imports to a cancelled trip", async () => {
+    const selectedTrip = await new TripRepo(env.DB, ctx).create({
+      title: "Cancelled trip",
+      startsOn: "2026-10-01",
+      endsOn: "2026-10-30",
+    });
+    await new TripRepo(env.DB, ctx).update(selectedTrip.id, { status: "cancelled" });
+    const drafts = await seedDelta();
+
+    const res = await postJson(appAs(), "/api/imports/accept", {
+      draftIds: [drafts[0]!.id],
+      tripId: selectedTrip.id,
+    });
     expect(res.status).toBe(400);
     expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM booking").first())
       .toEqual({ count: 0 });
-    expect(await DraftBookingRepo.forIngest(env.DB, "hh-a").listByStatus("pending"))
-      .toHaveLength(3);
   });
 
   it("creates one dated trip and bookings atomically from multiple pending drafts", async () => {

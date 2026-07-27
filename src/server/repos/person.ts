@@ -15,6 +15,8 @@ export type Person = {
   id: string;
   displayName: string;
   dob: string | null;
+  email: string | null;
+  phone: string | null;
   notes: string | null;
   passportExpiry: string | null;
   passportCountry: string | null;
@@ -26,6 +28,8 @@ export type Person = {
 export type CreatePersonInput = {
   displayName: string;
   dob?: string;
+  email?: string;
+  phone?: string;
   notes?: string;
   passportNumber?: string;
   passportExpiry?: string;
@@ -50,6 +54,8 @@ export type CreatePersonInput = {
 export type UpdatePersonInput = {
   displayName?: string;
   dob?: string | null;
+  email?: string | null;
+  phone?: string | null;
   notes?: string | null;
   passportExpiry?: string | null;
   passportCountry?: string | null;
@@ -66,6 +72,8 @@ export type UpdatePersonInput = {
 const PLAIN_COLUMNS = {
   displayName: "display_name",
   dob: "dob",
+  email: "email",
+  phone: "phone",
   notes: "notes",
   passportExpiry: "passport_expiry",
   passportCountry: "passport_country",
@@ -98,6 +106,8 @@ type PersonRow = {
   id: string;
   display_name: string;
   dob: string | null;
+  email: string | null;
+  phone: string | null;
   notes: string | null;
   passport_expiry: string | null;
   passport_country: string | null;
@@ -125,6 +135,8 @@ export class PersonRepo extends TenantRepo {
       id,
       display_name: input.displayName,
       dob: input.dob ?? null,
+      email: input.email ?? null,
+      phone: input.phone ?? null,
       notes: input.notes ?? null,
       passport_expiry: input.passportExpiry ?? null,
       passport_country: input.passportCountry ?? null,
@@ -259,6 +271,8 @@ export class PersonRepo extends TenantRepo {
       id: r.id,
       displayName: r.display_name,
       dob: r.dob,
+      email: r.email,
+      phone: r.phone,
       notes: r.notes,
       passportExpiry: r.passport_expiry,
       passportCountry: r.passport_country,

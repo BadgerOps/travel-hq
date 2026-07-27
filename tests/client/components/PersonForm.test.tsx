@@ -8,6 +8,8 @@ const AVA = {
   id: "p1",
   displayName: "Ava",
   dob: "2018-04-02",
+  email: "ava@example.com",
+  phone: "+1 208 555 0123",
   notes: null,
   passportExpiry: "2027-01-15",
   passportCountry: "US",
@@ -48,6 +50,19 @@ describe("PersonForm — create", () => {
     );
   });
 
+  it("sends optional email and phone fields", async () => {
+    const { api } = renderForm();
+    await userEvent.type(screen.getByLabelText("Name"), "Finn");
+    await userEvent.type(screen.getByLabelText("Email"), "finn@example.com");
+    await userEvent.type(screen.getByLabelText("Phone"), "+1 208 555 0199");
+    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+    expect(api.people.create).toHaveBeenCalledWith(expect.objectContaining({
+      displayName: "Finn",
+      email: "finn@example.com",
+      phone: "+1 208 555 0199",
+    }));
+  });
+
   it("omits document fields the operator left blank", async () => {
     const { api } = renderForm();
     await userEvent.type(screen.getByLabelText("Name"), "Finn");
@@ -82,6 +97,8 @@ describe("PersonForm — edit", () => {
     renderForm(AVA);
     expect(screen.getByLabelText("Name")).toHaveValue("Ava");
     expect(screen.getByLabelText(/Passport expiry/)).toHaveValue("2027-01-15");
+    expect(screen.getByLabelText("Email")).toHaveValue("ava@example.com");
+    expect(screen.getByLabelText("Phone")).toHaveValue("+1 208 555 0123");
   });
 
   it("NEVER pre-fills a document input with the masked value", () => {

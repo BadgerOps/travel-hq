@@ -29,6 +29,7 @@ import type {
   PendingImportDraft,
   CreateTripFromDraftsInput,
   ImportReviewResult,
+  BookingSourceArtifact,
 } from "./types.js";
 
 export class ApiError extends Error {
@@ -129,6 +130,10 @@ export function createApi(config: ApiConfig = {}) {
         request<Booking>(`/api/trips/${seg(tripId)}/bookings`, jsonBody("POST", input)),
     },
     bookings: {
+      artifact: (bookingId: string) =>
+        request<{ artifact: BookingSourceArtifact | null }>(
+          `/api/bookings/${seg(bookingId)}/artifact`,
+        ),
       assignPerson: (bookingId: string, personId: string) =>
         request<void>(
           `/api/bookings/${seg(bookingId)}/people/${seg(personId)}`,
