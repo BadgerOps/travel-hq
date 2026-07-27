@@ -56,9 +56,9 @@ describe("TripDetail", () => {
     expect(screen.getByText("Guerneville, CA")).toBeInTheDocument();
   });
 
-  it("renders all four tabs", async () => {
+  it("renders all five tabs", async () => {
     renderDetail();
-    for (const tab of ["Overview", "Day by day", "Travelers", "Checklist"]) {
+    for (const tab of ["Overview", "Day by day", "Costs", "Travelers", "Checklist"]) {
       expect(await screen.findByRole("radio", { name: tab })).toBeInTheDocument();
     }
   });

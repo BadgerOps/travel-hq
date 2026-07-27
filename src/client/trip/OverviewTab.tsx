@@ -1,13 +1,11 @@
 import { useState } from "react";
 import { AirplaneTakeoff, Bed, Car, Confetti, ForkKnife } from "@phosphor-icons/react";
 import type { api as defaultApi } from "../api/client.js";
-import type { Booking, Person, Trip, TripRollup } from "../api/types.js";
+import type { Booking, Person, Trip } from "../api/types.js";
 import { formatBookingWhen } from "../lib/dates.js";
 import { errorMessage } from "../lib/errors.js";
-import { formatMoney } from "../lib/money.js";
 import { PersonChips } from "../components/PersonChip.js";
 import { MaskedValue } from "../components/MaskedValue.js";
-import { CostRollup } from "./CostRollup.js";
 
 const GROUPS = [
   { heading: "Flights", kinds: ["flight"] },
@@ -26,7 +24,6 @@ export function OverviewTab({
   trip,
   bookings,
   people,
-  rollup,
   api,
   onStatusChanged,
   onBookingClick,
@@ -34,7 +31,6 @@ export function OverviewTab({
   trip: Trip;
   bookings: Booking[];
   people: Person[];
-  rollup: TripRollup | null;
   api: typeof defaultApi;
   /**
    * Optional so plan 3's existing OverviewTab tests, which do not supply it,
@@ -44,10 +40,8 @@ export function OverviewTab({
   onStatusChanged?: () => void;
   onBookingClick?: (booking: Booking) => void;
 }) {
-  // Cancelled bookings are not part of the trip. The server already excludes
-  // them from listByTrip and RollupRepo excludes them from the totals; the
-  // component agreeing is what stops a cancelled row from rendering as a
-  // dashed "still to do" item next to a cost panel that has never heard of it.
+  // Cancelled bookings are not part of the trip. Keep this event-focused
+  // overview aligned with the itinerary and the separate Costs tab.
   const visible = bookings.filter((b) => b.status !== "cancelled");
 
   const [failed, setFailed] = useState<string | null>(null);
@@ -73,14 +67,13 @@ export function OverviewTab({
   }
 
   return (
-    <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-start" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {failed && (
-        <p className="warning" role="alert" style={{ flexBasis: "100%" }}>
+        <p className="warning" role="alert">
           {failed}
         </p>
       )}
-      <div style={{ flex: "2 1 520px", display: "flex", flexDirection: "column", gap: 20 }}>
-        {GROUPS.map(({ heading, kinds }) => {
+      {GROUPS.map(({ heading, kinds }) => {
           const group = visible.filter((b) => kinds.includes(b.kind));
           if (group.length === 0) return null;
 
@@ -93,7 +86,7 @@ export function OverviewTab({
                   // Three distinct states, not two. `planned` is a decision
                   // the family has made but not yet paid for; `draft` is an
                   // unreviewed email import that no one has confirmed is even
-                  // real, and which the cost rollup deliberately ignores.
+                  // real, and which the Costs tab deliberately ignores.
                   const isDraft = b.status === "draft";
                   const needsBooking = b.status === "planned";
                   const provisional = isDraft || needsBooking;
@@ -150,11 +143,6 @@ export function OverviewTab({
                             />
                           </span>
                         )}
-                        {b.costCents !== null && (
-                          <span style={{ marginLeft: "auto" }}>
-                            {formatMoney(b.costCents)}
-                          </span>
-                        )}
                         {provisional && onStatusChanged && (
                           <button
                             type="button"
@@ -177,12 +165,7 @@ export function OverviewTab({
               </div>
             </section>
           );
-        })}
-      </div>
-
-      <aside style={{ flex: "1 1 300px", display: "flex", flexDirection: "column", gap: 14 }}>
-        {rollup && <CostRollup rollup={rollup} />}
-      </aside>
+      })}
     </div>
   );
 }

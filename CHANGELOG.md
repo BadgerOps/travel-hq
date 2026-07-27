@@ -7,6 +7,8 @@
 - Added a manual existing-trip selector for unmatched pending imports.
 - Added booking details from overview and day cards, including parsed source
   email content and retained calendar artifacts.
+- Moved booking prices out of Overview into a dedicated Costs tab with total,
+  status, category, booking, points, and filterable day-by-day analysis.
 - Added an existing-trip traveler picker so owners and adults can add people
   from the Travelers tab and immediately refresh the trip roster.
 - Added optional traveler email and phone contact fields, including create,

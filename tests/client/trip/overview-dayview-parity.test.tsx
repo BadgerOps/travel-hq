@@ -48,8 +48,6 @@ const BOOKINGS = [
   booking("b2", "Rehearsal dinner", ["p-badger"]),
 ];
 
-const ZERO = { bookedCents: 0, plannedCents: 0, totalCents: 0, draftCount: 0, points: [] };
-
 describe("Overview and day-view booking-set parity", () => {
   it("renders the same booking titles in Overview and the day view for the same trip", async () => {
     const overview = render(
@@ -57,7 +55,6 @@ describe("Overview and day-view booking-set parity", () => {
         trip={TRIP}
         bookings={BOOKINGS as never}
         people={HOUSEHOLD_PEOPLE as never}
-        rollup={ZERO}
         api={{ trips: { revealConfirmation: vi.fn() } } as never}
       />,
     );

@@ -16,12 +16,14 @@ import { ChecklistTab } from "../trip/ChecklistTab.js";
 import { DayView } from "../dayview/DayView.js";
 import { BookingDialog } from "../trip/BookingDialog.js";
 import { BookingDetailDialog } from "../components/BookingDetailDialog.js";
+import { CostAnalysisTab } from "../trip/CostAnalysisTab.js";
 
 type Api = typeof defaultApi;
 
 const TABS = [
   { id: "overview", label: "Overview" },
   { id: "days", label: "Day by day" },
+  { id: "costs", label: "Costs" },
   { id: "travelers", label: "Travelers" },
   { id: "checklist", label: "Checklist" },
 ] as const;
@@ -252,7 +254,6 @@ export function TripDetail({
           trip={trip}
           bookings={bookings}
           people={people}
-          rollup={rollup}
           api={api}
           onStatusChanged={() => setReloadKey((n) => n + 1)}
           onBookingClick={setSelectedBooking}
@@ -265,6 +266,9 @@ export function TripDetail({
           api={api}
           onBookingClick={setSelectedBooking}
         />
+      )}
+      {tab === "costs" && rollup && (
+        <CostAnalysisTab trip={trip} bookings={bookings} rollup={rollup} />
       )}
       {tab === "travelers" && (
         <TravelersTab

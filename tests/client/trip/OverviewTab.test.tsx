@@ -24,15 +24,12 @@ function booking(over: Record<string, unknown> = {}) {
 }
 
 const PEOPLE = [{ id: "p1", displayName: "Badger" }];
-const ZERO = { bookedCents: 0, plannedCents: 0, totalCents: 0, draftCount: 0, points: [] };
-
 function renderTab(bookings: unknown[], onBookingClick?: (booking: Booking) => void) {
   return render(
     <OverviewTab
       trip={TRIP}
       bookings={bookings as never}
       people={PEOPLE as never}
-      rollup={ZERO}
       api={{ trips: { revealConfirmation: vi.fn() } } as never}
       onBookingClick={onBookingClick}
     />,
@@ -54,6 +51,11 @@ describe("OverviewTab", () => {
   it("masks the confirmation number", () => {
     renderTab([booking()]);
     expect(screen.getByText("••••X4T2")).toBeInTheDocument();
+  });
+
+  it("keeps prices out of the event-focused overview", () => {
+    renderTab([booking({ costCents: 42_000 })]);
+    expect(screen.queryByText("$420.00")).not.toBeInTheDocument();
   });
 
   it("tags a planned booking as needing booking", () => {
