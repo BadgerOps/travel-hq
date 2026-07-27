@@ -127,6 +127,54 @@ describe("PUT /api/trips/:tripId", () => {
   });
 });
 
+describe("trip cover photo (photoUrl)", () => {
+  it("round-trips photoUrl through create and read", async () => {
+    const res = await jsonRequest("/api/trips", "POST", {
+      title: "Guerneville",
+      photoUrl: "https://img.example/river.jpg",
+    });
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as Trip;
+    const read = (await (await request(app, `/api/trips/${id}`)).json()) as Trip;
+    expect(read.photoUrl).toBe("https://img.example/river.jpg");
+  });
+
+  it("sets and clears photoUrl via PUT", async () => {
+    const id = await createTrip();
+    const set = await jsonRequest(`/api/trips/${id}`, "PUT", {
+      photoUrl: "https://img.example/river.jpg",
+    });
+    expect(((await set.json()) as Trip).photoUrl).toBe("https://img.example/river.jpg");
+    const cleared = await jsonRequest(`/api/trips/${id}`, "PUT", { photoUrl: null });
+    expect(((await cleared.json()) as Trip).photoUrl).toBeNull();
+  });
+
+  it("answers 400 for a non-http(s) scheme on create and update", async () => {
+    // javascript:/data: reaching an <img src> is exactly what the schema stops.
+    expect(
+      (await jsonRequest("/api/trips", "POST", { title: "T", photoUrl: "javascript:alert(1)" }))
+        .status,
+    ).toBe(400);
+    const id = await createTrip();
+    expect(
+      (await jsonRequest(`/api/trips/${id}`, "PUT", { photoUrl: "javascript:alert(1)" })).status,
+    ).toBe(400);
+    expect(
+      (await jsonRequest(`/api/trips/${id}`, "PUT", { photoUrl: "data:text/html,hi" })).status,
+    ).toBe(400);
+    expect((await jsonRequest(`/api/trips/${id}`, "PUT", { photoUrl: "not a url" })).status).toBe(
+      400,
+    );
+  });
+
+  it("answers 400 for a photoUrl longer than 2048 characters", async () => {
+    const long = `https://img.example/${"a".repeat(2048)}`;
+    expect((await jsonRequest("/api/trips", "POST", { title: "T", photoUrl: long })).status).toBe(
+      400,
+    );
+  });
+});
+
 describe("DELETE /api/trips/:tripId", () => {
   it("answers 204 and the trip is gone from the list", async () => {
     const id = await createTrip();

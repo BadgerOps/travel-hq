@@ -23,6 +23,7 @@ export type Trip = {
   endsOn: string | null;
   status: TripStatus;
   notes: string | null;
+  photoUrl: string | null;
 };
 
 export type CreateTripInput = {
@@ -31,6 +32,7 @@ export type CreateTripInput = {
   startsOn?: string;
   endsOn?: string;
   notes?: string;
+  photoUrl?: string;
 };
 
 /**
@@ -52,6 +54,7 @@ export type UpdateTripInput = {
   endsOn?: string | null;
   status?: TripStatus;
   notes?: string | null;
+  photoUrl?: string | null;
 };
 
 /**
@@ -67,6 +70,7 @@ const UPDATE_COLUMNS = {
   endsOn: "ends_on",
   status: "status",
   notes: "notes",
+  photoUrl: "photo_url",
 } as const;
 
 type TripRow = {
@@ -77,6 +81,7 @@ type TripRow = {
   ends_on: string | null;
   status: TripStatus;
   notes: string | null;
+  photo_url: string | null;
 };
 
 export class TripRepo extends TenantRepo {
@@ -94,6 +99,7 @@ export class TripRepo extends TenantRepo {
       ends_on: input.endsOn ?? null,
       status: "planning",
       notes: input.notes ?? null,
+      photo_url: input.photoUrl ?? null,
       created_at: new Date().toISOString(),
     });
     const created = await this.findById(id);
@@ -292,5 +298,6 @@ function toTrip(r: TripRow): Trip {
     endsOn: r.ends_on,
     status: r.status,
     notes: r.notes,
+    photoUrl: r.photo_url,
   };
 }
