@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.0 - 2026-07-27
+
+- Added authenticated `.eml` file uploads alongside PDF itinerary uploads,
+  preserving the original MIME message and sender/subject metadata while using
+  the same ICS-first, AI-fallback draft extraction as forwarded email.
+- Updated the Import page with one PDF/EML file picker, format-specific size
+  guidance, and validation errors.
+- Added end-to-end coverage showing PDF uploads, EML uploads, and authenticated
+  email forwarding produce the same reviewable drafts.
+- Added a pending-import review queue for uploads and forwarded email, grouped
+  by source message with explicit accept and dismiss actions.
+- Suggested an existing non-cancelled trip only when it uniquely contains an
+  import's local date range; ambiguous or unmatched imports remain unassigned.
+- Added multi-select trip creation that converts selected drafts into
+  source-linked planned bookings in one atomic operation.
+
 ## 0.4.0 - 2026-07-24
 
 - Added authenticated PDF itinerary uploads that convert documents with

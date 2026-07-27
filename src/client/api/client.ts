@@ -26,6 +26,9 @@ import type {
   UpdateTripInput,
   ExtractedBooking,
   FileImportResult,
+  PendingImportDraft,
+  CreateTripFromDraftsInput,
+  ImportReviewResult,
 } from "./types.js";
 
 export class ApiError extends Error {
@@ -191,6 +194,22 @@ export function createApi(config: ApiConfig = {}) {
       list: () => request<InboundEmailMetadata[]>("/api/inbound-emails"),
     },
     imports: {
+      pending: () => request<PendingImportDraft[]>("/api/imports/pending"),
+      accept: (draftIds: string[], tripId: string) =>
+        request<ImportReviewResult>(
+          "/api/imports/accept",
+          jsonBody("POST", { draftIds, tripId }),
+        ),
+      createTrip: (input: CreateTripFromDraftsInput) =>
+        request<ImportReviewResult>(
+          "/api/imports/create-trip",
+          jsonBody("POST", input),
+        ),
+      dismiss: (draftIds: string[]) =>
+        request<{ dismissedDraftIds: string[] }>(
+          "/api/imports/dismiss",
+          jsonBody("POST", { draftIds }),
+        ),
       file: (file: File) => {
         const form = new FormData();
         form.set("file", file);

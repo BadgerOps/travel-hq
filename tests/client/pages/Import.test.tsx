@@ -25,7 +25,15 @@ function setup(role: Identity["role"] = "owner") {
     error: null,
     bookings: DELTA_BOOKINGS_90_DAYS,
   }));
-  const api = { imports: { file } };
+  const api = {
+    imports: {
+      file,
+      pending: vi.fn(async () => []),
+      accept: vi.fn(),
+      createTrip: vi.fn(),
+      dismiss: vi.fn(),
+    },
+  };
   asRole(role, <Import api={api as never} />);
   return { api, file };
 }
@@ -34,8 +42,8 @@ describe("Import page", () => {
   it("uploads a PDF and previews every extracted draft", async () => {
     const { file } = setup();
     const pdf = new File(["%PDF-1.4"], "delta-trip.pdf", { type: "application/pdf" });
-    await userEvent.upload(screen.getByLabelText("PDF file"), pdf);
-    await userEvent.click(screen.getByRole("button", { name: "Import PDF" }));
+    await userEvent.upload(screen.getByLabelText("Itinerary file"), pdf);
+    await userEvent.click(screen.getByRole("button", { name: "Import file" }));
 
     expect(file).toHaveBeenCalledWith(pdf);
     expect(await screen.findByText("3 drafts ready for review")).toBeInTheDocument();
@@ -44,25 +52,42 @@ describe("Import page", () => {
     }
   });
 
+  it("accepts an EML message through the same upload control", async () => {
+    const { file } = setup();
+    const eml = new File(["Subject: Trip\r\n\r\nConfirmation TRIP90"], "trip.eml", {
+      type: "message/rfc822",
+    });
+    const picker = screen.getByLabelText("Itinerary file");
+    expect(picker).toHaveAttribute(
+      "accept",
+      ".pdf,.eml,application/pdf,message/rfc822",
+    );
+    await userEvent.upload(picker, eml);
+    await userEvent.click(screen.getByRole("button", { name: "Import file" }));
+
+    expect(file).toHaveBeenCalledWith(eml);
+    expect(await screen.findByText("3 drafts ready for review")).toBeInTheDocument();
+  });
+
   it("requires a file and reports an upload failure", async () => {
     const { file } = setup();
-    await userEvent.click(screen.getByRole("button", { name: "Import PDF" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/choose a PDF/i);
+    await userEvent.click(screen.getByRole("button", { name: "Import file" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/choose a PDF or EML/i);
     expect(file).not.toHaveBeenCalled();
 
     file.mockRejectedValueOnce(new ApiError("/api/imports/file failed", 422));
     await userEvent.upload(
-      screen.getByLabelText("PDF file"),
+      screen.getByLabelText("Itinerary file"),
       new File(["%PDF"], "trip.pdf", { type: "application/pdf" }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Import PDF" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/could not read that PDF/i);
+    await userEvent.click(screen.getByRole("button", { name: "Import file" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/could not read that file/i);
   });
 
   it("does not offer file import to a viewer", async () => {
     setup("viewer");
     expect(await screen.findByText("Owners and adults only")).toBeInTheDocument();
-    expect(screen.queryByLabelText("PDF file")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Import PDF" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Itinerary file")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Import file" })).not.toBeInTheDocument();
   });
 });

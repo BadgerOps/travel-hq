@@ -5,8 +5,10 @@ import type { AppBindings } from "../../../src/server/index.js";
 import type { Identity } from "../../../src/server/auth.js";
 import { Keyring } from "../../../src/server/crypto/envelope.js";
 import type { FileImportResult } from "../../../src/server/routes/imports.js";
+import { MAX_IMPORT_EML_BYTES } from "../../../src/server/routes/imports.js";
 import {
   DELTA_BOOKINGS_90_DAYS,
+  DELTA_EML_90_DAYS,
   DELTA_ITINERARY_90_DAYS,
 } from "../../fixtures/delta-itinerary.js";
 
@@ -53,7 +55,7 @@ function setup(who: Identity = identity) {
   return { app, bindings, toMarkdown, run };
 }
 
-function pdfForm(file = new File(["%PDF-1.4 test"], "delta-trip.pdf", {
+function uploadForm(file = new File(["%PDF-1.4 test"], "delta-trip.pdf", {
   type: "application/pdf",
 })) {
   const body = new FormData();
@@ -66,7 +68,7 @@ describe("POST /api/imports/file", () => {
     const { app, bindings, toMarkdown, run } = setup();
     const res = await app.request("/api/imports/file", {
       method: "POST",
-      body: pdfForm(),
+      body: uploadForm(),
     }, bindings);
 
     expect(res.status).toBe(200);
@@ -115,7 +117,42 @@ describe("POST /api/imports/file", () => {
     })));
   });
 
-  it("rejects missing and non-PDF uploads before conversion", async () => {
+  it("imports a raw EML through the same MIME and extraction path without PDF conversion", async () => {
+    const { app, bindings, toMarkdown, run } = setup();
+    // Browsers commonly leave .eml MIME types blank, so extension detection
+    // must work without relying on message/rfc822.
+    const eml = new File([DELTA_EML_90_DAYS], "delta-trip.eml");
+    const res = await app.request("/api/imports/file", {
+      method: "POST",
+      body: uploadForm(eml),
+    }, bindings);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      status: "extracted",
+      error: null,
+      bookings: DELTA_BOOKINGS_90_DAYS,
+    });
+    expect(toMarkdown).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledTimes(1);
+
+    const email = await env.DB.prepare(
+      "SELECT from_address, subject, raw, status FROM inbound_email",
+    ).first<{
+      from_address: string;
+      subject: string;
+      raw: string;
+      status: string;
+    }>();
+    expect(email).toEqual({
+      from_address: "receipts@delta.example",
+      subject: "Delta.com Trip Information",
+      raw: DELTA_EML_90_DAYS,
+      status: "extracted",
+    });
+  });
+
+  it("rejects missing and unsupported uploads before conversion", async () => {
     const { app, bindings, toMarkdown } = setup();
     const missing = await app.request("/api/imports/file", {
       method: "POST",
@@ -125,17 +162,35 @@ describe("POST /api/imports/file", () => {
 
     const text = await app.request("/api/imports/file", {
       method: "POST",
-      body: pdfForm(new File(["hello"], "notes.txt", { type: "text/plain" })),
+      body: uploadForm(new File(["hello"], "notes.txt", { type: "text/plain" })),
     }, bindings);
     expect(text.status).toBe(415);
     expect(toMarkdown).not.toHaveBeenCalled();
+  });
+
+  it("rejects an EML larger than the forwarded-email storage limit", async () => {
+    const { app, bindings, toMarkdown, run } = setup();
+    const oversized = new File(
+      [new Uint8Array(MAX_IMPORT_EML_BYTES + 1)],
+      "oversized.eml",
+      { type: "message/rfc822" },
+    );
+    const res = await app.request("/api/imports/file", {
+      method: "POST",
+      body: uploadForm(oversized),
+    }, bindings);
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: "EML files must be 1 MB or smaller" });
+    expect(toMarkdown).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("blocks viewers without spending a conversion call", async () => {
     const { app, bindings, toMarkdown } = setup({ ...identity, role: "viewer" });
     const res = await app.request("/api/imports/file", {
       method: "POST",
-      body: pdfForm(),
+      body: uploadForm(),
     }, bindings);
     expect(res.status).toBe(403);
     expect(toMarkdown).not.toHaveBeenCalled();
@@ -152,7 +207,7 @@ describe("POST /api/imports/file", () => {
     } as never);
     const res = await app.request("/api/imports/file", {
       method: "POST",
-      body: pdfForm(),
+      body: uploadForm(),
     }, bindings);
 
     expect(res.status).toBe(422);

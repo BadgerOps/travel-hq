@@ -107,4 +107,59 @@ describe("api client", () => {
     await api.inboundEmails.list();
     expect(fetchMock).toHaveBeenCalledWith("/api/inbound-emails", expect.anything());
   });
+
+  it("lists and reviews pending imports", async () => {
+    const fetchMock = mockFetch(200, []);
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    await api.imports.pending();
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/imports/pending", expect.anything());
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      trip: { id: "trip-1" },
+      acceptedDraftIds: ["draft-1"],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    await api.imports.accept(["draft-1"], "trip-1");
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/imports/accept",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ draftIds: ["draft-1"], tripId: "trip-1" }),
+      }),
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      trip: { id: "trip-new" },
+      acceptedDraftIds: ["draft-1", "draft-2"],
+    }), { status: 201, headers: { "content-type": "application/json" } }));
+    await api.imports.createTrip({
+      draftIds: ["draft-1", "draft-2"],
+      title: "Europe",
+      startsOn: "2026-10-21",
+      endsOn: "2026-10-24",
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/imports/create-trip",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          draftIds: ["draft-1", "draft-2"],
+          title: "Europe",
+          startsOn: "2026-10-21",
+          endsOn: "2026-10-24",
+        }),
+      }),
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      dismissedDraftIds: ["draft-2"],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    await api.imports.dismiss(["draft-2"]);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/imports/dismiss",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ draftIds: ["draft-2"] }),
+      }),
+    );
+  });
 });

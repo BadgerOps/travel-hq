@@ -1,5 +1,6 @@
 import { TenantRepo, NotFoundError, ValidationError } from "./base.js";
 import { newId } from "../ids.js";
+import { isValidCalendarDate } from "../time.js";
 
 /**
  * Exported as a value, not only a type: the update route's Zod enum and the
@@ -67,25 +68,6 @@ const UPDATE_COLUMNS = {
   status: "status",
   notes: "notes",
 } as const;
-
-/**
- * A calendar date must be the exact `YYYY-MM-DD` the schema stores and the
- * client's string comparisons (isActiveOn, ordering) assume. `Date.parse`
- * would accept far more than that; the round-trip check rejects a
- * well-shaped impossibility like 2026-02-31, which Date.UTC would silently
- * roll into March.
- */
-function isValidCalendarDate(value: string): boolean {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!m) return false;
-  const [, y, mo, d] = m;
-  const date = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
-  return (
-    date.getUTCFullYear() === Number(y) &&
-    date.getUTCMonth() === Number(mo) - 1 &&
-    date.getUTCDate() === Number(d)
-  );
-}
 
 type TripRow = {
   id: string;

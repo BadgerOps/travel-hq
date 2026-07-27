@@ -36,6 +36,17 @@ DEPART 12:30 PM — Amsterdam Airport Schiphol
 ARRIVE 1:45 PM — Stuttgart Airport
 `.trim();
 
+export const DELTA_EML_90_DAYS = [
+  "From: Delta Air Lines <receipts@delta.example>",
+  "To: traveler@example.com",
+  "Subject: Delta.com Trip Information",
+  "Message-ID: <delta-trip-90@example.test>",
+  "MIME-Version: 1.0",
+  "Content-Type: text/plain; charset=utf-8",
+  "",
+  DELTA_ITINERARY_90_DAYS,
+].join("\r\n");
+
 export const DELTA_BOOKINGS_90_DAYS = [
   {
     kind: "flight",
