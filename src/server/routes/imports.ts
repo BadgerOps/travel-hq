@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { z } from "zod";
 import type { AppEnv } from "../index.js";
 import { normalizeExtractedBooking } from "../ingest/extracted.js";
 import type { ExtractedBooking } from "../ingest/extracted.js";
@@ -10,6 +11,9 @@ import { DraftBookingRepo } from "../repos/draft-booking.js";
 import { HouseholdSettingsRepo } from "../repos/household-settings.js";
 import { InboundEmailRepo } from "../repos/inbound-email.js";
 import type { InboundEmailStatus } from "../repos/inbound-email.js";
+import { ImportReviewRepo } from "../repos/import-review.js";
+import type { CreateTripFromDraftsInput } from "../repos/import-review.js";
+import { isValidCalendarDate } from "../time.js";
 
 export const MAX_IMPORT_PDF_BYTES = 10 * 1024 * 1024;
 export const MAX_IMPORT_EML_BYTES = MAX_RAW_BYTES;
@@ -25,6 +29,70 @@ export type FileImportResult = {
 };
 
 export const imports = new Hono<AppEnv>();
+
+const draftIdsSchema = z.array(z.string().min(1)).min(1).max(100);
+const acceptSchema = z.object({
+  draftIds: draftIdsSchema,
+  tripId: z.string().min(1),
+}).strict();
+const dismissSchema = z.object({ draftIds: draftIdsSchema }).strict();
+const createTripFromDraftsSchema = z.object({
+  draftIds: draftIdsSchema,
+  title: z.string().trim().min(1),
+  destination: z.string().trim().optional(),
+  startsOn: z.string().refine(isValidCalendarDate).optional(),
+  endsOn: z.string().refine(isValidCalendarDate).optional(),
+}).strict().refine(
+  (value) => !value.startsOn || !value.endsOn || value.startsOn <= value.endsOn,
+  { message: "startsOn must be on or before endsOn", path: ["endsOn"] },
+);
+
+imports.get("/pending", async (c) =>
+  c.json(
+    await new ImportReviewRepo(
+      c.get("db"),
+      c.get("identity"),
+      c.get("ring"),
+    ).listPending(),
+  ),
+);
+
+imports.post("/accept", async (c) => {
+  const parsed = acceptSchema.safeParse(await readJson(c.req.raw));
+  if (!parsed.success) {
+    return c.json({ error: "Invalid import acceptance", details: parsed.error.issues }, 400);
+  }
+  return c.json(
+    await new ImportReviewRepo(c.get("db"), c.get("identity"), c.get("ring"))
+      .acceptIntoTrip(parsed.data.draftIds, parsed.data.tripId),
+  );
+});
+
+imports.post("/create-trip", async (c) => {
+  const parsed = createTripFromDraftsSchema.safeParse(await readJson(c.req.raw));
+  if (!parsed.success) {
+    return c.json({ error: "Invalid imported trip", details: parsed.error.issues }, 400);
+  }
+  return c.json(
+    await new ImportReviewRepo(c.get("db"), c.get("identity"), c.get("ring"))
+      .createTripFromDrafts(parsed.data satisfies CreateTripFromDraftsInput),
+    201,
+  );
+});
+
+imports.post("/dismiss", async (c) => {
+  const parsed = dismissSchema.safeParse(await readJson(c.req.raw));
+  if (!parsed.success) {
+    return c.json({ error: "Invalid import dismissal", details: parsed.error.issues }, 400);
+  }
+  return c.json({
+    dismissedDraftIds: await new ImportReviewRepo(
+      c.get("db"),
+      c.get("identity"),
+      c.get("ring"),
+    ).dismiss(parsed.data.draftIds),
+  });
+});
 
 imports.post("/file", async (c) => {
   let body: FormData;
@@ -193,5 +261,13 @@ async function prepareEml(file: File, householdId: string): Promise<PreparationR
   } catch (err) {
     console.error(`[import] EML parsing failed for household ${householdId}`, err);
     return { error: "The EML file could not be read", status: 422 };
+  }
+}
+
+async function readJson(request: Request): Promise<unknown> {
+  try {
+    return await request.json();
+  } catch {
+    return undefined;
   }
 }

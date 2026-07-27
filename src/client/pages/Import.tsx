@@ -4,6 +4,7 @@ import { api as defaultApi, ApiError } from "../api/client.js";
 import type { FileImportResult } from "../api/types.js";
 import { useCanWrite } from "../api/identity.js";
 import { DraftBookingCard } from "../components/DraftBookingCard.js";
+import { ImportReviewQueue } from "../imports/ImportReviewQueue.js";
 import { errorMessage } from "../lib/errors.js";
 
 export function Import({ api = defaultApi }: { api?: typeof defaultApi }) {
@@ -12,6 +13,7 @@ export function Import({ api = defaultApi }: { api?: typeof defaultApi }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FileImportResult | null>(null);
+  const [queueRefresh, setQueueRefresh] = useState(0);
 
   async function upload(event: React.FormEvent) {
     event.preventDefault();
@@ -25,6 +27,9 @@ export function Import({ api = defaultApi }: { api?: typeof defaultApi }) {
     try {
       const imported = await api.imports.file(file);
       setResult(imported);
+      if (imported.status === "extracted") {
+        setQueueRefresh((value) => value + 1);
+      }
       if (imported.status === "failed") {
         setError(imported.error ?? "The itinerary could not be extracted.");
       }
@@ -127,6 +132,8 @@ export function Import({ api = defaultApi }: { api?: typeof defaultApi }) {
           the same extractor and appear as drafts.
         </p>
       </div>
+
+      {canWrite && <ImportReviewQueue api={api} refreshToken={queueRefresh} />}
     </>
   );
 }

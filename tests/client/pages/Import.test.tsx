@@ -25,7 +25,15 @@ function setup(role: Identity["role"] = "owner") {
     error: null,
     bookings: DELTA_BOOKINGS_90_DAYS,
   }));
-  const api = { imports: { file } };
+  const api = {
+    imports: {
+      file,
+      pending: vi.fn(async () => []),
+      accept: vi.fn(),
+      createTrip: vi.fn(),
+      dismiss: vi.fn(),
+    },
+  };
   asRole(role, <Import api={api as never} />);
   return { api, file };
 }
