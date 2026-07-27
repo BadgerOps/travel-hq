@@ -18,6 +18,11 @@ const BOOKING = {
   endsAtTz: null,
   confirmationNumber: "ABC123",
   costCents: null,
+  travelerEmails: [
+    " DAVID@example.com ",
+    "david@example.com",
+    "not an email",
+  ],
   details: {},
 };
 const PROMPT = { system: "fixed rules", user: "confirmation" };
@@ -26,7 +31,10 @@ describe("extraction providers", () => {
   it("uses Workers AI JSON schema mode and validates the complete result", async () => {
     const run = vi.fn(async () => ({ response: { bookings: [BOOKING] } }));
     const provider = new WorkersAiProvider({ run }, "@cf/test", 2_048);
-    expect(await provider.extract(PROMPT)).toMatchObject([{ title: "Dawn Ranch" }]);
+    expect(await provider.extract(PROMPT)).toMatchObject([{
+      title: "Dawn Ranch",
+      travelerEmails: ["david@example.com"],
+    }]);
     expect(run).toHaveBeenCalledWith("@cf/test", {
       messages: [
         { role: "system", content: "fixed rules" },

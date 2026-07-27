@@ -328,6 +328,31 @@ export class BookingRepo extends BookingAwareRepo {
     );
   }
 
+  async unassignPerson(bookingId: string, personId: string): Promise<void> {
+    this.requireWrite();
+    const booking = await this.get<{ id: string }>(
+      "SELECT id FROM booking WHERE {scope} AND id = ?2",
+      bookingId,
+    );
+    if (!booking) throw new NotFoundError("Booking not found in this household");
+
+    const person = await this.get<{ id: string }>(
+      "SELECT id FROM person WHERE {scope} AND id = ?2",
+      personId,
+    );
+    if (!person) throw new NotFoundError("Person not found in this household");
+
+    // This removes only the event edge. The person remains a traveler on the
+    // trip: they may still be assigned to another booking, or may have been
+    // added to the trip before any booking existed.
+    await this.unscopedRun(
+      "join-table delete; both bookingId and personId already confirmed in-household by get() above",
+      "DELETE FROM booking_person WHERE booking_id = ? AND person_id = ?",
+      bookingId,
+      personId,
+    );
+  }
+
   async setStatus(bookingId: string, status: BookingStatus): Promise<void> {
     // Redundant with base.ts's own requireWrite() inside run() -- kept as
     // explicit intent at the top of every mutating method, matching

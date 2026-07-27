@@ -159,6 +159,65 @@ describe("import review routes", () => {
     ).toEqual([drafts[2]!.id]);
   });
 
+  it("links an imported booking to the profile whose email identifies its traveler", async () => {
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      "INSERT INTO person (id, household_id, display_name, email, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).bind("p-david", "hh-a", "David Apsley", "dapsley1@gmail.com", now).run();
+    await env.DB.prepare(
+      "INSERT INTO person (id, household_id, display_name, email, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).bind("p-sol", "hh-a", "Sol", "sol@badgerops.net", now).run();
+    const trip = await new TripRepo(env.DB, ctx).create({
+      title: "Silverwood",
+      startsOn: "2026-07-29",
+      endsOn: "2026-07-30",
+    });
+    const email = await InboundEmailRepo.forIngest(env.DB, "hh-a").create({
+      from: "sol@badgerops.net",
+      to: "trips@example.com",
+      subject: "Fwd: Your Silverwood RV Park Reservation",
+      raw: [
+        "From: sol <sol@badgerops.net>",
+        "",
+        "----- Original message -----",
+        "From: David Apsley <dapsley1@gmail.com>",
+      ].join("\r\n"),
+    });
+    const [draft] = await DraftBookingRepo.forIngest(env.DB, "hh-a").createMany([{
+      inboundEmailId: email.id,
+      ordinal: 0,
+      kind: "lodging",
+      title: "Silverwood RV Park",
+      source: "ai",
+      extracted: {
+        details: { propertyName: "Silverwood RV Park" },
+        travelerEmails: ["DAPSLEY1@GMAIL.COM"],
+      },
+    }]);
+
+    const res = await postJson(appAs(), "/api/imports/accept", {
+      draftIds: [draft!.id],
+      tripId: trip.id,
+    });
+    expect(res.status).toBe(200);
+    expect(
+      await env.DB.prepare(
+        `SELECT bp.person_id
+           FROM booking_person bp
+           JOIN booking b ON b.id = bp.booking_id`,
+      ).first(),
+    ).toEqual({ person_id: "p-david" });
+    expect(
+      await env.DB.prepare("SELECT person_id FROM trip_person WHERE trip_id = ?")
+        .bind(trip.id).first(),
+    ).toEqual({ person_id: "p-david" });
+    expect(
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM booking_person WHERE person_id = 'p-sol'",
+      ).first(),
+    ).toEqual({ count: 0 });
+  });
+
   it("allows a reviewer to manually assign an unmatched import to an existing trip", async () => {
     const selectedTrip = await new TripRepo(env.DB, ctx).create({
       title: "Too early",

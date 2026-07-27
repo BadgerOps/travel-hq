@@ -95,6 +95,16 @@ describe("api client writes", () => {
     );
   });
 
+  it("unassigns a person from a booking", async () => {
+    const fetchMock = mockFetch(null, 204);
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    await api.bookings.unassignPerson("b1", "p1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/bookings/b1/people/p1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
   it("sets a booking status", async () => {
     const fetchMock = mockFetch(null, 204);
     const api = createApi({ fetch: fetchMock, baseUrl: "" });

@@ -99,6 +99,25 @@ describe("BookingRepo", () => {
     expect(list[0]?.status).toBe("booked");
   });
 
+  it("unassignPerson removes only the booking link and keeps trip membership", async () => {
+    const repo = new BookingRepo(env.DB, ctxA, ring);
+    const booking = await repo.create({
+      tripId: "t1",
+      kind: "other",
+      title: "Hotel",
+      details: {},
+    });
+    await repo.assignPerson(booking.id, "p-ava");
+    await repo.unassignPerson(booking.id, "p-ava");
+
+    expect((await repo.findById(booking.id))?.personIds).toEqual([]);
+    expect(
+      await env.DB.prepare(
+        "SELECT person_id FROM trip_person WHERE trip_id = ? AND person_id = ?",
+      ).bind("t1", "p-ava").first(),
+    ).toEqual({ person_id: "p-ava" });
+  });
+
   it("maps travelers onto multiple bookings from the batched join lookup", async () => {
     const repo = new BookingRepo(env.DB, ctxA, ring);
     const first = await repo.create({

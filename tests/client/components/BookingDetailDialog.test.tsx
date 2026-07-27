@@ -83,4 +83,46 @@ describe("BookingDetailDialog", () => {
     );
     expect(await screen.findByText(/entered manually/i)).toBeInTheDocument();
   });
+
+  it("manually links and unlinks a traveler when their profile email was absent", async () => {
+    const assignPerson = vi.fn(async () => undefined);
+    const unassignPerson = vi.fn(async () => undefined);
+    const changed = vi.fn();
+    render(
+      <BookingDetailDialog
+        booking={booking}
+        people={[{
+          id: "person-david",
+          displayName: "David Apsley",
+          dob: null,
+          email: "dapsley1@yahoo.com",
+          phone: null,
+          notes: null,
+          passportExpiry: null,
+          passportCountry: null,
+          passportNumberMasked: null,
+          knownTravelerNumberMasked: null,
+          redressNumberMasked: null,
+        }]}
+        api={{
+          bookings: {
+            artifact: vi.fn(async () => ({ artifact: null })),
+            assignPerson,
+            unassignPerson,
+          },
+        } as never}
+        onPeopleChanged={changed}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const david = screen.getByRole("button", { name: /David Apsley/ });
+    await userEvent.click(david);
+    expect(assignPerson).toHaveBeenCalledWith(booking.id, "person-david");
+    expect(david).toHaveAttribute("aria-pressed", "true");
+
+    await userEvent.click(david);
+    expect(unassignPerson).toHaveBeenCalledWith(booking.id, "person-david");
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
 });

@@ -250,6 +250,9 @@ describe("buildExtractionPrompt", () => {
       calendars: [],
     }, "Prefer Boise departures.");
     expect(prompt.system).toContain("Copy confirmation numbers exactly");
+    expect(prompt.system).toContain(
+      "Do not include a forwarding sender or recipient",
+    );
     expect(prompt.system).toContain("Household notes");
     expect(prompt.system).toContain("Prefer Boise departures.");
     expect(prompt.system.indexOf("Household notes")).toBeGreaterThan(
