@@ -22,3 +22,11 @@ itinerary.put("/bookings/:bookingId/people/:personId", async (c) => {
   );
   return c.body(null, 204);
 });
+
+itinerary.delete("/bookings/:bookingId/people/:personId", async (c) => {
+  await new BookingRepo(c.get("db"), c.get("identity"), c.get("ring")).unassignPerson(
+    c.req.param("bookingId"),
+    c.req.param("personId"),
+  );
+  return c.body(null, 204);
+});

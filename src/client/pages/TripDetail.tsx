@@ -463,7 +463,9 @@ export function TripDetail({
       {selectedBooking && (
         <BookingDetailDialog
           booking={selectedBooking}
+          people={people}
           api={api}
+          onPeopleChanged={() => setReloadKey((n) => n + 1)}
           onClose={() => setSelectedBooking(null)}
         />
       )}

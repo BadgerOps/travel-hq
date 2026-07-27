@@ -194,6 +194,7 @@ export class ImportReviewRepo extends TenantRepo {
     resolvedAt: string,
   ): Promise<Array<{ sql: string; params: unknown[] }>> {
     const statements: Array<{ sql: string; params: unknown[] }> = [];
+    const peopleByEmail = await this.peopleByEmail();
     for (const draft of drafts) {
       const extracted = asRecord(draft.extracted);
       const details = parseDetails(draft.kind, extracted.details ?? {});
@@ -205,6 +206,7 @@ export class ImportReviewRepo extends TenantRepo {
       const encryptedConfirmation = draft.confirmationNumber
         ? await this.ring.encrypt(draft.confirmationNumber)
         : null;
+      const personIds = matchedPersonIds(extracted.travelerEmails, peopleByEmail);
 
       // The title scalar subquery is also the race guard. If another reviewer
       // resolves this draft after prevalidation but before the batch executes,
@@ -241,6 +243,16 @@ export class ImportReviewRepo extends TenantRepo {
           resolvedAt,
         ],
       });
+      for (const personId of personIds) {
+        statements.push({
+          sql: "INSERT OR IGNORE INTO booking_person (booking_id, person_id) VALUES (?, ?)",
+          params: [bookingId, personId],
+        });
+        statements.push({
+          sql: "INSERT OR IGNORE INTO trip_person (trip_id, person_id) VALUES (?, ?)",
+          params: [tripId, personId],
+        });
+      }
       statements.push({
         sql: `UPDATE draft_booking
                  SET status = 'accepted', booking_id = ?, resolved_at = ?
@@ -250,12 +262,39 @@ export class ImportReviewRepo extends TenantRepo {
     }
     return statements;
   }
+
+  private async peopleByEmail(): Promise<Map<string, string>> {
+    const rows = await this.all<{ id: string; email: string }>(
+      `SELECT id, email
+         FROM person
+        WHERE {scope} AND email IS NOT NULL AND trim(email) != ''`,
+    );
+    return new Map(rows.map((row) => [normalizeEmail(row.email), row.id]));
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object"
     ? value as Record<string, unknown>
     : {};
+}
+
+function matchedPersonIds(
+  value: unknown,
+  peopleByEmail: Map<string, string>,
+): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = new Set<string>();
+  for (const candidate of value) {
+    if (typeof candidate !== "string") continue;
+    const personId = peopleByEmail.get(normalizeEmail(candidate));
+    if (personId) ids.add(personId);
+  }
+  return [...ids];
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function draftDateRange(draft: Pick<

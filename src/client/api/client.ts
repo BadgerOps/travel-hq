@@ -141,6 +141,11 @@ export function createApi(config: ApiConfig = {}) {
           `/api/bookings/${seg(bookingId)}/people/${seg(personId)}`,
           { method: "PUT" },
         ),
+      unassignPerson: (bookingId: string, personId: string) =>
+        request<void>(
+          `/api/bookings/${seg(bookingId)}/people/${seg(personId)}`,
+          { method: "DELETE" },
+        ),
       setStatus: (bookingId: string, status: BookingStatus) =>
         request<void>(`/api/bookings/${seg(bookingId)}/status`, jsonBody("PUT", { status })),
     },

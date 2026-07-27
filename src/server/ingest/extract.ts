@@ -173,6 +173,8 @@ export function buildExtractionPrompt(
     "If a timestamp or zone is uncertain, set both to null.",
     "Copy confirmation numbers exactly and never invent values.",
     "costCents is the total cost in cents.",
+    "For travelerEmails, include only addresses explicitly associated with a traveler, passenger, guest, or reservation holder for that booking.",
+    "Do not include a forwarding sender or recipient merely because they forwarded or received the message.",
   ];
   if (extractionInstructions !== "") {
     fixedRules.push(

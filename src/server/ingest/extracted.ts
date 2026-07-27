@@ -14,6 +14,7 @@ const extractedBookingSchema = z.object({
   endsAtTz: z.string().nullish(),
   confirmationNumber: z.string().nullish(),
   costCents: z.number().nullish(),
+  travelerEmails: z.array(z.string()).max(50).optional(),
   details: z.unknown().optional(),
 });
 
@@ -56,6 +57,7 @@ export function normalizeExtractedBooking(raw: unknown): ExtractedBooking {
   return {
     ...value,
     kind,
+    travelerEmails: normalizeTravelerEmails(value.travelerEmails),
     ...(startOk ? {} : { startsAt: null, startsAtTz: null }),
     ...(endOk ? {} : { endsAt: null, endsAtTz: null }),
     costCents:
@@ -100,6 +102,7 @@ export const EXTRACTED_JSON_SCHEMA = {
           "endsAtTz",
           "confirmationNumber",
           "costCents",
+          "travelerEmails",
           "details",
         ],
         properties: {
@@ -118,9 +121,25 @@ export const EXTRACTED_JSON_SCHEMA = {
           endsAtTz: { type: ["string", "null"] },
           confirmationNumber: { type: ["string", "null"] },
           costCents: { type: ["integer", "null"], description: "Total cost in cents" },
+          travelerEmails: {
+            type: "array",
+            maxItems: 50,
+            items: { type: "string" },
+            description:
+              "Email addresses explicitly associated with a traveler, passenger, guest, or reservation holder for this booking",
+          },
           details: { type: "object", additionalProperties: true },
         },
       },
     },
   },
 } as const;
+
+function normalizeTravelerEmails(values: string[] | undefined): string[] {
+  const emails = new Set<string>();
+  for (const value of values ?? []) {
+    const email = value.trim().toLowerCase();
+    if (z.email().safeParse(email).success) emails.add(email);
+  }
+  return [...emails];
+}

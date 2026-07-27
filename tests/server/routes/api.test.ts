@@ -64,6 +64,14 @@ describe("API", () => {
     const days = (await (await request(app, `/api/trips/${trip.id}/itinerary?personId=${person.id}`)).json()) as { date: string }[];
     expect(days).toHaveLength(1);
     expect(days[0]?.date).toBe("2026-10-09");
+    expect((await request(app, `/api/bookings/${booking.id}/people/${person.id}`, {
+      method: "DELETE",
+    })).status).toBe(204);
+    const bookingAfter = (await (await request(
+      app,
+      `/api/trips/${trip.id}/bookings`,
+    )).json()) as Array<{ personIds: string[] }>;
+    expect(bookingAfter[0]?.personIds).toEqual([]);
   });
 
   it("returns 401 when authentication fails", async () => {
