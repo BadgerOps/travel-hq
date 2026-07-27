@@ -1,4 +1,12 @@
-import { AirplaneTakeoff, Bed, Car, ForkKnife, Confetti } from "@phosphor-icons/react";
+import { Link } from "wouter";
+import {
+  AirplaneTakeoff,
+  ArrowRight,
+  Bed,
+  Car,
+  ForkKnife,
+  Confetti,
+} from "@phosphor-icons/react";
 import type { Booking, ItineraryDay, Person, Trip } from "../api/types.js";
 import { formatTimeInZone } from "../lib/dates.js";
 import { PersonChips } from "../components/PersonChip.js";
@@ -22,15 +30,29 @@ function minutesUntil(startsAt: string, now: Date): number {
 
 /**
  * `minutes` can no longer be negative — everything past has been filtered out
- * before this is called — so "NOW" is reserved for the event that is starting
+ * before this is called — so "now" is reserved for the event that is starting
  * this minute rather than being pinned on anything already over. That
  * mislabelling was the bug: on day 2 of a trip the hero announced day 1's
  * departed flight as happening NOW.
  */
 function untilLabel(minutes: number): string {
-  if (minutes < 1) return "NOW";
-  if (minutes < 60) return `IN ${minutes} MIN`;
-  return `IN ${Math.round(minutes / 60)} HR`;
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `in ${minutes} min`;
+  return `in ${Math.round(minutes / 60)} h`;
+}
+
+/** The two 2a buttons — shared by the with-next and nothing-left states. */
+function HeroActions({ tripId }: { tripId: string }) {
+  return (
+    <div className="hero-actions">
+      <Link href={`/trips/${tripId}#days`} className="btn btn-primary">
+        Open day view <ArrowRight size={14} />
+      </Link>
+      <Link href={`/trips/${tripId}`} className="btn btn-secondary">
+        Trip details
+      </Link>
+    </div>
+  );
 }
 
 export function ActiveTripHero({
@@ -62,13 +84,14 @@ export function ActiveTripHero({
   const [next, ...rest] = upcoming;
   if (!next) {
     return (
-      <div className="hero-active" style={{ flex: "1.5 1 480px" }}>
+      <div className="hero-active hero-main">
         <h6 style={{ color: "var(--color-accent-300)" }}>{trip.title}</h6>
         <p className="text-muted">
           {day && day.bookings.length > 0
             ? "Nothing else scheduled today."
             : "Nothing scheduled today."}
         </p>
+        <HeroActions tripId={trip.id} />
       </div>
     );
   }
@@ -77,16 +100,23 @@ export function ActiveTripHero({
   const peopleOn = (b: Booking) => people.filter((p) => b.personIds.includes(p.id));
 
   return (
-    <div className="hero-active" style={{ flex: "1.5 1 480px" }}>
-      <h6 style={{ color: "var(--color-accent-300)" }}>
-        NEXT UP · {untilLabel(minutesUntil(next.startsAt!, now))}
-      </h6>
+    <div className="hero-active hero-main">
+      <div className="hero-kicker-row">
+        <h6 style={{ color: "var(--color-accent-300)" }}>
+          Next up · {untilLabel(minutesUntil(next.startsAt!, now))}
+        </h6>
+        {rest.length > 0 && (
+          <span className="hero-more">
+            then {rest.length} more today
+          </span>
+        )}
+      </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
+      <div className="hero-next">
         <NextIcon size={30} color="var(--color-accent)" />
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 500 }}>{next.title}</div>
-          <div style={{ fontSize: 12.5 }} className="text-muted">
+        <div className="hero-next-main">
+          <div className="hero-next-title">{next.title}</div>
+          <div className="hero-next-sub">
             {formatTimeInZone(next.startsAt!, next.startsAtTz ?? "UTC")}
             {next.confirmationNumberMasked && (
               <>
@@ -99,7 +129,7 @@ export function ActiveTripHero({
             )}
           </div>
         </div>
-        <div style={{ marginLeft: "auto" }}>
+        <div className="hero-next-chips">
           <PersonChips people={peopleOn(next)} />
         </div>
       </div>
@@ -108,23 +138,25 @@ export function ActiveTripHero({
 
       {/* The rest of TODAY, not the rest of the trip: `rest` is what remains
           of `upcoming`, which was already scoped to today's ItineraryDay. */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div className="hero-rest">
         {rest.slice(0, 3).map((b) => {
           const Icon = iconFor(b.kind);
           return (
-            <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div key={b.id} className="hero-rest-row">
               <span className="time-gutter">
                 {formatTimeInZone(b.startsAt!, b.startsAtTz ?? "UTC")}
               </span>
-              <Icon size={16} />
+              <Icon size={16} color="var(--color-accent)" />
               <span style={{ fontSize: 13 }}>{b.title}</span>
-              <span style={{ marginLeft: "auto" }}>
+              <span className="hero-rest-chips">
                 <PersonChips people={peopleOn(b)} />
               </span>
             </div>
           );
         })}
       </div>
+
+      <HeroActions tripId={trip.id} />
     </div>
   );
 }

@@ -1,0 +1,44 @@
+/* Home / Today + Trips (screen 2a) — page-specific styles on top of the
+   shared redesign primitives in styles.css. Imported by pages/Home.tsx and
+   pages/Trips.tsx (both render TripCard). */
+
+/* Hero kicker row: "Next up · in 40 min" left, "then 3 more today" right. */
+.hero-kicker-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.hero-kicker-row h6 { margin: 0; }
+.hero-kicker-row .hero-more {
+  margin-left: auto; flex: none;
+  font-size: 11px; color: var(--color-neutral-400);
+}
+
+/* The featured next event: 30px icon, 18px title, 12.5px detail line. */
+.hero-next { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.hero-next > svg { flex: none; }
+.hero-next .hero-next-main { min-width: 0; }
+.hero-next .hero-next-title { font-size: 18px; font-weight: 500; }
+.hero-next .hero-next-sub { font-size: 12.5px; color: var(--color-neutral-300); }
+.hero-next .hero-next-chips { margin-left: auto; flex: none; }
+
+/* Rest-of-today list: 58px time gutter (styles.css) + icon + label + chips. */
+.hero-rest { display: grid; gap: 8px; font-size: 12.5px; color: var(--color-neutral-300); }
+.hero-rest-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.hero-rest-row > svg { flex: none; }
+.hero-rest-row .hero-rest-chips { margin-left: auto; flex: none; }
+
+.hero-actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+
+/* Idle hero (no trip today): same bones, muted kicker, dates + meta lines. */
+.hero-idle .hero-trip-title { font-size: 18px; font-weight: 500; margin-top: 8px; }
+.hero-idle .hero-trip-meta { margin: 4px 0 0; font-size: 12.5px; color: var(--color-neutral-300); }
+.hero-idle .hero-trip-sub { margin: 6px 0 0; font-size: 12px; color: var(--color-neutral-500); }
+
+/* Ranked action rows render as real <button>s for the done-toggle; shed the
+   browser button chrome without disturbing the shared .action-row layout. */
+button.action-row {
+  width: 100%; background: none; border: 0;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.action-row[data-done="true"] { opacity: 0.45; }
+.action-row[data-done="true"] .action-title { text-decoration: line-through; }
+
+/* Right-aligned human date range on a trip card's title row. */
+.card-date { margin-left: auto; flex: none; font-size: 11px; color: var(--color-neutral-500); }

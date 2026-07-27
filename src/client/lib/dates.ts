@@ -127,6 +127,62 @@ export function countdownLabel(
   return `In ${days} days`;
 }
 
+/* All three calendar-date formatters below parse YYYY-MM-DD as UTC midnight
+   and format in UTC, for the same reason daysUntil does: these are dates with
+   no time or zone, and going through local time shifts them by a day for
+   viewers west of the ISO date line the string implies. */
+
+function utcDate(isoDate: string): Date {
+  return new Date(`${isoDate}T00:00:00Z`);
+}
+
+function fmtUtc(d: Date, opts: Intl.DateTimeFormatOptions): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", ...opts }).format(d);
+}
+
+/** "Sunday, July 27" — the greeting subline's long form of a calendar date. */
+export function formatLongDate(isoDate: string): string {
+  return fmtUtc(utcDate(isoDate), { weekday: "long", month: "long", day: "numeric" });
+}
+
+/** "Fri 9" — the day gutter label on day-by-day teaser rows. */
+export function formatDayLabel(isoDate: string): string {
+  const d = utcDate(isoDate);
+  return `${fmtUtc(d, { weekday: "short" })} ${fmtUtc(d, { day: "numeric" })}`;
+}
+
+/**
+ * Human date range for a trip: "Oct 9–11", "Oct 30 – Nov 2", "Mar 20–28, 2027".
+ * The year appears only when it is not `today`'s year — the mockups label the
+ * current year's wedding "Oct 9–11" and next spring's Kauai "Mar 20–28, 2027".
+ * A missing or equal `endsOn` collapses to the single day ("Oct 9").
+ */
+export function formatDateRange(
+  startsOn: string,
+  endsOn: string | null,
+  today: string,
+): string {
+  const refYear = Number(today.slice(0, 4));
+  const s = utcDate(startsOn);
+  const sYear = s.getUTCFullYear();
+  const sMonth = fmtUtc(s, { month: "short" });
+  const sDay = fmtUtc(s, { day: "numeric" });
+  if (!endsOn || endsOn === startsOn) {
+    return `${sMonth} ${sDay}${sYear !== refYear ? `, ${sYear}` : ""}`;
+  }
+  const e = utcDate(endsOn);
+  const eYear = e.getUTCFullYear();
+  const eMonth = fmtUtc(e, { month: "short" });
+  const eDay = fmtUtc(e, { day: "numeric" });
+  if (sYear !== eYear) {
+    return `${sMonth} ${sDay}, ${sYear} – ${eMonth} ${eDay}, ${eYear}`;
+  }
+  const year = sYear !== refYear ? `, ${sYear}` : "";
+  return sMonth === eMonth
+    ? `${sMonth} ${sDay}–${eDay}${year}`
+    : `${sMonth} ${sDay} – ${eMonth} ${eDay}${year}`;
+}
+
 export function formatTimeInZone(utcInstant: string, tz: string): string {
   return new Intl.DateTimeFormat("en-US", {
     timeZone: tz,

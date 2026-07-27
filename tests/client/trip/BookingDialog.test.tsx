@@ -25,6 +25,7 @@ const TRIP = {
   endsOn: "2026-10-11",
   status: "planning" as const,
   notes: null,
+  photoUrl: null,
 };
 
 const PEOPLE = [

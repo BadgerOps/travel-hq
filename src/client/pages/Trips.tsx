@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Plus } from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
-import type { Person, Trip } from "../api/types.js";
-import { compareTrips } from "../lib/dates.js";
+import type { Booking, Person, Trip } from "../api/types.js";
+import { compareTrips, resolveTripState } from "../lib/dates.js";
 import { errorMessage } from "../lib/errors.js";
 import { TripCard } from "../home/TripCard.js";
 import { TripForm } from "../components/TripForm.js";
 import { PendingImportCard } from "../imports/PendingImportCard.js";
+import "../home/home.css";
 
 export function Trips({
   api = defaultApi,
@@ -17,6 +18,7 @@ export function Trips({
 }) {
   const [trips, setTrips] = useState<Trip[] | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
+  const [bookingsByTrip, setBookingsByTrip] = useState<Record<string, Booking[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -29,6 +31,23 @@ export function Trips({
         if (cancelled) return;
         setTrips(t);
         setPeople(p);
+
+        // Each visible trip's bookings feed its card's day-by-day teaser and
+        // booked count. Cancelled trips render badge-only cards, so they are
+        // not worth a request; a failed fetch degrades that one trip to a
+        // card without a teaser rather than erroring the page.
+        const pairs = await Promise.all(
+          t
+            .filter((trip) => resolveTripState(trip, today) !== "cancelled")
+            .map(async (trip) => {
+              try {
+                return [trip.id, await api.trips.bookings(trip.id)] as const;
+              } catch {
+                return [trip.id, [] as Booking[]] as const;
+              }
+            }),
+        );
+        if (!cancelled) setBookingsByTrip(Object.fromEntries(pairs));
       } catch (err) {
         // Same rule as every other fetching component in this app: no silent
         // "Loading…" forever, and no unhandled rejection.
@@ -38,7 +57,7 @@ export function Trips({
     return () => {
       cancelled = true;
     };
-  }, [api]);
+  }, [api, today]);
 
   // The shared state-aware comparator (lib/dates.ts), same as the Home grid:
   // active, then upcoming soonest-first, then past/complete most-recent-first,
@@ -48,21 +67,16 @@ export function Trips({
 
   return (
     <>
-      <header style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 20 }}>
-        <div>
-          <h3 style={{ marginBottom: 4 }}>Trips</h3>
-          <p className="text-muted" style={{ margin: 0 }}>
-            Everything upcoming and past.
-          </p>
+      <header className="page-header">
+        <div className="page-title-group">
+          <h3>Trips</h3>
+          <p className="page-subline">Everything upcoming and past.</p>
         </div>
-        <button
-          type="button"
-          className="btn btn-primary"
-          style={{ marginLeft: "auto" }}
-          onClick={() => setCreating(true)}
-        >
-          <Plus size={14} /> New trip
-        </button>
+        <div className="page-actions">
+          <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
+            <Plus size={14} /> New trip
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -101,15 +115,15 @@ export function Trips({
       )}
 
       {!error && ordered.length > 0 && (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(min(380px, 100%), 1fr))",
-            gap: 14,
-          }}
-        >
+        <div className="grid-cards">
           {ordered.map((t) => (
-            <TripCard key={t.id} trip={t} bookings={[]} people={[]} today={today} />
+            <TripCard
+              key={t.id}
+              trip={t}
+              bookings={bookingsByTrip[t.id] ?? []}
+              people={people}
+              today={today}
+            />
           ))}
         </div>
       )}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { Home } from "../../../src/client/pages/Home.js";
@@ -13,6 +13,7 @@ const TRIP_ACTIVE = {
   endsOn: "2026-10-11",
   status: "active" as const,
   notes: null,
+  photoUrl: null,
 };
 
 // `planning`, not the vestigial `active` this fixture used to carry: stored
@@ -95,8 +96,10 @@ function renderHome(
 describe("Home", () => {
   it("shows the active hero when a trip covers today", async () => {
     renderHome([TRIP_ACTIVE], [{ date: "2026-10-09", bookings: [BOOKING] }], "2026-10-09", new Date("2026-10-09T14:20:00Z"));
-    expect(await screen.findByText(/NEXT UP · IN 40 MIN/i)).toBeInTheDocument();
-    expect(screen.getByText("DL1422 BOI → ATL")).toBeInTheDocument();
+    const kicker = await screen.findByText(/NEXT UP · IN 40 MIN/i);
+    // Scoped to the hero: the trip card's day teaser repeats booking titles.
+    const hero = kicker.closest(".hero-active") as HTMLElement;
+    expect(within(hero).getByText("DL1422 BOI → ATL")).toBeInTheDocument();
   });
 
   it("never shows a departed booking as next up", async () => {
@@ -112,9 +115,13 @@ describe("Home", () => {
       new Date("2026-10-10T18:00:00Z"),
     );
 
-    expect(await screen.findByText("Rehearsal dinner")).toBeInTheDocument();
-    expect(screen.queryByText("Breakfast at the inn")).not.toBeInTheDocument();
-    expect(screen.queryByText(/NOW/)).not.toBeInTheDocument();
+    // Scoped to the hero: the card teaser below legitimately lists the whole
+    // day, departed bookings included — the hero must not.
+    const kicker = await screen.findByText(/Next up/i);
+    const hero = kicker.closest(".hero-active") as HTMLElement;
+    expect(within(hero).getByText("Rehearsal dinner")).toBeInTheDocument();
+    expect(within(hero).queryByText("Breakfast at the inn")).not.toBeInTheDocument();
+    expect(within(hero).queryByText(/NOW/i)).not.toBeInTheDocument();
   });
 
   it("shows the idle hero when no trip covers today", async () => {
@@ -137,6 +144,69 @@ describe("Home", () => {
   it("greets the user", async () => {
     renderHome([TRIP_ACTIVE], [{ date: "2026-10-09", bookings: [BOOKING] }], "2026-10-09");
     expect(await screen.findByText(/Good (morning|afternoon|evening)/)).toBeInTheDocument();
+  });
+
+  it("writes the date long-form in the subline, never raw ISO", async () => {
+    renderHome([TRIP_ACTIVE], [{ date: "2026-10-09", bookings: [BOOKING] }], "2026-10-09", new Date("2026-10-09T14:20:00Z"));
+    expect(await screen.findByText(/Friday, October 9 · travel day/)).toBeInTheDocument();
+    expect(screen.queryByText(/2026-10-09/)).not.toBeInTheDocument();
+  });
+
+  it("tags the header with the hero trip's countdown", async () => {
+    renderHome([TRIP_ACTIVE], [{ date: "2026-10-09", bookings: [BOOKING] }], "2026-10-09", new Date("2026-10-09T14:20:00Z"));
+    expect(await screen.findByText("Mary & Winter Wedding · today")).toBeInTheDocument();
+  });
+
+  it("offers day-view and trip-details buttons from the active hero", async () => {
+    renderHome([TRIP_ACTIVE], [{ date: "2026-10-09", bookings: [BOOKING] }], "2026-10-09", new Date("2026-10-09T14:20:00Z"));
+    const dayView = await screen.findByRole("link", { name: /open day view/i });
+    // "#days" is TripDetail's hash id for the Day-by-day tab.
+    expect(dayView).toHaveAttribute("href", "/trips/t1#days");
+    expect(screen.getByRole("link", { name: /trip details/i })).toHaveAttribute(
+      "href",
+      "/trips/t1",
+    );
+  });
+
+  it("counts the rest of today in the hero kicker row", async () => {
+    const later = booking({ id: "b-later", title: "Hertz pickup · STS", startsAt: "2026-10-09T20:00:00Z" });
+    renderHome(
+      [TRIP_ACTIVE],
+      [{ date: "2026-10-09", bookings: [BOOKING, later] }],
+      "2026-10-09",
+      new Date("2026-10-09T14:20:00Z"),
+    );
+    expect(await screen.findByText("then 1 more today")).toBeInTheDocument();
+  });
+
+  it("fetches bookings for every visible trip so each card can tease its days", async () => {
+    const { api } = renderHome(
+      [TRIP_ACTIVE, { ...TRIP_FUTURE, id: "t2", title: "Spring Break — Kauai" }],
+      [{ date: "2026-10-09", bookings: [BOOKING] }],
+      "2026-10-09",
+      new Date("2026-10-09T14:20:00Z"),
+    );
+    await screen.findByText(/NEXT UP/i);
+    await vi.waitFor(() => {
+      expect(api.trips.bookings).toHaveBeenCalledWith("t1");
+      expect(api.trips.bookings).toHaveBeenCalledWith("t2");
+    });
+  });
+
+  it("still renders trip cards when a per-trip bookings fetch fails", async () => {
+    renderHome([TRIP_ACTIVE], [{ date: "2026-10-09", bookings: [BOOKING] }], "2026-10-09", new Date("2026-10-09T14:20:00Z"), {
+      trips: {
+        list: vi.fn(async () => [TRIP_ACTIVE]),
+        bookings: vi.fn(async () => {
+          throw new Error("500");
+        }),
+        itinerary: vi.fn(async () => [{ date: "2026-10-09", bookings: [BOOKING] }]),
+        revealConfirmation: vi.fn(async () => ({ value: "ABCDX4T2" })),
+      },
+    });
+    // The hero still works from the itinerary; the card degrades to no teaser.
+    expect(await screen.findByText(/NEXT UP/i)).toBeInTheDocument();
+    expect(screen.getByText("Mary & Winter Wedding")).toBeInTheDocument();
   });
 
   it("shows pending imports on the home screen", async () => {

@@ -12,6 +12,7 @@ const trip: Trip = {
   endsOn: "2026-10-11",
   status: "planning",
   notes: null,
+  photoUrl: null,
 };
 
 function booking(
