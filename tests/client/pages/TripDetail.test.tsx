@@ -20,7 +20,7 @@ const PEOPLE = [{ id: "p1", displayName: "Badger" }];
 function makeApi() {
   return {
     trips: {
-      list: vi.fn(async () => [TRIP]),
+      get: vi.fn(async () => TRIP),
       bookings: vi.fn(async () => []),
       travelers: vi.fn(async () => PEOPLE),
       itinerary: vi.fn(async () => []),
@@ -75,6 +75,16 @@ describe("TripDetail", () => {
     expect(screen.getByRole("radio", { name: "Overview" })).not.toBeChecked();
   });
 
+  it("loads cost analysis only when its tab is opened", async () => {
+    const api = makeApi();
+    renderDetail(api);
+    await screen.findByText("Mary & Winter Wedding");
+    expect(api.trips.rollup).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("radio", { name: "Costs" }));
+    expect(await screen.findByText("Total trip cost")).toBeInTheDocument();
+    expect(api.trips.rollup).toHaveBeenCalledTimes(1);
+  });
+
   it("switches tabs from the keyboard", async () => {
     // The whole point of keeping the native radio group: arrow keys move
     // between options with no roving-tabindex code of our own. A test that
@@ -102,9 +112,11 @@ describe("TripDetail", () => {
 
   it("reports a missing trip rather than rendering blank", async () => {
     const api = makeApi();
-    api.trips.list = vi.fn(async () => []);
+    api.trips.get = vi.fn(async () => {
+      throw new Error("404 Not found");
+    });
     renderDetail(api);
-    expect(await screen.findByText(/not found/i)).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/deleted|wrong/i);
   });
 
   it("reports a failed load rather than spinning forever", async () => {

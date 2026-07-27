@@ -21,7 +21,7 @@ const PEOPLE = [{ id: "p1", displayName: "Badger" }];
 function makeApi(trip: Record<string, unknown> = TRIP, bookings: unknown[] = []) {
   return {
     trips: {
-      list: vi.fn(async () => [trip]),
+      get: vi.fn(async () => trip),
       bookings: vi.fn(async () => bookings),
       travelers: vi.fn(async () => PEOPLE),
       itinerary: vi.fn(async () => []),
@@ -69,11 +69,11 @@ describe("TripDetail management", () => {
     api.trips.update = vi.fn(async () => ({ ...TRIP, title: "Wedding weekend" }));
     renderDetail(api);
     await userEvent.click(await screen.findByRole("button", { name: `Edit ${TRIP.title}` }));
-    const listCalls = api.trips.list.mock.calls.length;
+    const getCalls = api.trips.get.mock.calls.length;
     await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
     expect(api.trips.update).toHaveBeenCalledWith("t1", expect.objectContaining({ title: TRIP.title }));
     // The page reloads rather than hand-patching state.
-    await waitFor(() => expect(api.trips.list.mock.calls.length).toBeGreaterThan(listCalls));
+    await waitFor(() => expect(api.trips.get.mock.calls.length).toBeGreaterThan(getCalls));
   });
 
   it("cancels the trip behind a confirm", async () => {

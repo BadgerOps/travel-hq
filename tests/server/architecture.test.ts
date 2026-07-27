@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 // tests/server/architecture.test.ts -> src/server
 const SERVER_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "src", "server");
+const REPO_ROOT = join(SERVER_ROOT, "..", "..");
 
 /**
  * An allowlist, not a denylist: a newly added directory under src/server/ is
@@ -124,5 +125,12 @@ describe("architecture", () => {
     }
 
     expect(offenders).toEqual([]);
+  });
+
+  it("never caches authenticated API responses in the service worker", () => {
+    const source = readFileSync(join(REPO_ROOT, "public", "sw.js"), "utf8");
+    expect(source).toContain('url.pathname.startsWith("/api/")');
+    expect(source).toContain('url.pathname.startsWith("/assets/")');
+    expect(source).toContain("caches.delete");
   });
 });

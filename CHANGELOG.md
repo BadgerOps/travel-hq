@@ -13,6 +13,9 @@
   from the Travelers tab and immediately refresh the trip roster.
 - Added optional traveler email and phone contact fields, including create,
   edit, API validation, clickable card display, and a D1 migration.
+- Improved app performance by excluding authenticated APIs from service-worker
+  caching, batching traveler joins, reusing trip-list requests, lazy-loading
+  cost totals, and bounding long-trip chart rendering.
 
 ## 0.6.0 - 2026-07-27
 

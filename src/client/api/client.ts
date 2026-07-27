@@ -98,6 +98,7 @@ export function createApi(config: ApiConfig = {}) {
     },
     trips: {
       list: () => request<Trip[]>("/api/trips"),
+      get: (tripId: string) => request<Trip>(`/api/trips/${seg(tripId)}`),
       bookings: (tripId: string) =>
         request<Booking[]>(`/api/trips/${seg(tripId)}/bookings`),
       revealConfirmation: (tripId: string, bookingId: string) =>

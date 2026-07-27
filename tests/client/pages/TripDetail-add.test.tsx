@@ -16,7 +16,7 @@ const ZERO = { bookedCents: 0, plannedCents: 0, totalCents: 0, draftCount: 0, po
 function makeApi() {
   return {
     trips: {
-      list: vi.fn(async () => [TRIP]),
+      get: vi.fn(async () => TRIP),
       bookings: vi.fn(async () => []),
       travelers: vi.fn(async () => PEOPLE),
       itinerary: vi.fn(async () => []),
@@ -64,17 +64,16 @@ describe("TripDetail — add booking", () => {
     expect(screen.queryByRole("button", { name: /edit trip/i })).not.toBeInTheDocument();
   });
 
-  it("reloads bookings and the rollup after a booking is saved", async () => {
+  it("reloads bookings without eagerly loading the unopened cost tab", async () => {
     const api = renderDetail();
     await userEvent.click(await screen.findByRole("button", { name: /add booking/i }));
     await userEvent.click(screen.getByRole("radio", { name: "Activity" }));
     await userEvent.type(screen.getByLabelText("Title"), "Rehearsal dinner");
     await userEvent.click(screen.getByRole("button", { name: /save booking/i }));
-    // Once on mount, once after the save. Without the reload the new booking
-    // is invisible until a manual refresh and the cost panel disagrees with
-    // the list beside it.
+    // Once on mount, once after the save. The cost rollup remains deferred
+    // until its tab is opened.
     await vi.waitFor(() => expect(api.trips.bookings).toHaveBeenCalledTimes(2));
-    expect(api.trips.rollup).toHaveBeenCalledTimes(2);
+    expect(api.trips.rollup).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

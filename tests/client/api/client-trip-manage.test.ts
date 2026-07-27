@@ -11,6 +11,13 @@ function mockFetch(body: unknown, status = 200) {
 }
 
 describe("trip management api", () => {
+  it("fetches one trip without loading the full trip list", async () => {
+    const fetchMock = mockFetch({ id: "t1", title: "Wedding weekend" });
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    await expect(api.trips.get("t/1")).resolves.toMatchObject({ id: "t1" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/trips/t%2F1", expect.anything());
+  });
+
   it("PUTs a partial trip update as JSON", async () => {
     const fetchMock = mockFetch({ id: "t1", title: "Wedding weekend" });
     const api = createApi({ fetch: fetchMock, baseUrl: "" });

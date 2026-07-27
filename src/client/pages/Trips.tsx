@@ -78,6 +78,7 @@ export function Trips({
 
       <PendingImportCard
         api={api}
+        existingTrips={trips}
         style={{ marginBottom: 14 }}
         onTripCreated={(trip) =>
           setTrips((current) => [...(current ?? []), trip])

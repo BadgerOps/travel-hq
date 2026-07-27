@@ -3,6 +3,8 @@ import type { Booking, Trip, TripRollup } from "../api/types.js";
 import { formatMoney } from "../lib/money.js";
 
 const number = new Intl.NumberFormat("en-US");
+const MAX_CONTIGUOUS_CHART_DAYS = 366;
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
 
 const CATEGORIES = [
   { label: "Flights", kinds: ["flight"] },
@@ -256,25 +258,25 @@ function BookingCostBreakdown({
               (a.startsAt ?? "9999").localeCompare(b.startsAt ?? "9999") ||
               a.title.localeCompare(b.title)
             )
-            .map((booking) => (
-              <div
-                key={booking.id}
-                style={{ display: "flex", alignItems: "baseline", gap: 10 }}
-              >
-                <span style={{ minWidth: 0 }}>
-                  <strong style={{ display: "block", fontSize: 13 }}>{booking.title}</strong>
-                  <span className="card-meta">
-                    {bookingDate(booking)
-                      ? formatDate(bookingDate(booking)!)
-                      : "No date"}{" "}
-                    · {booking.status}
+            .map((booking) => {
+              const date = bookingDate(booking);
+              return (
+                <div
+                  key={booking.id}
+                  style={{ display: "flex", alignItems: "baseline", gap: 10 }}
+                >
+                  <span style={{ minWidth: 0 }}>
+                    <strong style={{ display: "block", fontSize: 13 }}>{booking.title}</strong>
+                    <span className="card-meta">
+                      {date ? formatDate(date) : "No date"} · {booking.status}
+                    </span>
                   </span>
-                </span>
-                <strong style={{ marginLeft: "auto", whiteSpace: "nowrap" }}>
-                  {formatMoney(booking.costCents ?? 0)}
-                </strong>
-              </div>
-            ))}
+                  <strong style={{ marginLeft: "auto", whiteSpace: "nowrap" }}>
+                    {formatMoney(booking.costCents ?? 0)}
+                  </strong>
+                </div>
+              );
+            })}
         </div>
       )}
     </section>
@@ -382,11 +384,9 @@ function dailyCosts(trip: Trip, bookings: Booking[]): DailyCost[] {
     dated.set(date, [...(dated.get(date) ?? []), booking]);
   }
 
-  const dates = tripDateRange(trip);
-  for (const date of dated.keys()) {
-    if (!dates.includes(date)) dates.push(date);
-  }
-  dates.sort();
+  const dateSet = new Set(tripDateRange(trip));
+  for (const date of dated.keys()) dateSet.add(date);
+  const dates = [...dateSet].sort();
 
   return dates.map((date) => {
     const dayBookings = dated.get(date) ?? [];
@@ -405,6 +405,10 @@ function tripDateRange(trip: Trip): string[] {
   let cursor = Date.parse(`${trip.startsOn}T00:00:00Z`);
   const last = Date.parse(`${end}T00:00:00Z`);
   if (!Number.isFinite(cursor) || !Number.isFinite(last) || cursor > last) return [];
+  const dayCount = Math.floor((last - cursor) / 86_400_000) + 1;
+  if (dayCount > MAX_CONTIGUOUS_CHART_DAYS) {
+    return trip.startsOn === end ? [trip.startsOn] : [trip.startsOn, end];
+  }
   while (cursor <= last) {
     dates.push(new Date(cursor).toISOString().slice(0, 10));
     cursor += 86_400_000;
@@ -414,12 +418,18 @@ function tripDateRange(trip: Trip): string[] {
 
 function bookingDate(booking: Booking): string | null {
   if (!booking.startsAt) return null;
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: booking.startsAtTz ?? "UTC",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date(booking.startsAt));
+  const timeZone = booking.startsAtTz ?? "UTC";
+  let formatter = dateFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    dateFormatters.set(timeZone, formatter);
+  }
+  const parts = formatter.formatToParts(new Date(booking.startsAt));
   const part = (type: string) => parts.find((value) => value.type === type)?.value;
   const year = part("year");
   const month = part("month");

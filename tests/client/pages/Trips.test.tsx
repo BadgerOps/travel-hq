@@ -47,8 +47,9 @@ function renderTrips(api = makeApi()) {
 
 describe("Trips", () => {
   it("lists trips", async () => {
-    renderTrips();
+    const api = renderTrips();
     expect(await screen.findByText("Mary & Winter Wedding")).toBeInTheDocument();
+    expect(api.trips.list).toHaveBeenCalledTimes(1);
   });
 
   it("shows pending imports on the trips screen", async () => {

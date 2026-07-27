@@ -105,4 +105,33 @@ describe("CostAnalysisTab", () => {
     // trip day so the selected point keeps its full-trip context.
     expect(container.querySelectorAll("circle[data-date]")).toHaveLength(3);
   });
+
+  it("bounds chart points for unusually long trips while retaining booking dates", () => {
+    const longTrip = {
+      ...trip,
+      startsOn: "2020-01-01",
+      endsOn: "2030-01-01",
+    };
+    const middleBooking = booking(
+      "middle",
+      "Mid-trip booking",
+      "activity",
+      "2026-07-04",
+      10_000,
+      "booked",
+    );
+
+    const { container } = render(
+      <CostAnalysisTab
+        trip={longTrip}
+        bookings={[middleBooking]}
+        rollup={{ ...rollup, bookedCents: 10_000, totalCents: 10_000 }}
+      />,
+    );
+
+    expect(container.querySelectorAll("circle[data-date]")).toHaveLength(3);
+    expect(
+      container.querySelector('circle[data-date="2026-07-04"]'),
+    ).toHaveAttribute("data-cost-cents", "10000");
+  });
 });

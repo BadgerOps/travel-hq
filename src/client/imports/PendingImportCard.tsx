@@ -14,10 +14,17 @@ import { CreateImportedTripDialog } from "./CreateImportedTripDialog.js";
 
 export function PendingImportCard({
   api = defaultApi,
+  existingTrips,
   onTripCreated,
   style,
 }: {
   api?: typeof defaultApi;
+  /**
+   * Parent-owned trip data avoids a duplicate /api/trips request on Home and
+   * Trips. `null` means the parent is still loading; `undefined` keeps this
+   * component standalone for other callers.
+   */
+  existingTrips?: Trip[] | null;
   onTripCreated?: (trip: Trip) => void;
   style?: CSSProperties;
 }) {
@@ -35,16 +42,18 @@ export function PendingImportCard({
     try {
       const [pendingResult, tripsResult] = await Promise.allSettled([
         api.imports.pending(),
-        api.trips.list(),
+        existingTrips === undefined ? api.trips.list() : Promise.resolve([]),
       ]);
       if (pendingResult.status === "rejected") throw pendingResult.reason;
       if (!signal?.aborted) {
         setDrafts(pendingResult.value);
-        setTrips(
-          tripsResult.status === "fulfilled"
-            ? tripsResult.value.filter((trip) => trip.status !== "cancelled")
-            : [],
-        );
+        if (existingTrips === undefined) {
+          setTrips(
+            tripsResult.status === "fulfilled"
+              ? tripsResult.value.filter((trip) => trip.status !== "cancelled")
+              : [],
+          );
+        }
       }
     } catch (err) {
       if (!signal?.aborted) setError(errorMessage(err));
@@ -73,6 +82,8 @@ export function PendingImportCard({
   }
   if (drafts.length === 0) return null;
 
+  const availableTrips = (existingTrips ?? trips)
+    .filter((trip) => trip.status !== "cancelled");
   const selectedDrafts = drafts.filter((draft) => selected.includes(draft.id));
 
   function toggle(id: string) {
@@ -89,7 +100,9 @@ export function PendingImportCard({
     );
     setSelected([]);
     setCreating(false);
-    setTrips((current) => [...current, result.trip]);
+    if (existingTrips === undefined) {
+      setTrips((current) => [...current, result.trip]);
+    }
     onTripCreated?.(result.trip);
   }
 
@@ -184,7 +197,7 @@ export function PendingImportCard({
             <Plus size={14} />
             Create trip from selected
           </button>
-          {trips.length > 0 && (
+          {availableTrips.length > 0 && (
             <>
               <label className="field" style={{ minWidth: 180 }}>
                 <span className="card-meta">Existing trip</span>
@@ -195,7 +208,7 @@ export function PendingImportCard({
                   onChange={(event) => setTripId(event.target.value)}
                 >
                   <option value="">Choose a trip</option>
-                  {trips.map((trip) => (
+                  {availableTrips.map((trip) => (
                     <option key={trip.id} value={trip.id}>{trip.title}</option>
                   ))}
                 </select>

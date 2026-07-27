@@ -84,11 +84,12 @@ function renderHome(
     ...overrides,
   };
   const { hook } = memoryLocation({ path: "/" });
-  return render(
+  const rendered = render(
     <Router hook={hook}>
       <Home api={api as never} today={today} now={now} />
     </Router>,
   );
+  return { ...rendered, api };
 }
 
 describe("Home", () => {
@@ -117,9 +118,10 @@ describe("Home", () => {
   });
 
   it("shows the idle hero when no trip covers today", async () => {
-    renderHome([TRIP_FUTURE], [], "2026-07-20");
+    const { api } = renderHome([TRIP_FUTURE], [], "2026-07-20");
     expect(await screen.findByText(/Next trip/i)).toBeInTheDocument();
     expect(screen.queryByText(/NEXT UP/i)).not.toBeInTheDocument();
+    expect(api.trips.list).toHaveBeenCalledTimes(1);
   });
 
   it("masks the confirmation number in the hero", async () => {

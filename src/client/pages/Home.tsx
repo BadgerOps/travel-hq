@@ -99,6 +99,7 @@ export function Home({
   const pendingImports = (
     <PendingImportCard
       api={api}
+      existingTrips={trips}
       style={{ marginBottom: 24 }}
       onTripCreated={(trip) =>
         setTrips((current) => [...(current ?? []), trip])

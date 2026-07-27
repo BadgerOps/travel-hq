@@ -57,6 +57,8 @@ export function TripDetail({
   const [people, setPeople] = useState<Person[]>([]);
   const [travelers, setTravelers] = useState<Person[]>([]);
   const [rollup, setRollup] = useState<TripRollup | null>(null);
+  const [rollupLoading, setRollupLoading] = useState(false);
+  const [rollupFailed, setRollupFailed] = useState(false);
   const [failed, setFailed] = useState(false);
   const [tab, setTab] = useState<TabId>(() => tabFromHash(window.location.hash));
   const [addingBooking, setAddingBooking] = useState(false);
@@ -70,18 +72,19 @@ export function TripDetail({
   const [actionError, setActionError] = useState<string | null>(null);
   const canWrite = useCanWrite();
   const [, navigate] = useLocation();
-  // Bumped after any write, to re-run the load effect. Simpler and less
-  // error-prone than threading a refetch callback through four tab
-  // components, and it reloads the rollup and the booking list together —
-  // they are rendered side by side and must not disagree.
+  // Bumped after any write, to re-run the core trip load. The Costs tab owns
+  // its rollup request separately so opening Overview does not pay for cost
+  // analysis the user may never inspect.
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setRollup(null);
+    setRollupFailed(false);
     (async () => {
       try {
-        const [trips, p, t, b, r] = await Promise.all([
-          api.trips.list(),
+        const [loadedTrip, p, t, b] = await Promise.all([
+          api.trips.get(id),
           api.people.list(),
           // Trip membership, from trip_person. Deriving travelers from
           // `bookings.flatMap(b => b.personIds)` instead would be *booking*
@@ -90,17 +93,15 @@ export function TripDetail({
           // precisely the pre-booking state that tab exists to show.
           api.trips.travelers(id),
           api.trips.bookings(id),
-          api.trips.rollup(id),
         ]);
         if (cancelled) return;
-        setTrip(trips.find((x) => x.id === id) ?? null);
+        setTrip(loadedTrip);
         setPeople(p);
         setTravelers(t);
         setBookings(b);
-        setRollup(r);
       } catch {
-        // Three of those five endpoints 404 on an unknown or other-household
-        // trip id — i.e. on any stale link. Without this catch the page sits
+        // Trip-specific endpoints 404 on an unknown or other-household id —
+        // i.e. on any stale link. Without this catch the page sits
         // on "Loading…" forever and the rejection goes unhandled.
         if (!cancelled) setFailed(true);
       }
@@ -109,6 +110,26 @@ export function TripDetail({
       cancelled = true;
     };
   }, [api, id, reloadKey]);
+
+  useEffect(() => {
+    if (tab !== "costs" || rollup !== null) return;
+    let cancelled = false;
+    setRollupLoading(true);
+    setRollupFailed(false);
+    api.trips.rollup(id).then(
+      (result) => {
+        if (!cancelled) setRollup(result);
+      },
+      () => {
+        if (!cancelled) setRollupFailed(true);
+      },
+    ).finally(() => {
+      if (!cancelled) setRollupLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, id, reloadKey, rollup, tab]);
 
   // Back/forward and hand-edited URLs both arrive as `hashchange`.
   useEffect(() => {
@@ -269,6 +290,12 @@ export function TripDetail({
       )}
       {tab === "costs" && rollup && (
         <CostAnalysisTab trip={trip} bookings={bookings} rollup={rollup} />
+      )}
+      {tab === "costs" && rollupLoading && (
+        <p className="text-muted" role="status">Loading cost analysis…</p>
+      )}
+      {tab === "costs" && rollupFailed && (
+        <p className="warning" role="alert">Couldn't load this trip's cost analysis.</p>
       )}
       {tab === "travelers" && (
         <TravelersTab
