@@ -7,6 +7,8 @@ import { formatMoney } from "../lib/money.js";
 import { useCanWrite } from "../api/identity.js";
 import { CardForm } from "../cards/CardForm.js";
 import { PerkForm } from "../cards/PerkForm.js";
+import { Dialog } from "../components/Dialog.js";
+import "./cards.css";
 
 const number = new Intl.NumberFormat("en-US");
 
@@ -62,6 +64,15 @@ export function Cards({ api = defaultApi }: { api?: typeof defaultApi }) {
   const [editingPerk, setEditingPerk] = useState<{ cardId: string; perk: PerkWithStatus } | null>(
     null,
   );
+  // Delete confirms follow TripDetail's two-step Dialog pattern: opening the
+  // dialog is step one, the first click inside only arms the button.
+  const [deletingCard, setDeletingCard] = useState<CardWithPerks | null>(null);
+  const [deletingPerk, setDeletingPerk] = useState<{
+    card: CardWithPerks;
+    perk: PerkWithStatus;
+  } | null>(null);
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,27 +149,38 @@ export function Cards({ api = defaultApi }: { api?: typeof defaultApi }) {
     }
   }
 
+  function closeDeleteDialogs() {
+    setDeletingCard(null);
+    setDeletingPerk(null);
+    setDeleteArmed(false);
+  }
+
   async function removeCard(card: CardWithPerks) {
-    const perkNote = card.perks.length > 0 ? ` and its ${card.perks.length} perk(s)` : "";
-    if (!window.confirm(`Delete ${card.name}${perkNote}?`)) return;
     setActionError(null);
+    setDeleteBusy(true);
     try {
       await api.cards.remove(card.id);
       setCards((prev) => (prev ?? []).filter((c) => c.id !== card.id));
     } catch (err) {
       setActionError(errorMessage(err));
+    } finally {
+      setDeleteBusy(false);
+      closeDeleteDialogs();
     }
   }
 
   async function removePerk(card: CardWithPerks, perk: PerkWithStatus) {
-    if (!window.confirm(`Delete ${perk.name}?`)) return;
     setActionError(null);
+    setDeleteBusy(true);
     try {
       await api.cards.removePerk(card.id, perk.id);
       const perks = card.perks.filter((p) => p.id !== perk.id);
       replaceCard({ ...card, perks, unspentCents: unspent(perks) });
     } catch (err) {
       setActionError(errorMessage(err));
+    } finally {
+      setDeleteBusy(false);
+      closeDeleteDialogs();
     }
   }
 
@@ -166,23 +188,20 @@ export function Cards({ api = defaultApi }: { api?: typeof defaultApi }) {
 
   return (
     <>
-      <header style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 20 }}>
-        <div>
-          <h3 style={{ marginBottom: 4 }}>Cards</h3>
-          <p className="text-muted" style={{ margin: 0 }}>
+      <header className="page-header">
+        <div className="page-title-group">
+          <h3>Cards</h3>
+          <p className="page-subline">
             The household card portfolio: points balances and the credits each card carries, so
             nothing expires unused. Card numbers are never stored.
           </p>
         </div>
         {canWrite && (
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ marginLeft: "auto" }}
-            onClick={() => setAddingCard(true)}
-          >
-            <Plus size={14} /> Add card
-          </button>
+          <div className="page-actions">
+            <button type="button" className="btn btn-primary" onClick={() => setAddingCard(true)}>
+              <Plus size={14} /> Add card
+            </button>
+          </div>
         )}
       </header>
 
@@ -217,27 +236,23 @@ export function Cards({ api = defaultApi }: { api?: typeof defaultApi }) {
       {!error && cards !== null && cards.length > 0 && (
         <>
           {totalUnspent > 0 && (
-            <section className="card" style={{ marginBottom: 14 }}>
+            <section className="card cards-summary">
               <h6 className="card-kicker">Unspent credits</h6>
-              <div style={{ fontSize: 20, fontWeight: 500 }}>{formatMoney(totalUnspent)}</div>
-              <div className="card-meta">still on the table this period, across every card</div>
+              <div className="stat-big">
+                {formatMoney(totalUnspent)}{" "}
+                <span className="stat-note">still on the table this period, across every card</span>
+              </div>
             </section>
           )}
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(min(320px, 100%), 1fr))",
-              gap: 14,
-            }}
-          >
+          <div className="grid-cards">
             {cards.map((card) => (
-              <section key={card.id} className="card" style={{ alignItems: "stretch", gap: 8 }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <section key={card.id} className="card card-tile">
+                <div className="card-tile-head">
                   <span className="card-title">{card.name}</span>
                   {card.issuer && <span className="card-meta">{card.issuer}</span>}
                   {canWrite && (
-                    <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                    <span className="card-tile-actions">
                       <button
                         type="button"
                         className="btn btn-ghost"
@@ -250,7 +265,10 @@ export function Cards({ api = defaultApi }: { api?: typeof defaultApi }) {
                         type="button"
                         className="btn btn-ghost"
                         aria-label={`Delete ${card.name}`}
-                        onClick={() => removeCard(card)}
+                        onClick={() => {
+                          setDeleteArmed(false);
+                          setDeletingCard(card);
+                        }}
                       >
                         <Trash size={14} />
                       </button>
@@ -274,25 +292,17 @@ export function Cards({ api = defaultApi }: { api?: typeof defaultApi }) {
                     No perks recorded.
                   </p>
                 ) : (
-                  <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 6 }}>
+                  <ul className="perk-list">
                     {card.perks.map((perk) => (
-                      <li
-                        key={perk.id}
-                        style={{ display: "flex", alignItems: "center", gap: 8 }}
-                      >
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 13.5 }}>{perk.name}</div>
+                      <li key={perk.id} className="perk-row">
+                        <div className="perk-main">
+                          <div className="perk-name">{perk.name}</div>
                           <div className="card-meta">{describePerk(perk)}</div>
                         </div>
-                        <span
-                          style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}
-                        >
+                        <span className="perk-controls">
                           {perk.kind !== "multiplier" &&
                             (canWrite ? (
-                              <label
-                                className="card-meta"
-                                style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
-                              >
+                              <label className="perk-used">
                                 <input
                                   type="checkbox"
                                   checked={perk.usedThisPeriod}
@@ -320,7 +330,10 @@ export function Cards({ api = defaultApi }: { api?: typeof defaultApi }) {
                                 type="button"
                                 className="btn btn-ghost"
                                 aria-label={`Delete ${perk.name}`}
-                                onClick={() => removePerk(card, perk)}
+                                onClick={() => {
+                                  setDeleteArmed(false);
+                                  setDeletingPerk({ card, perk });
+                                }}
                               >
                                 <Trash size={13} />
                               </button>
@@ -332,7 +345,7 @@ export function Cards({ api = defaultApi }: { api?: typeof defaultApi }) {
                   </ul>
                 )}
 
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+                <div className="card-tile-foot">
                   {card.unspentCents > 0 && (
                     <span className="card-meta">
                       {formatMoney(card.unspentCents)} unspent this period
@@ -342,7 +355,6 @@ export function Cards({ api = defaultApi }: { api?: typeof defaultApi }) {
                     <button
                       type="button"
                       className="btn btn-ghost"
-                      style={{ marginLeft: "auto" }}
                       onClick={() => setAddingPerkFor(card)}
                     >
                       <Plus size={13} /> Add perk
@@ -385,6 +397,70 @@ export function Cards({ api = defaultApi }: { api?: typeof defaultApi }) {
           onSaved={(perk) => onPerkSaved(editingPerk.cardId, perk)}
           onClose={() => setEditingPerk(null)}
         />
+      )}
+
+      {deletingCard && (
+        <Dialog title={`Delete ${deletingCard.name}?`} onClose={closeDeleteDialogs}>
+          <p style={{ margin: 0, fontSize: 13.5 }}>
+            This permanently deletes the card
+            {deletingCard.perks.length > 0 && (
+              <>
+                {" "}and its {deletingCard.perks.length}{" "}
+                {deletingCard.perks.length === 1 ? "perk" : "perks"}
+              </>
+            )}
+            . It cannot be undone.
+          </p>
+          <div className="dialog-actions">
+            <button type="button" className="btn btn-secondary" onClick={closeDeleteDialogs}>
+              Keep card
+            </button>
+            {deleteArmed ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={deleteBusy}
+                onClick={() => void removeCard(deletingCard)}
+              >
+                Yes, permanently delete
+              </button>
+            ) : (
+              // The second confirm: the first click only arms the button.
+              <button type="button" className="btn btn-primary" onClick={() => setDeleteArmed(true)}>
+                Delete card
+              </button>
+            )}
+          </div>
+        </Dialog>
+      )}
+
+      {deletingPerk && (
+        <Dialog title={`Delete ${deletingPerk.perk.name}?`} onClose={closeDeleteDialogs}>
+          <p style={{ margin: 0, fontSize: 13.5 }}>
+            This removes the perk from {deletingPerk.card.name}, including its used/unspent
+            history. It cannot be undone.
+          </p>
+          <div className="dialog-actions">
+            <button type="button" className="btn btn-secondary" onClick={closeDeleteDialogs}>
+              Keep perk
+            </button>
+            {deleteArmed ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={deleteBusy}
+                onClick={() => void removePerk(deletingPerk.card, deletingPerk.perk)}
+              >
+                Yes, permanently delete
+              </button>
+            ) : (
+              // The second confirm: the first click only arms the button.
+              <button type="button" className="btn btn-primary" onClick={() => setDeleteArmed(true)}>
+                Delete perk
+              </button>
+            )}
+          </div>
+        </Dialog>
       )}
     </>
   );
