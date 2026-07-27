@@ -4,14 +4,18 @@ import { normalizeExtractedBooking } from "../ingest/extracted.js";
 import type { ExtractedBooking } from "../ingest/extracted.js";
 import { extractInboundEmail } from "../ingest/extract.js";
 import { resolveExtractionProvider } from "../ingest/providers.js";
+import { parseMime } from "../ingest/mime.js";
+import { MAX_RAW_BYTES } from "../ingest.js";
 import { DraftBookingRepo } from "../repos/draft-booking.js";
 import { HouseholdSettingsRepo } from "../repos/household-settings.js";
 import { InboundEmailRepo } from "../repos/inbound-email.js";
 import type { InboundEmailStatus } from "../repos/inbound-email.js";
 
 export const MAX_IMPORT_PDF_BYTES = 10 * 1024 * 1024;
+export const MAX_IMPORT_EML_BYTES = MAX_RAW_BYTES;
 const MAX_CONVERTED_TEXT_CHARS = 250_000;
 const FILE_IMPORT_ADDRESS = "file-import@travel-hq.invalid";
+type ImportFileKind = "pdf" | "eml";
 
 export type FileImportResult = {
   inboundEmailId: string;
@@ -32,16 +36,23 @@ imports.post("/file", async (c) => {
 
   const file = body.get("file");
   if (!(file instanceof File)) {
-    return c.json({ error: "Choose a PDF file to import" }, 400);
+    return c.json({ error: "Choose a PDF or EML file to import" }, 400);
   }
   if (file.size === 0) {
-    return c.json({ error: "The PDF file is empty" }, 400);
+    return c.json({ error: "The selected file is empty" }, 400);
   }
-  if (file.size > MAX_IMPORT_PDF_BYTES) {
-    return c.json({ error: "PDF files must be 10 MiB or smaller" }, 413);
+  const kind = importFileKind(file);
+  if (!kind) {
+    return c.json({ error: "Only PDF and EML files can be imported" }, 415);
   }
-  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-    return c.json({ error: "Only PDF files can be imported" }, 415);
+  const maxBytes = kind === "pdf" ? MAX_IMPORT_PDF_BYTES : MAX_IMPORT_EML_BYTES;
+  if (file.size > maxBytes) {
+    return c.json({
+      error:
+        kind === "pdf"
+          ? "PDF files must be 10 MiB or smaller"
+          : "EML files must be 1 MB or smaller",
+    }, 413);
   }
 
   const identity = c.get("identity");
@@ -58,48 +69,19 @@ imports.post("/file", async (c) => {
     return c.json({ error: "The configured extraction provider is unavailable" }, 503);
   }
 
-  let converted: Awaited<ReturnType<Ai["toMarkdown"]>>;
-  try {
-    converted = await c.env.AI.toMarkdown(
-      { name: file.name, blob: file },
-      { conversionOptions: { pdf: { metadata: false } } },
-    );
-  } catch (err) {
-    console.error(`[import] PDF conversion failed for household ${identity.householdId}`, err);
-    return c.json({ error: "The PDF could not be converted to text" }, 502);
-  }
-  if (Array.isArray(converted) || converted.format === "error") {
-    const detail = Array.isArray(converted) ? "unexpected conversion response" : converted.error;
-    console.error(`[import] PDF conversion rejected for household ${identity.householdId}: ${detail}`);
-    return c.json({ error: "The PDF could not be converted to text" }, 422);
-  }
-
-  const text = converted.data.trim();
-  if (text === "") {
-    return c.json({ error: "The PDF did not contain readable text" }, 422);
-  }
-  if (text.length > MAX_CONVERTED_TEXT_CHARS) {
-    return c.json({ error: "The converted PDF is too long to import" }, 413);
-  }
-
-  const subject = `File import: ${safeHeader(file.name)}`;
   const to = configured.forwardAddress ?? FILE_IMPORT_ADDRESS;
-  const raw = [
-    `From: Travel HQ File Import <${FILE_IMPORT_ADDRESS}>`,
-    `To: ${safeHeader(to)}`,
-    `Subject: ${subject}`,
-    "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=utf-8",
-    "",
-    text,
-  ].join("\r\n");
+  const prepared =
+    kind === "pdf"
+      ? await preparePdf(c.env.AI, file, identity.householdId, to)
+      : await prepareEml(file, identity.householdId);
+  if ("error" in prepared) return c.json({ error: prepared.error }, prepared.status);
 
   const emails = new InboundEmailRepo(c.get("db"), identity);
   const email = await emails.create({
-    from: FILE_IMPORT_ADDRESS,
+    from: prepared.value.from,
     to,
-    subject,
-    raw,
+    subject: prepared.value.subject,
+    raw: prepared.value.raw,
   });
   await extractInboundEmail(
     {
@@ -112,7 +94,7 @@ imports.post("/file", async (c) => {
   );
 
   const finished = await emails.findById(email.id);
-  if (!finished) throw new Error("Imported PDF disappeared immediately after extraction");
+  if (!finished) throw new Error("Imported file disappeared immediately after extraction");
   const drafts = await new DraftBookingRepo(c.get("db"), identity).listByEmail(email.id);
   const result: FileImportResult = {
     inboundEmailId: email.id,
@@ -128,4 +110,88 @@ imports.post("/file", async (c) => {
 
 function safeHeader(value: string): string {
   return value.replace(/[\r\n]+/g, " ").trim().slice(0, 180);
+}
+
+function importFileKind(file: File): ImportFileKind | undefined {
+  const name = file.name.toLowerCase();
+  if (file.type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+  if (file.type === "message/rfc822" || name.endsWith(".eml")) return "eml";
+  return undefined;
+}
+
+type PreparedImport = {
+  from: string;
+  subject: string;
+  raw: string;
+};
+
+type PreparationResult =
+  | { value: PreparedImport }
+  | { error: string; status: 413 | 422 | 502 };
+
+async function preparePdf(
+  ai: Ai,
+  file: File,
+  householdId: string,
+  to: string,
+): Promise<PreparationResult> {
+  let converted: Awaited<ReturnType<Ai["toMarkdown"]>>;
+  try {
+    converted = await ai.toMarkdown(
+      { name: file.name, blob: file },
+      { conversionOptions: { pdf: { metadata: false } } },
+    );
+  } catch (err) {
+    console.error(`[import] PDF conversion failed for household ${householdId}`, err);
+    return { error: "The PDF could not be converted to text", status: 502 };
+  }
+  if (Array.isArray(converted) || converted.format === "error") {
+    const detail = Array.isArray(converted) ? "unexpected conversion response" : converted.error;
+    console.error(`[import] PDF conversion rejected for household ${householdId}: ${detail}`);
+    return { error: "The PDF could not be converted to text", status: 422 };
+  }
+
+  const text = converted.data.trim();
+  if (text === "") {
+    return { error: "The PDF did not contain readable text", status: 422 };
+  }
+  if (text.length > MAX_CONVERTED_TEXT_CHARS) {
+    return { error: "The converted PDF is too long to import", status: 413 };
+  }
+
+  const subject = `File import: ${safeHeader(file.name)}`;
+  return {
+    value: {
+      from: FILE_IMPORT_ADDRESS,
+      subject,
+      raw: [
+        `From: Travel HQ File Import <${FILE_IMPORT_ADDRESS}>`,
+        `To: ${safeHeader(to)}`,
+        `Subject: ${subject}`,
+        "MIME-Version: 1.0",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        text,
+      ].join("\r\n"),
+    },
+  };
+}
+
+async function prepareEml(file: File, householdId: string): Promise<PreparationResult> {
+  try {
+    const raw = await file.text();
+    const parsed = parseMime(raw);
+    const from = parsed.from?.trim();
+    const subject = parsed.subject?.trim();
+    return {
+      value: {
+        from: safeHeader(from || FILE_IMPORT_ADDRESS),
+        subject: safeHeader(subject || `File import: ${file.name}`),
+        raw,
+      },
+    };
+  } catch (err) {
+    console.error(`[import] EML parsing failed for household ${householdId}`, err);
+    return { error: "The EML file could not be read", status: 422 };
+  }
 }

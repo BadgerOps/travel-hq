@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0 - 2026-07-27
+
+- Added authenticated `.eml` file uploads alongside PDF itinerary uploads,
+  preserving the original MIME message and sender/subject metadata while using
+  the same ICS-first, AI-fallback draft extraction as forwarded email.
+- Updated the Import page with one PDF/EML file picker, format-specific size
+  guidance, and validation errors.
+- Added end-to-end coverage showing PDF uploads, EML uploads, and authenticated
+  email forwarding produce the same reviewable drafts.
+
 ## 0.4.0 - 2026-07-24
 
 - Added authenticated PDF itinerary uploads that convert documents with

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { EnvelopeSimple, FilePdf, UploadSimple } from "@phosphor-icons/react";
+import { EnvelopeSimple, Files, UploadSimple } from "@phosphor-icons/react";
 import { api as defaultApi, ApiError } from "../api/client.js";
 import type { FileImportResult } from "../api/types.js";
 import { useCanWrite } from "../api/identity.js";
@@ -16,7 +16,7 @@ export function Import({ api = defaultApi }: { api?: typeof defaultApi }) {
   async function upload(event: React.FormEvent) {
     event.preventDefault();
     if (!file) {
-      setError("Choose a PDF file to import.");
+      setError("Choose a PDF or EML file to import.");
       return;
     }
     setBusy(true);
@@ -58,17 +58,18 @@ export function Import({ api = defaultApi }: { api?: typeof defaultApi }) {
           onSubmit={upload}
         >
           <span className="card-title">
-            <FilePdf size={18} style={{ marginRight: 6, verticalAlign: "-3px" }} />
-            Import a PDF itinerary
+            <Files size={18} style={{ marginRight: 6, verticalAlign: "-3px" }} />
+            Import an itinerary file
           </span>
           <p className="card-body" style={{ margin: 0 }}>
-            Choose a PDF up to 10 MiB. Travel HQ reads it with your configured extraction model.
+            Choose a PDF up to 10 MiB or an EML email up to 1 MB. Travel HQ reads it with your
+            configured extraction model.
           </p>
           <label>
-            PDF file
+            Itinerary file
             <input
               type="file"
-              accept=".pdf,application/pdf"
+              accept=".pdf,.eml,application/pdf,message/rfc822"
               disabled={busy}
               onChange={(event) => {
                 setFile(event.currentTarget.files?.[0] ?? null);
@@ -79,7 +80,7 @@ export function Import({ api = defaultApi }: { api?: typeof defaultApi }) {
           </label>
           <button type="submit" className="btn btn-primary" disabled={busy}>
             <UploadSimple size={14} />
-            {busy ? "Importing…" : "Import PDF"}
+            {busy ? "Importing…" : "Import file"}
           </button>
           {error && (
             <p className="warning" role="alert" style={{ margin: 0 }}>
@@ -132,10 +133,12 @@ export function Import({ api = defaultApi }: { api?: typeof defaultApi }) {
 
 function importErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.status === 413) return "That PDF is too large. Choose a file no larger than 10 MiB.";
-    if (err.status === 415) return "Only PDF itinerary files can be imported.";
+    if (err.status === 413) {
+      return "That file is too large. PDFs may be 10 MiB; EML files may be 1 MB.";
+    }
+    if (err.status === 415) return "Only PDF and EML itinerary files can be imported.";
     if (err.status === 422 || err.status === 502) {
-      return "Travel HQ could not read that PDF. Try exporting or printing it to a new PDF.";
+      return "Travel HQ could not read that file. Try exporting it again, then re-upload it.";
     }
     if (err.status === 503) {
       return "The extraction provider is unavailable. Check the model settings and try again.";
