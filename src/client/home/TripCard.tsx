@@ -101,9 +101,11 @@ export function TripCard({
             </>
           )}
           <PersonChips people={travelers} />
-          <span style={{ marginLeft: "auto" }}>
-            {booked} booked{remaining > 0 ? ` · ${remaining} to go` : ""}
-          </span>
+          {(state === "active" || state === "upcoming") && (
+            <span style={{ marginLeft: "auto" }}>
+              {booked} booked{remaining > 0 ? ` · ${remaining} to go` : ""}
+            </span>
+          )}
         </div>
 
         {rows.length > 0 && (

@@ -75,11 +75,13 @@ describe("TripDetail", () => {
     expect(screen.getByRole("radio", { name: "Overview" })).not.toBeChecked();
   });
 
-  it("loads cost analysis only when its tab is opened", async () => {
+  it("fetches the cost rollup once and reuses it for the Costs tab", async () => {
+    // Overview's rail renders the 1b "Trip cost" card, so the rollup loads
+    // with the initial tab — but opening Costs must not fetch it again.
     const api = makeApi();
     renderDetail(api);
     await screen.findByText("Mary & Winter Wedding");
-    expect(api.trips.rollup).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(api.trips.rollup).toHaveBeenCalledTimes(1));
     await userEvent.click(screen.getByRole("radio", { name: "Costs" }));
     expect(await screen.findByText("Total trip cost")).toBeInTheDocument();
     expect(api.trips.rollup).toHaveBeenCalledTimes(1);

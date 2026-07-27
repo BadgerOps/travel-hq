@@ -385,9 +385,9 @@ function BookingRow({
       </div>
       <div className="booking-meta">
         <PersonChips people={people.filter((p) => b.personIds.includes(p.id))} />
-        {b.costCents !== null && (
-          <span className="booking-cost">{formatMoney(b.costCents)}</span>
-        )}
+        {/* No per-row price: the overview stays event-focused (tested product
+            decision) — money lives in the rail's Trip cost card and the Costs
+            tab, not beside every booking. */}
         {b.status === "booked" && <span className="tag tag-accent">Booked</span>}
         {isDraft && <span className="tag tag-neutral">Draft</span>}
         {needsBooking && <span className="tag tag-neutral">Needs booking</span>}
@@ -483,11 +483,11 @@ function RailPerson({
           <div className="card-meta warning">
             <WarningCircle size={12} /> {warning}
           </div>
-        ) : status.kind === "none" ? (
+        ) : status.kind === "none" || !status.expiry ? (
           <div className="card-meta">No passport on file</div>
         ) : (
           <div className="card-meta">
-            Passport expires {formatCalendarDate(status.expiry!)}
+            Passport expires {formatCalendarDate(status.expiry)}
           </div>
         )}
       </div>
