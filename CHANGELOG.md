@@ -2,6 +2,11 @@
 
 ## 0.7.0 - 2026-07-27
 
+- Made Recent ingest activity entries clickable, opening a detail dialog with
+  the bookings parsed from each email, their raw extracted data, and the
+  stored message content.
+- Fixed the ingest-activity status chips stretching into ovals next to
+  multi-line subjects.
 - Added actionable pending-import cards to Home and Trips, with draft
   selection and the same atomic create-trip workflow used by the Import page.
 - Added a manual existing-trip selector for unmatched pending imports.

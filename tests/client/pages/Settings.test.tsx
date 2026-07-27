@@ -5,7 +5,11 @@ import userEvent from "@testing-library/user-event";
 import { Settings } from "../../../src/client/pages/Settings.js";
 import { ApiError } from "../../../src/client/api/client.js";
 import { IdentityProvider } from "../../../src/client/api/identity.js";
-import type { Identity, InboundEmailMetadata } from "../../../src/client/api/types.js";
+import type {
+  Identity,
+  InboundEmailDetail,
+  InboundEmailMetadata,
+} from "../../../src/client/api/types.js";
 
 const SETTINGS = {
   forwardAddress: "trips@badgerops.foo",
@@ -29,7 +33,12 @@ function makeApi(over: Record<string, unknown> = {}) {
       aiModels: vi.fn(async () => ({ models: [] })),
       ...over,
     },
-    inboundEmails: { list: vi.fn(async (): Promise<InboundEmailMetadata[]> => []) },
+    inboundEmails: {
+      list: vi.fn(async (): Promise<InboundEmailMetadata[]> => []),
+      get: vi.fn(async (): Promise<InboundEmailDetail> => {
+        throw new Error("inboundEmails.get not mocked");
+      }),
+    },
   };
 }
 
@@ -292,6 +301,7 @@ describe("Settings", () => {
   it("renders recent ingest failure metadata", async () => {
     const api = makeApi();
     api.inboundEmails.list.mockResolvedValue([{
+      id: "ie-fail",
       from: "airline@example.com",
       to: "trips@example.com",
       subject: "Broken extraction",
@@ -303,5 +313,54 @@ describe("Settings", () => {
     expect(await screen.findByText("Broken extraction")).toBeInTheDocument();
     expect(screen.getByText("Extraction failed: rate limited")).toBeInTheDocument();
     expect(screen.getByText("failed")).toBeInTheDocument();
+  });
+
+  it("opens the parsed-data dialog when an ingest activity entry is clicked", async () => {
+    const api = makeApi();
+    const metadata: InboundEmailMetadata = {
+      id: "ie-1",
+      from: "sol@example.com",
+      to: "trips@example.com",
+      subject: "Fwd: Your Silverwood RV Park Reservation",
+      status: "extracted",
+      error: null,
+      receivedAt: "2026-07-27T14:37:17.000Z",
+    };
+    api.inboundEmails.list.mockResolvedValue([metadata]);
+    api.inboundEmails.get.mockResolvedValue({
+      ...metadata,
+      textBody: "Site A12, arriving July 30.",
+      calendars: [],
+      drafts: [{
+        id: "draft-1",
+        inboundEmailId: "ie-1",
+        ordinal: 0,
+        kind: "lodging",
+        title: "Silverwood RV Park",
+        location: "Athol, ID",
+        startsAt: null,
+        startsAtTz: null,
+        endsAt: null,
+        endsAtTz: null,
+        confirmationNumber: "RV-4001",
+        source: "ai",
+        extracted: { costCents: 12_500 },
+        status: "pending",
+        bookingId: null,
+        createdAt: "2026-07-27T14:37:20.000Z",
+        resolvedAt: null,
+      }],
+    });
+    renderSettings(api);
+
+    await userEvent.click(await screen.findByRole("button", {
+      name: /view parsed data for fwd: your silverwood/i,
+    }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(api.inboundEmails.get).toHaveBeenCalledWith("ie-1");
+    expect(await within(dialog).findByText("Silverwood RV Park")).toBeInTheDocument();
+    expect(within(dialog).getByText("Confirmation RV-4001")).toBeInTheDocument();
+    expect(within(dialog).getByText(/site a12, arriving july 30/i)).toBeInTheDocument();
   });
 });

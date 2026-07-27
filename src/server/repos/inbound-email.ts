@@ -54,7 +54,7 @@ export type CreateInboundEmailInput = {
 
 export type InboundEmailMetadata = Pick<
   InboundEmail,
-  "from" | "to" | "subject" | "status" | "error" | "receivedAt"
+  "id" | "from" | "to" | "subject" | "status" | "error" | "receivedAt"
 >;
 
 type Row = {
@@ -124,18 +124,23 @@ export class InboundEmailRepo extends TenantRepo {
     return rows.map(toInboundEmail);
   }
 
-  /** Owner/adult activity feed. Deliberately selects no raw or identifier columns. */
+  /**
+   * Owner/adult activity feed. Deliberately selects no raw or Message-ID
+   * columns; the opaque row id is included as the handle for the detail
+   * endpoint (GET /api/inbound-emails/:id).
+   */
   async listMetadata(): Promise<InboundEmailMetadata[]> {
     if (this.ctx.role === "viewer") {
       throw new ForbiddenError("Viewers may not access inbound email activity");
     }
     const rows = await this.all<
-      Pick<Row, "from_address" | "to_address" | "subject" | "status" | "error" | "received_at">
+      Pick<Row, "id" | "from_address" | "to_address" | "subject" | "status" | "error" | "received_at">
     >(
-      `SELECT from_address, to_address, subject, status, error, received_at
+      `SELECT id, from_address, to_address, subject, status, error, received_at
          FROM inbound_email WHERE {scope} ORDER BY received_at DESC, id DESC`,
     );
     return rows.map((row) => ({
+      id: row.id,
       from: row.from_address,
       to: row.to_address,
       subject: row.subject,
