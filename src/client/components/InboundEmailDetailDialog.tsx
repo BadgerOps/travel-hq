@@ -6,7 +6,9 @@ import type {
   InboundEmailMetadata,
 } from "../api/types.js";
 import { errorMessage } from "../lib/errors.js";
+import { formatMoney } from "../lib/money.js";
 import { Dialog } from "./Dialog.js";
+import { StructuredDetails } from "./StructuredDetails.js";
 
 /**
  * Click-through from the Recent ingest activity feed: what the extractor
@@ -99,10 +101,26 @@ export function InboundEmailDetailDialog({
   );
 }
 
+/**
+ * Fields the card already presents as its headline; everything else the
+ * extractor produced renders below as readable label–value rows.
+ */
+const HEADLINE_FIELDS = [
+  "kind", "title", "location",
+  "startsAt", "startsAtTz", "endsAt", "endsAtTz",
+  "confirmationNumber", "costCents", "extractionProvider", "details",
+];
+
 function ParsedDraft({ draft }: { draft: DraftBooking }) {
   const timing = [formatWhen(draft.startsAt), formatWhen(draft.endsAt)]
     .filter(Boolean)
     .join(" – ");
+  const extracted = asRecord(draft.extracted);
+  const costCents = extracted.costCents;
+  const provider = extracted.extractionProvider;
+  // Per-kind detail fields first (site, room type, flight number, …), then
+  // anything unexpected at the top level, so no extracted value is dropped.
+  const detailRows = { ...asRecord(extracted.details), ...extracted };
   return (
     <article className="card" style={{ alignItems: "flex-start", gap: 6 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
@@ -118,14 +136,21 @@ function ParsedDraft({ draft }: { draft: DraftBooking }) {
       {draft.confirmationNumber && (
         <span className="card-meta">Confirmation {draft.confirmationNumber}</span>
       )}
-      {hasKeys(draft.extracted) && (
-        <details style={{ width: "100%" }}>
-          <summary>Extracted data</summary>
-          <pre style={preStyle}>{JSON.stringify(draft.extracted, null, 2)}</pre>
-        </details>
+      {typeof costCents === "number" && Number.isInteger(costCents) && (
+        <span className="card-meta">Cost {formatMoney(costCents)}</span>
+      )}
+      <StructuredDetails value={detailRows} omit={HEADLINE_FIELDS} />
+      {typeof provider === "string" && (
+        <span className="card-meta">Extracted by {provider}</span>
       )}
     </article>
   );
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 function noDraftsMessage(status: InboundEmailMetadata["status"]): string {
@@ -139,12 +164,6 @@ function noDraftsMessage(status: InboundEmailMetadata["status"]): string {
     default:
       return "The extractor found no bookings in this email.";
   }
-}
-
-function hasKeys(value: unknown): boolean {
-  return value !== null &&
-    typeof value === "object" &&
-    Object.keys(value as Record<string, unknown>).length > 0;
 }
 
 function formatWhen(value: string | null | undefined): string {

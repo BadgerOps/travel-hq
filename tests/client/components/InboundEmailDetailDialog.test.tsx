@@ -40,7 +40,11 @@ describe("InboundEmailDetailDialog", () => {
         endsAtTz: null,
         confirmationNumber: "RV-4001",
         source: "ai",
-        extracted: { costCents: 12_500, extractionProvider: "workers-ai" },
+        extracted: {
+          costCents: 12_500,
+          extractionProvider: "workers-ai",
+          details: { site: "1", type: "RV", waterParkOpen: true },
+        },
         status: "pending",
         bookingId: null,
         createdAt: "2026-07-27T14:37:20.000Z",
@@ -55,7 +59,13 @@ describe("InboundEmailDetailDialog", () => {
     expect(api.inboundEmails.get).toHaveBeenCalledWith("ie-1");
     expect(screen.getByText("Athol, ID")).toBeInTheDocument();
     expect(screen.getByText("Confirmation RV-4001")).toBeInTheDocument();
-    expect(screen.getByText(/"costCents": 12500/)).toBeInTheDocument();
+    // Extracted values render as readable rows, never as JSON.
+    expect(screen.getByText("Cost $125.00")).toBeInTheDocument();
+    expect(screen.getByText("Site")).toBeInTheDocument();
+    expect(screen.getByText("Water park open")).toBeInTheDocument();
+    expect(screen.getByText("Yes")).toBeInTheDocument();
+    expect(screen.getByText("Extracted by workers-ai")).toBeInTheDocument();
+    expect(screen.queryByText(/costCents/)).not.toBeInTheDocument();
     expect(screen.getByText("Site A12, arriving July 30.")).toBeInTheDocument();
     expect(screen.getByText(/Calendar attachment/)).toBeInTheDocument();
   });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { BookingDetailDialog } from "../../../src/client/components/BookingDetailDialog.js";
 
 const booking = {
@@ -48,6 +49,28 @@ describe("BookingDetailDialog", () => {
     expect(screen.getByText("Your site A12 is confirmed.")).toBeInTheDocument();
     expect(screen.getByText(/Calendar artifact/)).toBeInTheDocument();
     expect(artifact).toHaveBeenCalledWith(booking.id);
+    // Structured details render as readable rows, never as JSON.
+    expect(screen.getByText("Site")).toBeInTheDocument();
+    expect(screen.getByText("A12")).toBeInTheDocument();
+    expect(screen.queryByText(/"site"/)).not.toBeInTheDocument();
+  });
+
+  it("reveals the full confirmation number on demand", async () => {
+    const revealConfirmation = vi.fn(async () => ({ value: "SLVR-8088" }));
+    render(
+      <BookingDetailDialog
+        booking={booking}
+        api={{
+          bookings: { artifact: vi.fn(async () => ({ artifact: null })) },
+          trips: { revealConfirmation },
+        } as never}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "••••1234" }));
+    expect(await screen.findByText("SLVR-8088")).toBeInTheDocument();
+    expect(revealConfirmation).toHaveBeenCalledWith(booking.tripId, booking.id);
   });
 
   it("explains when a manual booking has no email source", async () => {
