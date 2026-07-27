@@ -92,6 +92,20 @@ present — never on the fallback slot.
   avatar chips, due-date tags; People cards show doc status lines with the
   amber warning treatment.
 
+## Implementation plan
+
+Order of work (each item an isolated task with a disjoint file set):
+1. Foundation — shared primitives in `styles.css` (`.page-header`, `.photo-card`/`.cover`, `.booking-row`, `.timeline`, `.action-row`, `.chip-toggle`, `.detail-banner`, `.split-main-rail`), `TripCoverPhoto` component, `.card` padding bump, nav gap fix, `.seg` overflow.
+2. Backend `photoUrl` (migration 0009, repo/routes/zod, client type, TripForm) — parallel with 1.
+3. Parallel page tasks on the foundation: Home+Trips (2a), TripDetail+Overview (1b + daily breakdown), DayView (1c/1e), Checklist+People, Import (2b), Settings+Cards polish.
+4. Browser QA at 1280px and 390px on every screen; fix findings.
+5. `typecheck` + `test:all`, commit, PR.
+
+Known test touchpoints: `TripCard.test.tsx` "renders no photo header" is
+superseded by this spec (update test + BACKLOG note); keep aria-labels,
+`data-testid`s (`action-row-*`, `pending-import-card`, `nav-user-menu`,
+`dialog-backdrop`), `role`/name queries, and `PersonChip` `title` attributes.
+
 ## Testing
 
 Existing Vitest client suites must stay green; markup-dependent queries update
