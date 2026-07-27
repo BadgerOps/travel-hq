@@ -112,17 +112,10 @@ export class ImportReviewRepo extends TenantRepo {
     this.requireWrite();
     const trip = await this.trips.findById(tripId);
     if (!trip) throw new NotFoundError("Trip not found in this household");
-    const drafts = await this.pendingDrafts(draftIds);
-    const trips = await this.trips.list();
-    for (const draft of drafts) {
-      const range = draftDateRange(draft);
-      const matches = range ? dateCompatibleTrips(trips, range) : [];
-      if (matches.length !== 1 || matches[0]!.id !== trip.id) {
-        throw new ValidationError(
-          "The selected trip is no longer the unique date match for every import",
-        );
-      }
+    if (trip.status === "cancelled") {
+      throw new ValidationError("Pending imports cannot be added to a cancelled trip");
     }
+    const drafts = await this.pendingDrafts(draftIds);
     await this.commitDraftsToTrip(drafts, trip.id);
     return { trip, acceptedDraftIds: drafts.map((draft) => draft.id) };
   }

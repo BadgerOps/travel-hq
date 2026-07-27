@@ -98,4 +98,24 @@ describe("BookingRepo", () => {
     expect(list[0]?.personIds).toEqual(["p-ava"]);
     expect(list[0]?.status).toBe("booked");
   });
+
+  it("maps travelers onto multiple bookings from the batched join lookup", async () => {
+    const repo = new BookingRepo(env.DB, ctxA, ring);
+    const first = await repo.create({
+      tripId: "t1", kind: "other", title: "Hotel", details: {},
+    });
+    const second = await repo.create({
+      tripId: "t1", kind: "other", title: "Dinner", details: {},
+    });
+    await repo.assignPerson(first.id, "p-ava");
+
+    const list = await repo.listByTrip("t1");
+    expect(
+      Object.fromEntries(list.map((booking) => [booking.title, booking.personIds])),
+    ).toEqual({
+      Hotel: ["p-ava"],
+      Dinner: [],
+    });
+    expect(list.find((booking) => booking.id === second.id)?.personIds).toEqual([]);
+  });
 });

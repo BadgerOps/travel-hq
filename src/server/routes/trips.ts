@@ -7,6 +7,7 @@ import { PersonRepo } from "../repos/person.js";
 import { RollupRepo } from "../repos/rollup.js";
 import { BOOKING_KINDS } from "../schemas/booking-kinds.js";
 import { isValidTimestamp, isValidTimezone } from "../time.js";
+import { NotFoundError } from "../repos/base.js";
 import type { AppEnv } from "../index.js";
 import { isJsonAction } from "./request.js";
 
@@ -102,6 +103,17 @@ const createBookingSchema = z
 export const trips = new Hono<AppEnv>();
 
 trips.get("/", async (c) => c.json(await new TripRepo(c.get("db"), c.get("identity")).list()));
+
+trips.get("/:tripId", async (c) => {
+  const trip = await new TripRepo(c.get("db"), c.get("identity"))
+    .findById(c.req.param("tripId"));
+  if (!trip) {
+    // Match every other trip-specific route: unknown and cross-household IDs
+    // are indistinguishable and both return 404 through app.onError.
+    throw new NotFoundError("Trip not found in this household");
+  }
+  return c.json(trip);
+});
 
 trips.post("/", async (c) => {
   let body: unknown;

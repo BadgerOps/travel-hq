@@ -49,6 +49,8 @@ export function PersonForm({
 
   const [displayName, setDisplayName] = useState(person?.displayName ?? "");
   const [dob, setDob] = useState(person?.dob ?? "");
+  const [email, setEmail] = useState(person?.email ?? "");
+  const [phone, setPhone] = useState(person?.phone ?? "");
   const [passportExpiry, setPassportExpiry] = useState(person?.passportExpiry ?? "");
   const [passportCountry, setPassportCountry] = useState(person?.passportCountry ?? "");
   const [notes, setNotes] = useState(person?.notes ?? "");
@@ -116,6 +118,8 @@ export function PersonForm({
         ? await api.people.update(person.id, {
             displayName: displayName.trim(),
             dob: dob === "" ? null : dob,
+            email: email.trim() === "" ? null : email.trim(),
+            phone: phone.trim() === "" ? null : phone.trim(),
             passportExpiry: passportExpiry === "" ? null : passportExpiry,
             passportCountry: passportCountry === "" ? null : passportCountry,
             notes: notes === "" ? null : notes,
@@ -124,6 +128,8 @@ export function PersonForm({
         : await api.people.create({
             displayName: displayName.trim(),
             ...(dob === "" ? {} : { dob }),
+            ...(email.trim() === "" ? {} : { email: email.trim() }),
+            ...(phone.trim() === "" ? {} : { phone: phone.trim() }),
             ...(passportExpiry === "" ? {} : { passportExpiry }),
             ...(passportCountry === "" ? {} : { passportCountry }),
             ...(notes === "" ? {} : { notes }),
@@ -170,6 +176,31 @@ export function PersonForm({
               type="date"
               value={dob}
               onChange={(e) => setDob(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="field">
+            <label htmlFor="pf-email">Email</label>
+            <input
+              id="pf-email"
+              className="input"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="pf-phone">Phone</label>
+            <input
+              id="pf-phone"
+              className="input"
+              type="tel"
+              autoComplete="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
             />
           </div>
         </div>

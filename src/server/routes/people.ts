@@ -8,6 +8,8 @@ import { isJsonAction } from "./request.js";
 const createPersonSchema = z.object({
   displayName: z.string().min(1),
   dob: z.string().optional(),
+  email: z.string().trim().email().optional(),
+  phone: z.string().trim().min(1).max(40).optional(),
   notes: z.string().optional(),
   passportNumber: z.string().optional(),
   passportExpiry: z.string().optional(),
@@ -33,6 +35,8 @@ const updatePersonSchema = z
   .object({
     displayName: z.string().min(1).optional(),
     dob: z.string().nullable().optional(),
+    email: z.string().trim().email().nullable().optional(),
+    phone: z.string().trim().min(1).max(40).nullable().optional(),
     notes: z.string().nullable().optional(),
     passportExpiry: z.string().nullable().optional(),
     passportCountry: z.string().nullable().optional(),

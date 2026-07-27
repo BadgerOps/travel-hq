@@ -1,4 +1,5 @@
 import type { Booking, Person } from "../api/types.js";
+import type { CSSProperties } from "react";
 import { formatBookingWhen } from "../lib/dates.js";
 import { PersonChips } from "../components/PersonChip.js";
 
@@ -11,9 +12,11 @@ import { PersonChips } from "../components/PersonChip.js";
 export function SharedAgenda({
   bookings,
   people,
+  onBookingClick,
 }: {
   bookings: Booking[];
   people: Pick<Person, "id" | "displayName">[];
+  onBookingClick?: (booking: Booking) => void;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -22,6 +25,30 @@ export function SharedAgenda({
         // dashed card mean "not confirmed" (planned or draft). The server's
         // itinerary query already excludes cancelled bookings.
         const provisional = b.status !== "booked";
+        const cardStyle: CSSProperties = {
+          flex: 1,
+          maxWidth: 760,
+          margin: "6px 0",
+          width: "100%",
+          color: "inherit",
+          font: "inherit",
+          textAlign: "left",
+          cursor: onBookingClick ? "pointer" : "default",
+          ...(provisional
+            ? { border: "1px dashed var(--color-divider)", background: "none" }
+            : {}),
+        };
+        const content = (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 15, fontWeight: 500 }}>{b.title}</span>
+              <span style={{ marginLeft: "auto" }}>
+                <PersonChips people={people.filter((p) => b.personIds.includes(p.id))} />
+              </span>
+            </div>
+            {b.location && <div className="card-meta">{b.location}</div>}
+          </>
+        );
         return (
           <div key={b.id} style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
             <div
@@ -54,25 +81,19 @@ export function SharedAgenda({
               />
             </div>
 
-            <div
-              className="card"
-              style={{
-                flex: 1,
-                maxWidth: 760,
-                margin: "6px 0",
-                ...(provisional
-                  ? { border: "1px dashed var(--color-divider)", background: "none" }
-                  : {}),
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 15, fontWeight: 500 }}>{b.title}</span>
-                <span style={{ marginLeft: "auto" }}>
-                  <PersonChips people={people.filter((p) => b.personIds.includes(p.id))} />
-                </span>
-              </div>
-              {b.location && <div className="card-meta">{b.location}</div>}
-            </div>
+            {onBookingClick ? (
+              <button
+                type="button"
+                className="card"
+                aria-label={`View details for ${b.title}`}
+                onClick={() => onBookingClick(b)}
+                style={cardStyle}
+              >
+                {content}
+              </button>
+            ) : (
+              <div className="card" style={cardStyle}>{content}</div>
+            )}
           </div>
         );
       })}

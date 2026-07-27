@@ -49,6 +49,13 @@ export function PersonCard({
         )}
       </div>
 
+      {(person.email || person.phone) && (
+        <div className="card-meta" style={{ flexWrap: "wrap" }}>
+          {person.email && <a href={`mailto:${person.email}`}>{person.email}</a>}
+          {person.phone && <a href={`tel:${person.phone}`}>{person.phone}</a>}
+        </div>
+      )}
+
       {person.passportNumberMasked === null && person.passportExpiry === null ? (
         <div className="card-meta">No passport on file</div>
       ) : (

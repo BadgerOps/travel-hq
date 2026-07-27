@@ -6,6 +6,7 @@ import { compareTrips } from "../lib/dates.js";
 import { errorMessage } from "../lib/errors.js";
 import { TripCard } from "../home/TripCard.js";
 import { TripForm } from "../components/TripForm.js";
+import { PendingImportCard } from "../imports/PendingImportCard.js";
 
 export function Trips({
   api = defaultApi,
@@ -74,6 +75,15 @@ export function Trips({
           {notice}
         </p>
       )}
+
+      <PendingImportCard
+        api={api}
+        existingTrips={trips}
+        style={{ marginBottom: 14 }}
+        onTripCreated={(trip) =>
+          setTrips((current) => [...(current ?? []), trip])
+        }
+      />
 
       {!error && trips === null && <p className="text-muted">Loading…</p>}
 

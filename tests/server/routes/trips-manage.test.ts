@@ -40,6 +40,19 @@ beforeEach(async () => {
   app = appAs(owner);
 });
 
+describe("GET /api/trips/:tripId", () => {
+  it("returns one household-scoped trip", async () => {
+    const id = await createTrip();
+    const res = await request(app, `/api/trips/${id}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id, title: "Guerneville" });
+  });
+
+  it("answers 404 for an unknown trip", async () => {
+    expect((await request(app, "/api/trips/t-nope")).status).toBe(404);
+  });
+});
+
 describe("PUT /api/trips/:tripId", () => {
   it("applies a partial update and returns the trip", async () => {
     const id = await createTrip();

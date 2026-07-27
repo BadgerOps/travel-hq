@@ -3,14 +3,14 @@ import { ArrowClockwise, Check, Plus, Trash } from "@phosphor-icons/react";
 import { Link } from "wouter";
 import { api as defaultApi } from "../api/client.js";
 import type {
-  CreateTripFromDraftsInput,
   ExtractedBooking,
   ImportReviewResult,
   PendingImportDraft,
+  Trip,
 } from "../api/types.js";
-import { Dialog } from "../components/Dialog.js";
 import { DraftBookingCard } from "../components/DraftBookingCard.js";
 import { errorMessage } from "../lib/errors.js";
+import { CreateImportedTripDialog } from "./CreateImportedTripDialog.js";
 
 type SourceGroup = {
   inboundEmailId: string;
@@ -28,7 +28,9 @@ export function ImportReviewQueue({
   refreshToken?: number;
 }) {
   const [drafts, setDrafts] = useState<PendingImportDraft[]>([]);
+  const [trips, setTrips] = useState<Trip[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
+  const [tripId, setTripId] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,9 +41,19 @@ export function ImportReviewQueue({
     setLoading(true);
     setError(null);
     try {
-      const pending = await api.imports.pending();
+      const [pendingResult, tripsResult] = await Promise.allSettled([
+        api.imports.pending(),
+        api.trips.list(),
+      ]);
+      if (pendingResult.status === "rejected") throw pendingResult.reason;
       if (signal?.aborted) return;
+      const pending = pendingResult.value;
       setDrafts(pending);
+      setTrips(
+        tripsResult.status === "fulfilled"
+          ? tripsResult.value.filter((trip) => trip.status !== "cancelled")
+          : [],
+      );
       setSelected((current) =>
         current.filter((id) => pending.some((draft) => draft.id === id)),
       );
@@ -214,6 +226,32 @@ export function ImportReviewQueue({
               <Trash size={14} />
               Dismiss selected
             </button>
+            {trips.length > 0 && (
+              <>
+                <label className="field" style={{ minWidth: 180 }}>
+                  <span className="card-meta">Existing trip</span>
+                  <select
+                    className="input"
+                    aria-label="Existing trip for selected imports"
+                    value={tripId}
+                    onChange={(event) => setTripId(event.target.value)}
+                  >
+                    <option value="">Choose a trip</option>
+                    {trips.map((trip) => (
+                      <option key={trip.id} value={trip.id}>{trip.title}</option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={selected.length === 0 || tripId === "" || busy}
+                  onClick={() => void accept(selected, tripId)}
+                >
+                  Add to trip
+                </button>
+              </>
+            )}
           </div>
 
           {groups.map((group) => {
@@ -351,115 +389,6 @@ export function ImportReviewQueue({
   );
 }
 
-function CreateImportedTripDialog({
-  api,
-  drafts,
-  onCreated,
-  onClose,
-}: {
-  api: typeof defaultApi;
-  drafts: PendingImportDraft[];
-  onCreated: (result: ImportReviewResult) => void;
-  onClose: () => void;
-}) {
-  const dates = combinedDates(drafts);
-  const [title, setTitle] = useState(defaultTripTitle(drafts));
-  const [destination, setDestination] = useState("");
-  const [startsOn, setStartsOn] = useState(dates.startsOn);
-  const [endsOn, setEndsOn] = useState(dates.endsOn);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    if (title.trim() === "") {
-      setError("A title is required.");
-      return;
-    }
-    if (startsOn !== "" && endsOn !== "" && startsOn > endsOn) {
-      setError("The end date cannot be before the start date.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const input = {
-        draftIds: drafts.map((draft) => draft.id),
-        title: title.trim(),
-        ...(destination.trim() ? { destination: destination.trim() } : {}),
-        ...(startsOn ? { startsOn } : {}),
-        ...(endsOn ? { endsOn } : {}),
-      } satisfies CreateTripFromDraftsInput;
-      onCreated(await api.imports.createTrip(input));
-    } catch (err) {
-      setError(errorMessage(err));
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Dialog
-      title="Create trip from imports"
-      subtitle={`${drafts.length} selected`}
-      onClose={onClose}
-    >
-      <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
-        {error && (
-          <p className="warning" role="alert" style={{ margin: 0 }}>{error}</p>
-        )}
-        <div className="field">
-          <label htmlFor="import-trip-title">Title</label>
-          <input
-            id="import-trip-title"
-            className="input"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="import-trip-destination">Destination</label>
-          <input
-            id="import-trip-destination"
-            className="input"
-            value={destination}
-            onChange={(event) => setDestination(event.target.value)}
-          />
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div className="field">
-            <label htmlFor="import-trip-starts">Starts on</label>
-            <input
-              id="import-trip-starts"
-              className="input"
-              type="date"
-              value={startsOn}
-              onChange={(event) => setStartsOn(event.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="import-trip-ends">Ends on</label>
-            <input
-              id="import-trip-ends"
-              className="input"
-              type="date"
-              value={endsOn}
-              onChange={(event) => setEndsOn(event.target.value)}
-            />
-          </div>
-        </div>
-        <div className="dialog-actions">
-          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={busy || drafts.length === 0}>
-            {busy ? "Creating…" : "Create trip and add bookings"}
-          </button>
-        </div>
-      </form>
-    </Dialog>
-  );
-}
-
 function groupBySource(drafts: PendingImportDraft[]): SourceGroup[] {
   const groups = new Map<string, SourceGroup>();
   for (const draft of drafts) {
@@ -499,28 +428,6 @@ function asExtractedBooking(draft: PendingImportDraft): ExtractedBooking {
     costCents: null,
     details: {},
   };
-}
-
-function combinedDates(drafts: PendingImportDraft[]) {
-  const starts = drafts.flatMap((draft) =>
-    draft.localStartsOn ? [draft.localStartsOn] : [],
-  );
-  const ends = drafts.flatMap((draft) =>
-    draft.localEndsOn ? [draft.localEndsOn] : [],
-  );
-  return {
-    startsOn: starts.sort()[0] ?? "",
-    endsOn: ends.sort().at(-1) ?? starts.sort().at(-1) ?? "",
-  };
-}
-
-function defaultTripTitle(drafts: PendingImportDraft[]): string {
-  const subject = drafts[0]?.source.subject?.trim();
-  if (!subject) return "Imported trip";
-  return subject
-    .replace(/^fwd:\s*/i, "")
-    .replace(/^file import:\s*/i, "")
-    .slice(0, 120);
 }
 
 function formatReceivedAt(value: string): string {

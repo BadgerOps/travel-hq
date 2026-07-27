@@ -55,7 +55,10 @@ function setup(pendingDrafts: PendingImportDraft[]) {
   const dismiss = vi.fn(async (draftIds: string[]) => ({
     dismissedDraftIds: draftIds,
   }));
-  const api = { imports: { pending, accept, createTrip, dismiss } };
+  const api = {
+    imports: { pending, accept, createTrip, dismiss },
+    trips: { list: vi.fn(async () => [trip]) },
+  };
   render(<ImportReviewQueue api={api as never} />);
   return { pending, accept, createTrip, dismiss };
 }
@@ -139,6 +142,7 @@ describe("ImportReviewQueue", () => {
         createTrip: vi.fn(),
         dismiss,
       },
+      trips: { list: vi.fn(async () => [trip]) },
     };
     vi.stubGlobal("confirm", vi.fn(() => true));
     render(<ImportReviewQueue api={api as never} />);
@@ -151,5 +155,24 @@ describe("ImportReviewQueue", () => {
 
     await waitFor(() => expect(dismiss).toHaveBeenCalledWith(["DL2586"]));
     expect(await screen.findByText("All caught up")).toBeInTheDocument();
+  });
+
+  it("keeps the review queue usable when the optional trip picker cannot load", async () => {
+    const pending = vi.fn(async () => [draft("DL2586")]);
+    const api = {
+      imports: {
+        pending,
+        accept: vi.fn(),
+        createTrip: vi.fn(),
+        dismiss: vi.fn(),
+      },
+      trips: { list: vi.fn(async () => { throw new Error("offline"); }) },
+    };
+    render(<ImportReviewQueue api={api as never} />);
+
+    expect(await screen.findByText("Flight DL2586")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create new trip" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Existing trip for selected imports"))
+      .not.toBeInTheDocument();
   });
 });

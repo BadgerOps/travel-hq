@@ -99,8 +99,9 @@ export class ItineraryRepo extends BookingAwareRepo {
    */
   private async group(rows: BookingRow[]): Promise<ItineraryDay[]> {
     const byDate = new Map<string, Booking[]>();
+    const peopleByBooking = await this.personIdsByBooking(rows.map((row) => row.id));
 
-    for (const r of rows) {
+    const converted = await Promise.all(rows.map(async (r) => {
       let date: string;
       let booking: Booking;
       try {
@@ -108,14 +109,20 @@ export class ItineraryRepo extends BookingAwareRepo {
         // with it by BookingRepo.create() for any row written through the
         // API -- but not for a row inserted directly by hand.
         date = localDateOf(r.starts_at!, r.starts_at_tz ?? "UTC");
-        booking = await toBooking(this.ring, r, await this.personIdsFor(r.id));
+        booking = await toBooking(this.ring, r, peopleByBooking.get(r.id) ?? []);
       } catch (err) {
         console.error(
           `[ItineraryRepo] skipping booking ${r.id} in day view: cannot format row`,
           err,
         );
-        continue;
+        return null;
       }
+      return { date, booking };
+    }));
+
+    for (const item of converted) {
+      if (!item) continue;
+      const { date, booking } = item;
       const list = byDate.get(date) ?? [];
       list.push(booking);
       byDate.set(date, list);

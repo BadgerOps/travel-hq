@@ -21,9 +21,18 @@ beforeEach(async () => {
 describe("PersonRepo", () => {
   it("creates a person and masks the passport in list output", async () => {
     const repo = new PersonRepo(env.DB, ctxA, ring);
-    await repo.create({ displayName: "Ava", passportNumber: "C03X72119" });
+    await repo.create({
+      displayName: "Ava",
+      email: "ava@example.com",
+      phone: "+1 208 555 0123",
+      passportNumber: "C03X72119",
+    });
     const list = await repo.list();
     expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({
+      email: "ava@example.com",
+      phone: "+1 208 555 0123",
+    });
     expect(list[0]?.passportNumberMasked).toBe("••••2119");
     expect(JSON.stringify(list)).not.toContain("C03X72119");
   });
@@ -66,6 +75,22 @@ describe("PersonRepo", () => {
     expect(await repo.revealDocument(person.id, "known_traveler_number")).toBe("KTN999999");
     await repo.update(person.id, { passportNumber: null });
     expect(await repo.revealDocument(person.id, "passport_number")).toBeNull();
+  });
+
+  it("updates and clears optional contact fields", async () => {
+    const repo = new PersonRepo(env.DB, ctxA, ring);
+    const person = await repo.create({
+      displayName: "Ava",
+      email: "old@example.com",
+      phone: "+1 208 555 0100",
+    });
+    expect(await repo.update(person.id, {
+      email: "ava@example.com",
+      phone: null,
+    })).toMatchObject({
+      email: "ava@example.com",
+      phone: null,
+    });
   });
 
   it("update rejects a masked value handed back as plaintext", async () => {

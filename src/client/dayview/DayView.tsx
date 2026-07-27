@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { api as defaultApi } from "../api/client.js";
-import type { ItineraryDay, Person } from "../api/types.js";
+import type { Booking, ItineraryDay, Person } from "../api/types.js";
 import { PersonFilter } from "./PersonFilter.js";
 import { DatePager } from "./DatePager.js";
 import { SharedAgenda } from "./SharedAgenda.js";
@@ -17,10 +17,12 @@ export function DayView({
   tripId,
   people,
   api,
+  onBookingClick,
 }: {
   tripId: string;
   people: Person[];
   api: typeof defaultApi;
+  onBookingClick?: (booking: Booking) => void;
 }) {
   const [days, setDays] = useState<ItineraryDay[] | null>(null);
   const [personId, setPersonId] = useState<string | null>(null);
@@ -94,7 +96,11 @@ export function DayView({
       </div>
 
       {current ? (
-        <SharedAgenda bookings={current.bookings} people={people} />
+        <SharedAgenda
+          bookings={current.bookings}
+          people={people}
+          onBookingClick={onBookingClick}
+        />
       ) : (
         <p className="text-muted">
           Nothing scheduled{personId ? " for this traveller" : ""} on this trip yet.

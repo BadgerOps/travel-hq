@@ -20,8 +20,6 @@ function booking(over: Record<string, unknown> = {}) {
   };
 }
 
-const ZERO = { bookedCents: 0, plannedCents: 0, totalCents: 0, draftCount: 0, points: [] };
-
 function makeApi() {
   return {
     trips: { revealConfirmation: vi.fn() },
@@ -35,7 +33,6 @@ function renderTab(bookings: unknown[], api = makeApi(), onStatusChanged = vi.fn
       trip={TRIP}
       bookings={bookings as never}
       people={[] as never}
-      rollup={ZERO}
       api={api as never}
       onStatusChanged={onStatusChanged}
     />,

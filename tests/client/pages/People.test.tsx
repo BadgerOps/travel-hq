@@ -7,6 +7,8 @@ const BADGER = {
   id: "p1",
   displayName: "Badger",
   dob: null,
+  email: "badger@example.com",
+  phone: "+1 208 555 0100",
   notes: null,
   passportExpiry: "2028-01-01",
   passportCountry: "US",
@@ -36,6 +38,10 @@ describe("People", () => {
     renderPeople();
     expect(await screen.findByText("Badger")).toBeInTheDocument();
     expect(screen.getByText("••••1234")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "badger@example.com" }))
+      .toHaveAttribute("href", "mailto:badger@example.com");
+    expect(screen.getByRole("link", { name: "+1 208 555 0100" }))
+      .toHaveAttribute("href", "tel:+1 208 555 0100");
   });
 
   it("offers a first-run empty state rather than a blank page", async () => {

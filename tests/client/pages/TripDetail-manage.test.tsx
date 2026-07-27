@@ -21,7 +21,7 @@ const PEOPLE = [{ id: "p1", displayName: "Badger" }];
 function makeApi(trip: Record<string, unknown> = TRIP, bookings: unknown[] = []) {
   return {
     trips: {
-      list: vi.fn(async () => [trip]),
+      get: vi.fn(async () => trip),
       bookings: vi.fn(async () => bookings),
       travelers: vi.fn(async () => PEOPLE),
       itinerary: vi.fn(async () => []),
@@ -31,6 +31,7 @@ function makeApi(trip: Record<string, unknown> = TRIP, bookings: unknown[] = [])
       revealConfirmation: vi.fn(),
       update: vi.fn(async () => ({ ...trip, status: "cancelled" })),
       delete: vi.fn(async () => undefined),
+      addTraveler: vi.fn(async () => undefined),
       removeTraveler: vi.fn(async () => undefined),
     },
     people: { list: vi.fn(async () => PEOPLE), reveal: vi.fn() },
@@ -68,11 +69,11 @@ describe("TripDetail management", () => {
     api.trips.update = vi.fn(async () => ({ ...TRIP, title: "Wedding weekend" }));
     renderDetail(api);
     await userEvent.click(await screen.findByRole("button", { name: `Edit ${TRIP.title}` }));
-    const listCalls = api.trips.list.mock.calls.length;
+    const getCalls = api.trips.get.mock.calls.length;
     await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
     expect(api.trips.update).toHaveBeenCalledWith("t1", expect.objectContaining({ title: TRIP.title }));
     // The page reloads rather than hand-patching state.
-    await waitFor(() => expect(api.trips.list.mock.calls.length).toBeGreaterThan(listCalls));
+    await waitFor(() => expect(api.trips.get.mock.calls.length).toBeGreaterThan(getCalls));
   });
 
   it("cancels the trip behind a confirm", async () => {
@@ -126,6 +127,30 @@ describe("TripDetail management", () => {
     expect(api.trips.removeTraveler).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Remove Badger" }));
     expect(api.trips.removeTraveler).toHaveBeenCalledWith("t1", "p1");
+  });
+
+  it("adds selected people to an existing trip and reloads its roster", async () => {
+    const api = makeApi();
+    api.people.list = vi.fn(async () => [
+      ...PEOPLE,
+      { id: "p2", displayName: "Ava" },
+    ]);
+    renderDetail(api);
+    await screen.findByText(TRIP.title);
+    await userEvent.click(screen.getByRole("radio", { name: "Travelers" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Add travelers" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Ava/ }));
+    const travelerCalls = api.trips.travelers.mock.calls.length;
+    await userEvent.click(
+      screen.getByRole("button", { name: "Add selected travelers" }),
+    );
+
+    expect(api.trips.addTraveler).toHaveBeenCalledWith("t1", "p2");
+    await waitFor(() =>
+      expect(api.trips.travelers.mock.calls.length).toBeGreaterThan(travelerCalls),
+    );
   });
 
   it("offers a viewer none of the management affordances", async () => {

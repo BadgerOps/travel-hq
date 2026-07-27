@@ -140,12 +140,34 @@ export abstract class BookingAwareRepo extends TenantRepo {
    * forPerson/forTrip).
    */
   protected async personIdsFor(bookingId: string): Promise<string[]> {
-    const rows = await this.unscoped<{ person_id: string }>(
-      "read-only join-table lookup; bookingId always sourced from a scoped query in a subclass",
-      "SELECT person_id FROM booking_person WHERE booking_id = ? ORDER BY person_id",
-      bookingId,
-    );
-    return rows.map((r) => r.person_id);
+    return (await this.personIdsByBooking([bookingId])).get(bookingId) ?? [];
+  }
+
+  /**
+   * Fetches every booking-person edge for a scoped booking result in one
+   * round-trip for normal trip sizes. Chunking stays below D1's bind-variable
+   * ceiling for unusually large trips without falling back to one query per
+   * booking.
+   */
+  protected async personIdsByBooking(
+    bookingIds: string[],
+  ): Promise<Map<string, string[]>> {
+    const unique = [...new Set(bookingIds)];
+    const byBooking = new Map(unique.map((id) => [id, [] as string[]]));
+    const batchSize = 90;
+    for (let offset = 0; offset < unique.length; offset += batchSize) {
+      const batch = unique.slice(offset, offset + batchSize);
+      const rows = await this.unscoped<{ booking_id: string; person_id: string }>(
+        "read-only join lookup; every booking id comes from a household-scoped booking query",
+        `SELECT booking_id, person_id
+           FROM booking_person
+          WHERE booking_id IN (${batch.map(() => "?").join(", ")})
+          ORDER BY booking_id, person_id`,
+        ...batch,
+      );
+      for (const row of rows) byBooking.get(row.booking_id)?.push(row.person_id);
+    }
+    return byBooking;
   }
 }
 
@@ -246,19 +268,20 @@ export class BookingRepo extends BookingAwareRepo {
       tripId,
     );
 
-    const bookings: Booking[] = [];
-    for (const row of rows) {
+    const peopleByBooking = await this.personIdsByBooking(rows.map((row) => row.id));
+    const converted = await Promise.all(rows.map(async (row): Promise<Booking | null> => {
       try {
-        bookings.push(await toBooking(this.ring, row, await this.personIdsFor(row.id)));
+        return await toBooking(this.ring, row, peopleByBooking.get(row.id) ?? []);
       } catch (err) {
         // A single row that can't be unmasked/formatted (e.g. an envelope
         // encrypted under a key no longer in the keyring) must not take
         // down the whole list — degrade that one row and keep going. See
         // ItineraryRepo.group() for the same policy applied to the day view.
         console.error(`[BookingRepo] skipping booking ${row.id} in listByTrip: unreadable row`, err);
+        return null;
       }
-    }
-    return bookings;
+    }));
+    return converted.filter((booking): booking is Booking => booking !== null);
   }
 
   async assignPerson(bookingId: string, personId: string): Promise<void> {

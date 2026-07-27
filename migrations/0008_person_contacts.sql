@@ -1,0 +1,2 @@
+ALTER TABLE person ADD COLUMN email TEXT;
+ALTER TABLE person ADD COLUMN phone TEXT;

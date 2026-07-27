@@ -40,3 +40,4 @@ export type {
   CreateTripFromDraftsInput,
   ImportReviewResult,
 } from "../../server/repos/import-review.js";
+export type { BookingSourceArtifact } from "../../server/routes/bookings.js";
