@@ -25,6 +25,7 @@ import type {
   UpdatePersonInput,
   UpdatePerkInput,
   UpdateTripInput,
+  UpdateBookingInput,
   ExtractedBooking,
   FileImportResult,
   PendingImportDraft,
@@ -173,6 +174,13 @@ export function createApi(config: ApiConfig = {}) {
         ),
       setStatus: (bookingId: string, status: BookingStatus) =>
         request<void>(`/api/bookings/${seg(bookingId)}/status`, jsonBody("PUT", { status })),
+      /**
+       * Partial edit. The route's schema is `.strict()`, so send only the keys
+       * being changed — echoing back a whole `Booking` (with its `id`,
+       * `personIds` and MASKED confirmation number) is a 400, deliberately.
+       */
+      update: (bookingId: string, input: UpdateBookingInput) =>
+        request<Booking>(`/api/bookings/${seg(bookingId)}`, jsonBody("PUT", input)),
       remove: (bookingId: string) =>
         // No body: the route reads the id from the path and never calls
         // c.req.json(). Sending a content-type here would be a lie.

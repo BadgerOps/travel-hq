@@ -366,6 +366,25 @@ textarea.input { min-height: 90px; resize: vertical; }
 .dialog-body { font-size: 14px; opacity: 0.85; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
 
+/* Pickup/return logistics in the booking detail dialog. Tinted and set above
+   the generic label–value grid because for an excursion these two lines are
+   the booking: where to stand, and when. */
+.booking-logistics {
+  display: grid; gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border-left: 2px solid var(--color-accent-2);
+  background: color-mix(in srgb, var(--color-accent-2) 9%, transparent);
+  font-size: 13px;
+}
+.booking-logistics-row { display: flex; align-items: baseline; gap: 7px; }
+.booking-logistics-row > svg { flex: none; align-self: center; color: var(--color-accent-2); }
+.booking-logistics-row--note {
+  padding-left: 21px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+}
+
 /* ── App-specific, built on the Nocturne tokens ─────────────────────────── */
 
 /* The one saturated fill in the system. Active-trip hero only. */

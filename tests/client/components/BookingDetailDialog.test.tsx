@@ -126,3 +126,120 @@ describe("BookingDetailDialog", () => {
     expect(changed).toHaveBeenCalledTimes(2);
   });
 });
+
+/** The excursion this feature exists for. */
+const tour = {
+  ...booking,
+  id: "booking-tour",
+  kind: "other",
+  title: "Going-to-the-Sun Road Red Bus tour",
+  location: "West Glacier, MT",
+  confirmationNumberMasked: null,
+  costCents: null,
+  details: {
+    pickupTime: "1:30 PM",
+    pickupLocation: "Quarter Circle/West Side Parking Lot",
+    arriveMinutesBefore: 15,
+    returnTime: "5:00 PM",
+    duration: "3.5 hours",
+  },
+};
+
+const noArtifact = { bookings: { artifact: vi.fn(async () => ({ artifact: null })) } };
+
+describe("BookingDetailDialog excursion logistics", () => {
+  it("puts the pickup, the call time and the return above the detail grid", async () => {
+    render(<BookingDetailDialog booking={tour} api={noArtifact as never} onClose={vi.fn()} />);
+
+    expect(await screen.findByText(/Quarter Circle\/West Side Parking Lot/))
+      .toBeInTheDocument();
+    expect(screen.getByText("Pickup")).toBeInTheDocument();
+    expect(screen.getByText(/1:30 PM/)).toBeInTheDocument();
+    expect(screen.getByText("Arrive 15 minutes early")).toBeInTheDocument();
+    expect(screen.getByText("Return")).toBeInTheDocument();
+    expect(screen.getByText(/5:00 PM/)).toBeInTheDocument();
+    // Still shown once, and not a second time as a raw "Pickup time" row.
+    expect(screen.queryByText("Pickup time")).not.toBeInTheDocument();
+    expect(screen.queryByText("Arrive minutes before")).not.toBeInTheDocument();
+    // Everything that is not logistics keeps its label–value row.
+    expect(screen.getByText("Duration")).toBeInTheDocument();
+  });
+
+  it("shows no logistics block and no empty details heading for a booking with neither", async () => {
+    render(
+      <BookingDetailDialog
+        booking={{ ...tour, details: {} }}
+        api={noArtifact as never}
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByText(/entered manually/i);
+    expect(screen.queryByText("Pickup")).not.toBeInTheDocument();
+    // The dialog's own subtitle is also "Booking details"; the heading over
+    // the (now empty) label–value grid is what must be gone.
+    expect(
+      screen.queryByRole("heading", { name: "Booking details" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("swaps to the edit form and reports the save to its parent", async () => {
+    const update = vi.fn(async () => tour);
+    const onSaved = vi.fn();
+    render(
+      <BookingDetailDialog
+        booking={tour}
+        api={{ bookings: { ...noArtifact.bookings, update } } as never}
+        onSaved={onSaved}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: /^Edit / }));
+    // The edit form replaces the detail view rather than stacking on it.
+    expect(screen.queryByText("Source artifact")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Pickup location")).toHaveValue(
+      "Quarter Circle/West Side Parking Lot",
+    );
+
+    await userEvent.clear(screen.getByLabelText("Pickup time"));
+    await userEvent.type(screen.getByLabelText("Pickup time"), "2:00 PM");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({
+      details: expect.objectContaining({ pickupTime: "2:00 PM" }),
+    });
+    expect(onSaved).toHaveBeenCalled();
+  });
+});
+
+describe("BookingDetailDialog traveler edits before an edit", () => {
+  it("does not undo a traveler linked from the detail view when the edit is saved", async () => {
+    // The toggles write through immediately, so the `booking` prop is stale by
+    // the time Edit is pressed. Seeding the edit form from it would diff the
+    // new link away again.
+    const assignPerson = vi.fn(async () => undefined);
+    const unassignPerson = vi.fn(async () => undefined);
+    const update = vi.fn(async () => tour);
+    render(
+      <BookingDetailDialog
+        booking={{ ...tour, personIds: [] }}
+        people={[{ id: "p1", displayName: "Badger" }] as never}
+        api={{
+          bookings: { ...noArtifact.bookings, assignPerson, unassignPerson, update },
+        } as never}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: /Badger/ }));
+    expect(assignPerson).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole("button", { name: /^Edit / }));
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(unassignPerson).not.toHaveBeenCalled();
+    expect(assignPerson).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1,12 +1,71 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { BookingRepo, BOOKING_STATUSES } from "../repos/booking.js";
+import type { UpdateBookingInput } from "../repos/booking.js";
 import { InboundEmailRepo } from "../repos/inbound-email.js";
 import { ForbiddenError, NotFoundError } from "../repos/base.js";
+import { BOOKING_KINDS } from "../schemas/booking-kinds.js";
+import { isValidTimestamp, isValidTimezone } from "../time.js";
 import { parseMime } from "../ingest/mime.js";
 import type { AppEnv } from "../index.js";
 
 const setStatusSchema = z.object({ status: z.enum(BOOKING_STATUSES) });
+
+/**
+ * `.nullable().optional()` is the tri-state at the HTTP boundary, exactly as
+ * updateTripSchema established: the key may be absent (leave unchanged), null
+ * (clear), or a value (replace). `kind`, `title` and `status` are optional but
+ * never null — a booking must keep all three.
+ *
+ * `.strict()` for the same reason as updateTripSchema: an edit form that PUTs
+ * back the whole object it was shown would otherwise send `id`,
+ * `personIds`, or `confirmationNumberMasked`, which a permissive schema would
+ * silently drop — leaving the operator believing they had edited a field they
+ * had not, and (for the masked confirmation number) silently discarding an
+ * edit that must instead be a loud 400.
+ *
+ * The timestamp/zone PAIRING is deliberately not checked here, unlike
+ * createBookingSchema: a partial patch is only valid against the stored row
+ * (clearing `startsAtTz` alone breaks a booking whose `startsAt` this request
+ * never mentions), and only BookingRepo.update can see that row.
+ */
+const updateBookingSchema = z
+  .object({
+    kind: z.enum(BOOKING_KINDS).optional(),
+    title: z.string().min(1).optional(),
+    location: z.string().nullable().optional(),
+    startsAt: z
+      .string()
+      .refine(isValidTimestamp, { message: "startsAt must be a parseable timestamp" })
+      .nullable()
+      .optional(),
+    startsAtTz: z
+      .string()
+      .refine(isValidTimezone, { message: "startsAtTz must be a valid IANA timezone" })
+      .nullable()
+      .optional(),
+    endsAt: z
+      .string()
+      .refine(isValidTimestamp, { message: "endsAt must be a parseable timestamp" })
+      .nullable()
+      .optional(),
+    endsAtTz: z
+      .string()
+      .refine(isValidTimezone, { message: "endsAtTz must be a valid IANA timezone" })
+      .nullable()
+      .optional(),
+    // `.min(1)`: an empty string is not a confirmation number. Clearing one is
+    // spelled `null`, so "" can only be an accident.
+    confirmationNumber: z.string().min(1).nullable().optional(),
+    costCents: z.number().int().nullable().optional(),
+    pointsUsed: z.number().int().nullable().optional(),
+    pointsProgram: z.string().nullable().optional(),
+    status: z.enum(BOOKING_STATUSES).optional(),
+    // Replaced wholesale when present, and validated against the effective
+    // kind by parseDetails inside the repo.
+    details: z.unknown().optional(),
+  })
+  .strict();
 
 export const bookings = new Hono<AppEnv>();
 
@@ -48,6 +107,29 @@ bookings.get("/:bookingId/artifact", async (c) => {
     calendars: parsed.calendars,
   };
   return c.json({ artifact });
+});
+
+bookings.put("/:bookingId", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const parsed = updateBookingSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid booking", details: parsed.error.issues }, 400);
+  }
+  // NotFoundError (404), ForbiddenError (403), the repo's ValidationErrors
+  // (400 — unpaired timezone, masked confirmation number, details that do not
+  // match the kind) and a ZodError from parseDetails all reach app.onError,
+  // which is the single place that decides status. No local try/catch.
+  return c.json(
+    await new BookingRepo(c.get("db"), c.get("identity"), c.get("ring")).update(
+      c.req.param("bookingId"),
+      parsed.data satisfies UpdateBookingInput,
+    ),
+  );
 });
 
 bookings.delete("/:bookingId", async (c) => {
