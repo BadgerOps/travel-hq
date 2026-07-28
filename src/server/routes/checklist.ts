@@ -14,9 +14,11 @@ const doneSchema = z.object({ done: z.boolean() });
 
 export const checklist = new Hono<AppEnv>();
 
-checklist.get("/", async (c) =>
-  c.json(await new ChecklistRepo(c.get("db"), c.get("identity")).listAll()),
-);
+checklist.get("/", async (c) => {
+  const repo = new ChecklistRepo(c.get("db"), c.get("identity"));
+  const tripId = c.req.query("tripId");
+  return c.json(tripId ? await repo.listByTrip(tripId) : await repo.listAll());
+});
 
 checklist.post("/", async (c) => {
   let body: unknown;

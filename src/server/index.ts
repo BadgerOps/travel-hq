@@ -20,6 +20,7 @@ import { WorkersAiModelCatalog } from "./ingest/model-catalog.js";
 export type AppBindings = {
   DB: D1Database;
   AI: Ai;
+  TRIP_PHOTOS: R2Bucket;
   ENCRYPTION_KEY: string;
   TRAVEL_HQ_ENV?: string;
   TRAVEL_HQ_DEV_EMAIL?: string;

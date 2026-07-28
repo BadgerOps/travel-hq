@@ -57,6 +57,10 @@ migrations_dir = "migrations"
 [env.testing.ai]
 binding = "AI"
 
+[[env.testing.r2_buckets]]
+binding = "TRIP_PHOTOS"
+bucket_name = "travel-hq-testing-photos"
+
 # --- production (deployed from master; its own D1) --------------------------
 [env.production]
 
@@ -85,6 +89,10 @@ migrations_dir = "migrations"
 
 [env.production.ai]
 binding = "AI"
+
+[[env.production.r2_buckets]]
+binding = "TRIP_PHOTOS"
+bucket_name = "travel-hq-production-photos"
 
 # Cloudflare Access config for human auth. NOT secrets (the AUD tag is an
 # identifier, not a credential), so they live here rather than in

@@ -138,6 +138,40 @@ describe("BookingRepo.update", () => {
     expect(flight.details).toMatchObject({ originIata: "FCA", destinationIata: "SEA" });
   });
 
+  it("can retype a legacy import whose optional extracted details are null", async () => {
+    const legacy = await repoFor(owner).create({
+      tripId: "t1",
+      kind: "other",
+      title: "West Glacier RV Park",
+      status: "booked",
+      details: {
+        propertyName: "West Glacier RV Park",
+        address: null,
+        roomType: "80’ Pull-Through RV Site",
+        nights: 5,
+        siteNumber: null,
+      },
+    });
+
+    const updated = await repoFor(owner).update(legacy.id, {
+      kind: "lodging",
+      details: {
+        ...legacy.details as Record<string, unknown>,
+        checkInDate: "2026-07-31",
+        checkOutDate: "2026-08-05",
+      },
+    });
+
+    expect(updated.kind).toBe("lodging");
+    expect(updated.details).toEqual({
+      propertyName: "West Glacier RV Park",
+      roomType: "80’ Pull-Through RV Site",
+      nights: 5,
+      checkInDate: "2026-07-31",
+      checkOutDate: "2026-08-05",
+    });
+  });
+
   it("rejects a kind outside BOOKING_KINDS", async () => {
     const id = await excursion();
     await expect(

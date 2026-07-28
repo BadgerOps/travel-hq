@@ -8,7 +8,27 @@ import type { Trip } from "../../../src/server/repos/trip.js";
 
 const ring = new Keyring("server-v1", { "server-v1": crypto.getRandomValues(new Uint8Array(32)) });
 const owner: Identity = { userId: "u1", email: "badger@example.com", householdId: "hh-a", role: "owner" };
-const testEnv = { DB: env.DB } as unknown as AppBindings;
+const storedPhotos = new Map<string, { bytes: ArrayBuffer; contentType: string }>();
+const photoBucket = {
+  put: async (key: string, value: BodyInit, options?: R2PutOptions) => {
+    storedPhotos.set(key, {
+      bytes: await new Response(value).arrayBuffer(),
+      contentType: options?.httpMetadata && "contentType" in options.httpMetadata
+        ? options.httpMetadata.contentType ?? "application/octet-stream"
+        : "application/octet-stream",
+    });
+  },
+  get: async (key: string) => {
+    const stored = storedPhotos.get(key);
+    if (!stored) return null;
+    return {
+      body: new Blob([stored.bytes]).stream(),
+      httpMetadata: { contentType: stored.contentType },
+      httpEtag: "\"test-photo\"",
+    };
+  },
+} as unknown as R2Bucket;
+const testEnv = { DB: env.DB, TRIP_PHOTOS: photoBucket } as unknown as AppBindings;
 
 function appAs(who: Identity) {
   return createApp({ verify: (async () => who) as (req: Request, e: AppBindings) => Promise<Identity>, ring });
@@ -31,6 +51,7 @@ async function createTrip(): Promise<string> {
 }
 
 beforeEach(async () => {
+  storedPhotos.clear();
   for (const table of ["booking_person", "checklist_item", "booking", "trip_person", "person", "trip", "household"]) {
     await env.DB.exec(`DELETE FROM ${table}`);
   }
@@ -128,6 +149,43 @@ describe("PUT /api/trips/:tripId", () => {
 });
 
 describe("trip cover photo (photoUrl)", () => {
+  it("uploads and serves an authenticated cover photo", async () => {
+    const id = await createTrip();
+    const form = new FormData();
+    form.set("photo", new File(["jpeg bytes"], "glacier.jpg", { type: "image/jpeg" }));
+    const uploaded = await request(app, `/api/trips/${id}/photo`, {
+      method: "POST",
+      body: form,
+    });
+    expect(uploaded.status).toBe(200);
+    expect(((await uploaded.json()) as Trip).photoUrl).toMatch(
+      new RegExp(`^/api/trips/${id}/photo\\?v=\\d+$`),
+    );
+
+    const served = await request(app, `/api/trips/${id}/photo`);
+    expect(served.status).toBe(200);
+    expect(served.headers.get("content-type")).toBe("image/jpeg");
+    expect(await served.text()).toBe("jpeg bytes");
+  });
+
+  it("rejects unsupported photo uploads and viewer writes", async () => {
+    const id = await createTrip();
+    const form = new FormData();
+    form.set("photo", new File(["hello"], "notes.txt", { type: "text/plain" }));
+    expect((await request(app, `/api/trips/${id}/photo`, {
+      method: "POST",
+      body: form,
+    })).status).toBe(400);
+
+    const viewerApp = appAs({ ...owner, role: "viewer" });
+    const image = new FormData();
+    image.set("photo", new File(["jpeg"], "glacier.jpg", { type: "image/jpeg" }));
+    expect((await request(viewerApp, `/api/trips/${id}/photo`, {
+      method: "POST",
+      body: image,
+    })).status).toBe(403);
+  });
+
   it("round-trips photoUrl through create and read", async () => {
     const res = await jsonRequest("/api/trips", "POST", {
       title: "Guerneville",

@@ -62,6 +62,7 @@ export function TripForm({
   const [endsOn, setEndsOn] = useState(trip?.endsOn ?? "");
   const [notes, setNotes] = useState(trip?.notes ?? "");
   const [photoUrl, setPhotoUrl] = useState(trip?.photoUrl ?? "");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   // A cancelled trip seeds to Auto: the control cannot express `cancelled`.
   // `status` is sent only when the operator moved the control off its SEED —
   // comparing against the stored value instead would read a cancelled trip's
@@ -94,13 +95,14 @@ export function TripForm({
 
     if (editing) {
       try {
+        if (photoFile) await api.trips.uploadPhoto(trip.id, photoFile);
         const updated = await api.trips.update(trip.id, {
           title: title.trim(),
           destination: destination === "" ? null : destination,
           startsOn: startsOn === "" ? null : startsOn,
           endsOn: endsOn === "" ? null : endsOn,
           notes: notes === "" ? null : notes,
-          photoUrl: photoUrl === "" ? null : photoUrl,
+          ...(!photoFile ? { photoUrl: photoUrl === "" ? null : photoUrl } : {}),
           ...(status !== initialStatus ? { status } : {}),
         } satisfies UpdateTripInput);
         onSaved(updated);
@@ -123,7 +125,7 @@ export function TripForm({
         ...(startsOn === "" ? {} : { startsOn }),
         ...(endsOn === "" ? {} : { endsOn }),
         ...(notes === "" ? {} : { notes }),
-        ...(photoUrl === "" ? {} : { photoUrl }),
+        ...(!photoFile && photoUrl !== "" ? { photoUrl } : {}),
       });
     } catch (err) {
       setError(errorMessage(err));
@@ -131,7 +133,16 @@ export function TripForm({
       return;
     }
 
-    // The trip now exists. Roster failures are reported but never undo it.
+    // The trip now exists. Photo/roster failures are reported but never undo it.
+    if (photoFile) {
+      try {
+        created = await api.trips.uploadPhoto(created.id, photoFile);
+      } catch (err) {
+        onRosterError?.(
+          `${created.title} was created, but its cover photo could not be uploaded. ${errorMessage(err)}`,
+        );
+      }
+    }
     try {
       for (const personId of selected) {
         await api.trips.addTraveler(created.id, personId);
@@ -209,16 +220,40 @@ export function TripForm({
         </div>
 
         <div className="field">
+          <label htmlFor="tf-photo-file">
+            Upload cover photo
+          </label>
+          <input
+            id="tf-photo-file"
+            className="input"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0] ?? null;
+              if (file && file.size > 10 * 1024 * 1024) {
+                setPhotoFile(null);
+                setError("Cover photos must be 10 MB or smaller.");
+                event.currentTarget.value = "";
+                return;
+              }
+              setPhotoFile(file);
+              setError(null);
+            }}
+          />
+          <span className="text-muted" style={{ fontSize: 11 }}>
+            JPEG, PNG, WebP, GIF, or AVIF · up to 10 MB
+          </span>
+        </div>
+
+        <div className="field">
           <label htmlFor="tf-photo">
-            Cover photo{" "}
-            <span className="text-muted" style={{ fontSize: 11 }}>
-              · Paste an image URL — shown on the trip card
-            </span>
+            Or use an image URL
           </label>
           <input
             id="tf-photo"
             className="input"
             value={photoUrl}
+            disabled={photoFile !== null}
             onChange={(e) => setPhotoUrl(e.target.value)}
           />
         </div>

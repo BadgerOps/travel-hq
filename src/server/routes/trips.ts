@@ -8,16 +8,18 @@ import { PersonRepo } from "../repos/person.js";
 import { RollupRepo } from "../repos/rollup.js";
 import { BOOKING_KINDS } from "../schemas/booking-kinds.js";
 import { isValidTimestamp, isValidTimezone } from "../time.js";
-import { NotFoundError } from "../repos/base.js";
+import { ForbiddenError, NotFoundError } from "../repos/base.js";
 import type { AppEnv } from "../index.js";
 import { isJsonAction } from "./request.js";
 
 // A cover photo URL is rendered straight into an <img src> on the trip card,
-// so only web-fetchable http(s) URLs may be stored — javascript:, data:, and
-// every other scheme must fail here as a 400, not execute at render time.
+// so only web-fetchable http(s) URLs or the app's own authenticated upload
+// route may be stored — javascript:, data:, and every other scheme must fail
+// here as a 400, not execute at render time.
 // WHATWG URL parsing (not a substring check) is what defeats scheme-smuggling
 // spellings like "jAvAsCrIpT:" or leading whitespace.
-function isHttpUrl(value: string): boolean {
+function isAllowedPhotoUrl(value: string): boolean {
+  if (/^\/api\/trips\/[^/?#]+\/photo\?v=\d+$/.test(value)) return true;
   let url: URL;
   try {
     url = new URL(value);
@@ -30,7 +32,9 @@ function isHttpUrl(value: string): boolean {
 const photoUrlSchema = z
   .string()
   .max(2048)
-  .refine(isHttpUrl, { message: "photoUrl must be an http(s) URL" });
+  .refine(isAllowedPhotoUrl, {
+    message: "photoUrl must be an http(s) URL or an uploaded trip photo",
+  });
 
 const createTripSchema = z.object({
   title: z.string().min(1),
@@ -146,6 +150,19 @@ const dismissDuplicatesSchema = z
 
 export const trips = new Hono<AppEnv>();
 
+const MAX_TRIP_PHOTO_BYTES = 10 * 1024 * 1024;
+const TRIP_PHOTO_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+]);
+
+function tripPhotoKey(householdId: string, tripId: string): string {
+  return `trip-covers/${householdId}/${tripId}`;
+}
+
 trips.get("/", async (c) => c.json(await new TripRepo(c.get("db"), c.get("identity")).list()));
 
 trips.get("/:tripId", async (c) => {
@@ -157,6 +174,60 @@ trips.get("/:tripId", async (c) => {
     throw new NotFoundError("Trip not found in this household");
   }
   return c.json(trip);
+});
+
+trips.get("/:tripId/photo", async (c) => {
+  const identity = c.get("identity");
+  const trip = await new TripRepo(c.get("db"), identity).findById(c.req.param("tripId"));
+  if (!trip) throw new NotFoundError("Trip not found in this household");
+  const object = await c.env.TRIP_PHOTOS.get(
+    tripPhotoKey(identity.householdId, trip.id),
+  );
+  if (!object) throw new NotFoundError("Trip photo not found");
+  return new Response(object.body, {
+    headers: {
+      "Content-Type": object.httpMetadata?.contentType ?? "application/octet-stream",
+      "Cache-Control": "private, max-age=3600",
+      ETag: object.httpEtag,
+    },
+  });
+});
+
+trips.post("/:tripId/photo", async (c) => {
+  const identity = c.get("identity");
+  const repo = new TripRepo(c.get("db"), identity);
+  const trip = await repo.findById(c.req.param("tripId"));
+  if (!trip) throw new NotFoundError("Trip not found in this household");
+  // Enforce write permission before reading a potentially large request body.
+  if (identity.role === "viewer") {
+    throw new ForbiddenError("Viewers may not change trip photos");
+  }
+
+  let form: FormData;
+  try {
+    form = await c.req.raw.formData();
+  } catch {
+    return c.json({ error: "Expected a multipart photo upload" }, 400);
+  }
+  const photo = form.get("photo");
+  if (!(photo instanceof File)) {
+    return c.json({ error: "Choose an image to upload" }, 400);
+  }
+  if (!TRIP_PHOTO_TYPES.has(photo.type)) {
+    return c.json({ error: "Trip photos must be JPEG, PNG, WebP, GIF, or AVIF" }, 400);
+  }
+  if (photo.size === 0 || photo.size > MAX_TRIP_PHOTO_BYTES) {
+    return c.json({ error: "Trip photos must be between 1 byte and 10 MB" }, 400);
+  }
+
+  await c.env.TRIP_PHOTOS.put(
+    tripPhotoKey(identity.householdId, trip.id),
+    photo.stream(),
+    { httpMetadata: { contentType: photo.type } },
+  );
+  return c.json(await repo.update(trip.id, {
+    photoUrl: `/api/trips/${encodeURIComponent(trip.id)}/photo?v=${Date.now()}`,
+  }));
 });
 
 trips.post("/", async (c) => {
