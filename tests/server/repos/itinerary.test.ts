@@ -63,6 +63,32 @@ describe("ItineraryRepo", () => {
     ]);
   });
 
+  it("shows a date-only lodging booking on every day of the stay", async () => {
+    const bookings = new BookingRepo(env.DB, ctxA, ring);
+    await bookings.create({
+      tripId: "t1",
+      kind: "lodging",
+      title: "East Glacier KOA",
+      details: {
+        propertyName: "East Glacier KOA",
+        checkInDate: "2026-08-05",
+        checkOutDate: "2026-08-09",
+      },
+    });
+
+    const days = await new ItineraryRepo(env.DB, ctxA, ring).forTrip("t1");
+    expect(days.map((day) => [
+      day.date,
+      day.bookings[0]?.itineraryPosition,
+    ])).toEqual([
+      ["2026-08-05", "start"],
+      ["2026-08-06", "ongoing"],
+      ["2026-08-07", "ongoing"],
+      ["2026-08-08", "ongoing"],
+      ["2026-08-09", "end"],
+    ]);
+  });
+
   it("forTrip 404s for an unknown trip", async () => {
     await expect(new ItineraryRepo(env.DB, ctxA, ring).forTrip("nope")).rejects.toThrow(NotFoundError);
   });

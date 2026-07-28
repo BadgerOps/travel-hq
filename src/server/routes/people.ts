@@ -53,6 +53,12 @@ people.get("/", async (c) => {
   return c.json(await repo.list());
 });
 
+people.post("/me", async (c) => {
+  const identity = c.get("identity");
+  const repo = new PersonRepo(c.get("db"), identity, c.get("ring"));
+  return c.json(await repo.ensureCurrentUser(identity.email));
+});
+
 people.post("/", async (c) => {
   let body: unknown;
   try {

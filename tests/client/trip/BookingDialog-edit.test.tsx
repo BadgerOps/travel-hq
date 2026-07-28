@@ -71,8 +71,9 @@ describe("BookingDialog in edit mode", () => {
     expect(screen.getByLabelText("Cost")).toHaveValue("125.00");
     // The stored instant is shown as the wall clock in its OWN zone, not the
     // browser's and not UTC — saving it back must not move the booking.
-    expect(screen.getByLabelText("Departs / starts")).toHaveValue("2026-10-09T13:30");
-    expect(screen.getByLabelText("Departs timezone")).toHaveValue("America/Denver");
+    expect(screen.getByLabelText("Start date")).toHaveValue("2026-10-09");
+    expect(screen.getByLabelText("Start time")).toHaveValue("13:30");
+    expect(screen.getByLabelText("Timezone")).toHaveValue("America/Denver");
     expect(screen.getByRole("radio", { name: "Planned" })).toBeChecked();
   });
 
@@ -116,7 +117,7 @@ describe("BookingDialog in edit mode", () => {
   it("clears a field that was emptied rather than leaving it stored", async () => {
     const { api } = renderEdit();
     await userEvent.clear(screen.getByLabelText("Cost"));
-    fireEvent.change(screen.getByLabelText("Departs / starts"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "" } });
     await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     const patch = patchOf(api);

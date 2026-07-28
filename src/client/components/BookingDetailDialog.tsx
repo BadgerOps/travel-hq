@@ -103,6 +103,24 @@ export function BookingDetailDialog({
     }
   }
 
+  async function addMyself() {
+    if (peopleBusy) return;
+    setPeopleBusy(true);
+    setPeopleError(null);
+    try {
+      const me = await api.people.ensureMe();
+      if (!personIds.includes(me.id)) {
+        await api.bookings.assignPerson(booking.id, me.id);
+        setPersonIds((current) => [...current, me.id]);
+      }
+      onPeopleChanged?.();
+    } catch (err) {
+      setPeopleError(errorMessage(err));
+    } finally {
+      setPeopleBusy(false);
+    }
+  }
+
   // The edit form replaces this dialog rather than stacking a second one on
   // top of it: two nested modals share one Escape key and one scroll lock.
   if (editing) {
@@ -168,7 +186,7 @@ export function BookingDetailDialog({
           </>
         )}
 
-        {people.length > 0 && (
+        {(people.length > 0 || canWrite) && (
           <>
             <hr className="hr" style={{ margin: "4px 0" }} />
             <h5 style={{ margin: 0 }}>Travelers</h5>
@@ -182,7 +200,17 @@ export function BookingDetailDialog({
               </p>
             )}
             {canWrite ? (
-              <div aria-busy={peopleBusy}>
+              <div aria-busy={peopleBusy} style={{ display: "grid", gap: 8 }}>
+                <div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={peopleBusy}
+                    onClick={() => void addMyself()}
+                  >
+                    Add myself
+                  </button>
+                </div>
                 <TravelerToggles
                   people={people}
                   selected={personIds}

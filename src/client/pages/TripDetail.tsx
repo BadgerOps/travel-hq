@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { CalendarBlank, MapPin, PencilSimple, Plus } from "@phosphor-icons/react";
+import { CalendarBlank, CopySimple, DotsThree, MapPin, PencilSimple, Plus } from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
 import { useCanWrite } from "../api/identity.js";
 import type { Booking, Person, Trip, TripRollup } from "../api/types.js";
@@ -67,6 +67,7 @@ export function TripDetail({
   const [addingBooking, setAddingBooking] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [editing, setEditing] = useState(false);
+  const [duplicateCheck, setDuplicateCheck] = useState(0);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   // The delete dialog's second step: the first click arms, the second fires.
@@ -246,14 +247,36 @@ export function TripDetail({
           </div>
           <div className="banner-actions">
             {canWrite && (
-              <button
-                type="button"
-                className="btn btn-secondary btn-icon"
-                aria-label={`Edit ${trip.title}`}
-                onClick={() => setEditing(true)}
-              >
-                <PencilSimple size={14} />
-              </button>
+              <details style={{ position: "relative" }}>
+                <summary
+                  className="btn btn-secondary btn-icon"
+                  aria-label={`Trip menu for ${trip.title}`}
+                  style={{ listStyle: "none" }}
+                >
+                  <DotsThree size={18} />
+                </summary>
+                <div className="card" style={{
+                  position: "absolute",
+                  right: 0,
+                  top: "calc(100% + 6px)",
+                  zIndex: 20,
+                  minWidth: 190,
+                  padding: 6,
+                  display: "grid",
+                  gap: 3,
+                }}>
+                  <button type="button" className="btn btn-ghost" onClick={() => setEditing(true)}>
+                    <PencilSimple size={14} /> Edit trip
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setDuplicateCheck((value) => value + 1)}
+                  >
+                    <CopySimple size={14} /> Check duplicates
+                  </button>
+                </div>
+              </details>
             )}
             <button
               type="button"
@@ -276,6 +299,7 @@ export function TripDetail({
         people={people}
         api={api}
         reloadKey={reloadKey}
+        checkRequest={duplicateCheck}
         onResolved={() => setReloadKey((n) => n + 1)}
       />
 

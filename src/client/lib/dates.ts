@@ -219,10 +219,28 @@ export function formatBookingWhen(
     startsAtTz: string | null;
     endsAt: string | null;
     endsAtTz: string | null;
+    details?: unknown;
   },
   emptyLabel: string,
 ): string {
-  if (!b.startsAt) return emptyLabel;
+  if (!b.startsAt) {
+    const details =
+      b.details !== null && typeof b.details === "object"
+        ? b.details as Record<string, unknown>
+        : {};
+    const start = typeof details.checkInDate === "string" ? details.checkInDate : null;
+    const end = typeof details.checkOutDate === "string" ? details.checkOutDate : null;
+    if (start) {
+      const format = (value: string) => new Intl.DateTimeFormat("en-US", {
+        timeZone: "UTC",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }).format(new Date(`${value}T00:00:00Z`));
+      return end ? `${format(start)} → ${format(end)}` : format(start);
+    }
+    return emptyLabel;
+  }
   if (b.endsAt && b.endsAtTz && b.startsAtTz) {
     return formatDualZone(b.startsAt, b.startsAtTz, b.endsAt, b.endsAtTz);
   }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AirplaneTakeoff, Bed, Car, ForkKnife, Ticket } from "@phosphor-icons/react";
+import { AirplaneTakeoff, Bed, Car, Suitcase, Ticket } from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
 import type {
   Booking,
@@ -33,9 +33,7 @@ const KINDS = [
   { id: "lodging", label: "Stay", Icon: Bed },
   { id: "car", label: "Car", Icon: Car },
   { id: "activity", label: "Activity", Icon: Ticket },
-  // ForkKnife is the icon OverviewTab already gives an unrecognised kind, so
-  // the row a freeform booking gets and the option that produces it match.
-  { id: "other", label: "Other", Icon: ForkKnife },
+  { id: "other", label: "Other", Icon: Suitcase },
 ] as const;
 
 type Kind = (typeof KINDS)[number]["id"];
@@ -182,12 +180,20 @@ export function BookingDialog({
     detailText(booking?.details, "description"),
   );
 
-  const [startsAt, setStartsAt] = useState(() =>
-    seedLocal(booking?.startsAt, booking?.startsAtTz),
+  const seededStart = seedLocal(booking?.startsAt, booking?.startsAtTz);
+  const seededEnd = seedLocal(booking?.endsAt, booking?.endsAtTz);
+  const [startDate, setStartDate] = useState(
+    () => detailText(booking?.details, "checkInDate") || seededStart.slice(0, 10),
   );
+  const [startTime, setStartTime] = useState(() => seededStart.slice(11, 16));
   const [startsAtTz, setStartsAtTz] = useState(booking?.startsAtTz ?? "");
-  const [endsAt, setEndsAt] = useState(() => seedLocal(booking?.endsAt, booking?.endsAtTz));
+  const [endDate, setEndDate] = useState(
+    () => detailText(booking?.details, "checkOutDate") || seededEnd.slice(0, 10),
+  );
+  const [endTime, setEndTime] = useState(() => seededEnd.slice(11, 16));
   const [endsAtTz, setEndsAtTz] = useState(booking?.endsAtTz ?? "");
+  const startsAt = startDate && startTime ? `${startDate}T${startTime}` : "";
+  const endsAt = endDate && endTime ? `${endDate}T${endTime}` : "";
 
   const [selected, setSelected] = useState<string[]>(booking?.personIds ?? []);
   const [cost, setCost] = useState(() =>
@@ -248,6 +254,8 @@ export function BookingDialog({
         break;
       case "lodging":
         put("propertyName", propertyName);
+        put("checkInDate", startDate);
+        put("checkOutDate", endDate);
         break;
       case "car":
         put("vendor", vendor);
@@ -306,6 +314,14 @@ export function BookingDialog({
     // A timestamp without its zone renders every cross-timezone itinerary
     // wrong, so the server rejects the pair outright. Catch it here, where
     // the message can name the field.
+    if (startTime !== "" && startDate === "") {
+      setError("Pick a start date for the start time.");
+      return;
+    }
+    if (endTime !== "" && endDate === "") {
+      setError("Pick an end date for the end time.");
+      return;
+    }
     if (startsAt !== "" && startsAtTz === "") {
       setError("Pick a timezone for the start time.");
       return;
@@ -651,24 +667,84 @@ export function BookingDialog({
           />
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div className="field">
-            <label htmlFor="bd-starts">Departs / starts</label>
-            <input
-              id="bd-starts"
-              className="input"
-              type="datetime-local"
-              value={startsAt}
-              onChange={(e) => setStartsAt(e.target.value)}
-            />
+        <fieldset className="card" style={{ display: "grid", gap: 12, padding: 12 }}>
+          <legend style={{ padding: "0 6px", fontWeight: 650 }}>
+            {kind === "lodging" ? "Stay dates" : "Schedule"}
+          </legend>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(150px, 1fr) minmax(110px, .7fr)",
+              gap: 12,
+            }}
+          >
+            <div className="field">
+              <label htmlFor="bd-start-date">
+                {kind === "lodging" ? "Check-in date" : "Start date"}
+              </label>
+              <input
+                id="bd-start-date"
+                className="input"
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  if (!e.target.value) setStartTime("");
+                  if (!endDate) setEndDate(e.target.value);
+                }}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="bd-start-time">
+                {kind === "lodging" ? "Check-in time (optional)" : "Start time"}
+              </label>
+              <input
+                id="bd-start-time"
+                className="input"
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="bd-end-date">
+                {kind === "lodging" ? "Check-out date" : "End date"}
+              </label>
+              <input
+                id="bd-end-date"
+                className="input"
+                type="date"
+                value={endDate}
+                min={startDate || undefined}
+                onChange={(e) => {
+                  setEndDate(e.target.value);
+                  if (!e.target.value) setEndTime("");
+                }}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="bd-end-time">
+                {kind === "lodging" ? "Check-out time (optional)" : "End time"}
+              </label>
+              <input
+                id="bd-end-time"
+                className="input"
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+              />
+            </div>
           </div>
           <div className="field">
-            <label htmlFor="bd-starts-tz">Departs timezone</label>
+            <label htmlFor="bd-starts-tz">Timezone</label>
             <select
               id="bd-starts-tz"
               className="input"
               value={startsAtTz}
-              onChange={(e) => setStartsAtTz(e.target.value)}
+              onChange={(e) => {
+                setStartsAtTz(e.target.value);
+                if (kind !== "flight") setEndsAtTz(e.target.value);
+              }}
             >
               <option value="">Pick a timezone…</option>
               {zones.map((z) => (
@@ -678,36 +754,30 @@ export function BookingDialog({
               ))}
             </select>
           </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div className="field">
-            <label htmlFor="bd-ends">Arrives / ends</label>
-            <input
-              id="bd-ends"
-              className="input"
-              type="datetime-local"
-              value={endsAt}
-              onChange={(e) => setEndsAt(e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="bd-ends-tz">Arrives timezone</label>
-            <select
-              id="bd-ends-tz"
-              className="input"
-              value={endsAtTz}
-              onChange={(e) => setEndsAtTz(e.target.value)}
-            >
-              <option value="">Pick a timezone…</option>
-              {zones.map((z) => (
-                <option key={z} value={z}>
-                  {z}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+          {kind === "flight" && (
+            <div className="field">
+              <label htmlFor="bd-ends-tz">Arrives timezone</label>
+              <select
+                id="bd-ends-tz"
+                className="input"
+                value={endsAtTz}
+                onChange={(e) => setEndsAtTz(e.target.value)}
+              >
+                <option value="">Pick a timezone…</option>
+                {zones.map((z) => (
+                  <option key={z} value={z}>
+                    {z}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {kind === "lodging" && (
+            <p className="text-muted" style={{ margin: 0 }}>
+              Times are optional. The stay will still appear on every day from check-in through check-out.
+            </p>
+          )}
+        </fieldset>
 
         <div className="field">
           <label htmlFor="bd-who">Who's on it</label>

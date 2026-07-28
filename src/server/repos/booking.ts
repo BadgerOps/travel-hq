@@ -34,6 +34,8 @@ export type Booking = {
   status: BookingStatus;
   details: unknown;
   personIds: string[];
+  /** Present only in itinerary responses when a booking spans several days. */
+  itineraryPosition?: "start" | "ongoing" | "end";
 };
 
 export type CreateBookingInput = {

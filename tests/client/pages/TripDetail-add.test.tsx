@@ -56,12 +56,11 @@ describe("TripDetail — add booking", () => {
     expect(screen.getByRole("dialog")).toHaveAccessibleName("Add booking");
   });
 
-  it("still offers no trip-edit control", async () => {
-    // Deliberate: there is no trip-update endpoint, so design 1b's pencil
-    // stays absent rather than becoming a second inert affordance.
+  it("offers trip management from the header menu", async () => {
     renderDetail();
     await screen.findByRole("button", { name: /add booking/i });
-    expect(screen.queryByRole("button", { name: /edit trip/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/trip menu/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /check duplicates/i })).toBeInTheDocument();
   });
 
   it("reloads bookings and refreshes the rail cost rollup after a save", async () => {

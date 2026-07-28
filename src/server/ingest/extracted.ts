@@ -18,6 +18,7 @@ const extractedBookingSchema = z.object({
   endsAtTz: z.string().nullish(),
   confirmationNumber: z.string().nullish(),
   costCents: z.number().nullish(),
+  travelerNames: z.array(z.string()).max(50).optional(),
   travelerEmails: z.array(z.string()).max(50).optional(),
   details: z.unknown().optional(),
 });
@@ -61,6 +62,7 @@ export function normalizeExtractedBooking(raw: unknown): ExtractedBooking {
     startsAtTz: startsAt ? value.startsAtTz : null,
     endsAt,
     endsAtTz: endsAt ? value.endsAtTz : null,
+    travelerNames: normalizeTravelerNames(value.travelerNames),
     travelerEmails: normalizeTravelerEmails(value.travelerEmails),
     costCents:
       value.costCents === undefined || value.costCents === null || !Number.isInteger(value.costCents)
@@ -104,6 +106,7 @@ export const EXTRACTED_JSON_SCHEMA = {
           "endsAtTz",
           "confirmationNumber",
           "costCents",
+          "travelerNames",
           "travelerEmails",
           "details",
         ],
@@ -128,6 +131,13 @@ export const EXTRACTED_JSON_SCHEMA = {
           endsAtTz: { type: ["string", "null"] },
           confirmationNumber: { type: ["string", "null"] },
           costCents: { type: ["integer", "null"], description: "Total cost in cents" },
+          travelerNames: {
+            type: "array",
+            maxItems: 50,
+            items: { type: "string" },
+            description:
+              "Full names explicitly identified as travelers, guests, passengers, or reservation holders",
+          },
           travelerEmails: {
             type: "array",
             maxItems: 50,
@@ -140,7 +150,7 @@ export const EXTRACTED_JSON_SCHEMA = {
             additionalProperties: true,
             description:
               "Kind-specific facts. flight: carrier, flightNumber, originIata, destinationIata, cabin, seat. " +
-              "lodging: propertyName, address, roomType, nights. " +
+              "lodging: propertyName, address, roomType, nights, checkInDate, checkOutDate. " +
               "car: vendor, pickupLocation, pickupTime, dropoffLocation, dropoffTime, vehicleClass. " +
               "activity: venue, address, operator, partySize, pickupTime, pickupLocation, " +
               "arriveMinutesBefore (whole minutes), returnTime, dropoffLocation, duration, description. " +
@@ -159,6 +169,15 @@ function normalizeTravelerEmails(values: string[] | undefined): string[] {
     if (z.email().safeParse(email).success) emails.add(email);
   }
   return [...emails];
+}
+
+function normalizeTravelerNames(values: string[] | undefined): string[] {
+  const names = new Set<string>();
+  for (const value of values ?? []) {
+    const name = value.replace(/\s+/g, " ").trim();
+    if (name !== "") names.add(name);
+  }
+  return [...names];
 }
 
 function normalizeInstant(
@@ -181,10 +200,19 @@ function inferredKind(value: z.infer<typeof extractedBookingSchema>): ExtractedB
     value.location ?? "",
     JSON.stringify(value.details ?? {}),
   ].join(" ").toLowerCase();
-  return /\b(?:rv park|campground|camp site|campsite|koa|hotel|motel|lodge|lodging|resort|hostel|vacation rental)\b/
+  if (
+    /\b(?:rv park|campground|camp site|campsite|koa|hotel|motel|lodge|lodging|resort|hostel|vacation rental)\b/
       .test(haystack)
-    ? "lodging"
-    : value.kind;
+  ) {
+    return "lodging";
+  }
+  if (
+    /\b(?:tour|excursion|cruise|boat|hike|guided|guide|admission|ticket|attraction|museum|show)\b/
+      .test(haystack)
+  ) {
+    return "activity";
+  }
+  return value.kind;
 }
 
 function detailsForKind(
@@ -193,8 +221,27 @@ function detailsForKind(
 ): unknown {
   const details =
     value.details !== null && typeof value.details === "object" && !Array.isArray(value.details)
-      ? value.details as Record<string, unknown>
+      ? Object.fromEntries(
+          Object.entries(value.details as Record<string, unknown>)
+            // Constrained model output commonly emits null for optional known
+            // fields. Zod's optional() means absent, not null; dropping nulls
+            // keeps one empty address from degrading a clearly named RV park
+            // back to "other".
+            .filter(([, detail]) => detail !== null && detail !== undefined),
+        )
       : {};
+  if (kind === "activity") {
+    for (const key of ["pickupLocation", "dropoffLocation"] as const) {
+      const location = details[key];
+      if (
+        typeof location === "string" &&
+        /\b(?:polic(?:y|ies)|terms|cancellations?|refunds?|reservation\(s\)|following applies)\b/i
+          .test(location)
+      ) {
+        delete details[key];
+      }
+    }
+  }
   if (kind === "lodging") {
     return {
       propertyName:

@@ -4,7 +4,7 @@ import {
   AirplaneTakeoff,
   Bed,
   Car,
-  ForkKnife,
+  Suitcase,
   Ticket,
   type Icon,
 } from "@phosphor-icons/react";
@@ -42,6 +42,14 @@ export function SharedAgenda({
         const provisional = b.status !== "booked";
         const { Icon: KindIcon, alt } = bookingIcon(b);
         const time = timeParts(b);
+        const stayLabel =
+          b.itineraryPosition === "start"
+            ? "Check in"
+            : b.itineraryPosition === "end"
+              ? "Check out"
+              : b.itineraryPosition === "ongoing"
+                ? "Staying"
+                : null;
 
         const dotClass = provisional
           ? "timeline-dot timeline-dot--hollow"
@@ -68,10 +76,10 @@ export function SharedAgenda({
                 52px leading gutter of the 1e list rows. Rendered even when
                 the booking has no time yet, so undated cards stay aligned. */}
             <div className="timeline-inline-time">
-              {time && (
+              {(time || stayLabel) && (
                 <>
-                  <div className="t">{time.clock}</div>
-                  <div className="tz">{[time.period, time.abbr].filter(Boolean).join(" ")}</div>
+                  <div className="t">{time?.clock ?? stayLabel}</div>
+                  {time && <div className="tz">{[time.period, time.abbr].filter(Boolean).join(" ")}</div>}
                 </>
               )}
             </div>
@@ -92,12 +100,12 @@ export function SharedAgenda({
                 needs both columns per row, and a label here would misalign
                 the timeline (same reasoning as the old emptyLabel=""). */}
             <div className="timeline-time">
-              {time && (
+              {(time || stayLabel) && (
                 <>
                   <div className="t">
-                    {time.start} {time.abbr && <span className="tz">{time.abbr}</span>}
+                    {time?.start ?? stayLabel} {time?.abbr && <span className="tz">{time.abbr}</span>}
                   </div>
-                  {time.crossZone && <div className="t2">{time.crossZone}</div>}
+                  {time?.crossZone && <div className="t2">{time.crossZone}</div>}
                 </>
               )}
             </div>
@@ -144,7 +152,7 @@ function bookingIcon(b: Booking): { Icon: Icon; alt: boolean } {
     case "activity":
       return { Icon: Ticket, alt: true };
     default:
-      return { Icon: ForkKnife, alt: true };
+      return { Icon: Suitcase, alt: true };
   }
 }
 

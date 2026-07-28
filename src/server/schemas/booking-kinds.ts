@@ -19,6 +19,9 @@ export const lodgingDetails = z.object({
   address: z.string().optional(),
   roomType: z.string().optional(),
   nights: z.number().int().positive().optional(),
+  /** Date-only fallbacks when a confirmation states the stay dates but not a clock time. */
+  checkInDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  checkOutDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 }).passthrough();
 
 export const carDetails = z.object({

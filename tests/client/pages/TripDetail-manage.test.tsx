@@ -58,7 +58,7 @@ beforeEach(() => {
 describe("TripDetail management", () => {
   it("opens the edit form from the header pencil, seeded from the trip", async () => {
     renderDetail();
-    await userEvent.click(await screen.findByRole("button", { name: `Edit ${TRIP.title}` }));
+    await userEvent.click(await screen.findByRole("button", { name: "Edit trip" }));
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByLabelText("Title")).toHaveValue(TRIP.title);
     expect(within(dialog).getByRole("radio", { name: "Auto (planning)" })).toBeChecked();
@@ -68,7 +68,7 @@ describe("TripDetail management", () => {
     const api = makeApi();
     api.trips.update = vi.fn(async () => ({ ...TRIP, title: "Wedding weekend" }));
     renderDetail(api);
-    await userEvent.click(await screen.findByRole("button", { name: `Edit ${TRIP.title}` }));
+    await userEvent.click(await screen.findByRole("button", { name: "Edit trip" }));
     const getCalls = api.trips.get.mock.calls.length;
     await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
     expect(api.trips.update).toHaveBeenCalledWith("t1", expect.objectContaining({ title: TRIP.title }));

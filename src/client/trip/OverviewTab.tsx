@@ -610,7 +610,7 @@ function RailPerson({
  * booking's calendar day in its own zone, then the shared dual-tz time. */
 function bookingWhenLine(b: Booking): string {
   const when = formatBookingWhen(b, "");
-  if (!b.startsAt) return "No date yet";
+  if (!b.startsAt) return when || "No date yet";
   const day = new Intl.DateTimeFormat("en-US", {
     timeZone: b.startsAtTz ?? "UTC",
     weekday: "short",

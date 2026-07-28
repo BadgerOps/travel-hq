@@ -42,6 +42,10 @@ function draft(
     suggestedTrip: null,
     duplicates: [],
     ...options,
+    costCents: options.costCents ?? null,
+    details: options.details ?? {},
+    travelerNames: options.travelerNames ?? [],
+    travelerEmails: options.travelerEmails ?? [],
   };
 }
 
@@ -71,6 +75,27 @@ afterEach(() => {
 });
 
 describe("ImportReviewQueue", () => {
+  it("shows extracted confirmation, cost, and useful booking details", async () => {
+    setup([draft("KOA", {
+      kind: "lodging",
+      title: "St. Mary / East Glacier KOA Holiday",
+      confirmationNumber: "21081900",
+      costCents: 42_500,
+      details: {
+        propertyName: "St. Mary / East Glacier KOA Holiday",
+        checkInDate: "2026-08-05",
+        checkOutDate: "2026-08-09",
+        nights: 4,
+        siteNumber: "1896",
+      },
+    })]);
+
+    expect(await screen.findByText("21081900")).toBeInTheDocument();
+    expect(screen.getByText("$425.00")).toBeInTheDocument();
+    expect(screen.getByText("Aug 5, 2026")).toBeInTheDocument();
+    expect(screen.getByText("1896")).toBeInTheDocument();
+  });
+
   it("groups one source and accepts all uniquely matched drafts into its suggested trip", async () => {
     const first = draft("DL2586", { suggestedTrip: trip });
     const second = draft("DL162", { suggestedTrip: trip });

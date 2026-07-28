@@ -101,6 +101,7 @@ export function createApi(config: ApiConfig = {}) {
     me: () => request<Identity>("/api/me"),
     people: {
       list: () => request<Person[]>("/api/people"),
+      ensureMe: () => request<Person>("/api/people/me", jsonBody("POST", {})),
       reveal: (id: string, field: DocumentField) =>
         request<{ value: string | null }>(
           `/api/people/${seg(id)}/reveal/${seg(field)}`,
