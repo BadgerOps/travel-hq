@@ -15,9 +15,16 @@ const doneSchema = z.object({ done: z.boolean() });
 
 export const checklist = new Hono<AppEnv>();
 
-checklist.get("/", async (c) =>
-  c.json(await new ChecklistRepo(c.get("db"), c.get("identity")).listAll()),
-);
+checklist.get("/", async (c) => {
+  const tripId = c.req.query("tripId");
+  if (tripId) {
+    // The trip id lives in the query string, so the path-based trip
+    // authorization middleware cannot resolve it.
+    await authorizeTrip(c, async () => {}, tripId);
+  }
+  const repo = new ChecklistRepo(c.get("db"), c.get("identity"));
+  return c.json(tripId ? await repo.listByTrip(tripId) : await repo.listAll());
+});
 
 checklist.post("/", async (c) => {
   let body: unknown;

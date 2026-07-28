@@ -117,15 +117,14 @@ export function OverviewTab({
     };
   }, [api, trip]);
 
-  // Rail checklist card. Same tripId filter as ChecklistTab (the endpoint is
-  // cross-trip); same silent degrade as the strip — the Checklist tab owns
-  // error reporting.
+  // Rail checklist card. The server scopes this read to the current trip;
+  // the defensive filter also keeps partial test APIs honest.
   const [checklist, setChecklist] = useState<ChecklistItem[] | null>(null);
   useEffect(() => {
     const list = api.checklist?.list;
     if (typeof list !== "function") return;
     let cancelled = false;
-    list().then(
+    list(trip.id).then(
       (all) => {
         if (!cancelled) setChecklist(all.filter((i) => i.tripId === trip.id));
       },

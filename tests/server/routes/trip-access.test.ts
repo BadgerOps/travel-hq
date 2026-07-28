@@ -170,6 +170,34 @@ describe("server-enforced trip scope", () => {
     expect((await request(viewerApp, `/api/trips/${privateTrip.id}`)).status).toBe(404);
   });
 
+  it("scopes the trip-filtered checklist endpoint to shared trips", async () => {
+    const shared = await createTrip("Glacier");
+    const privateTrip = await createTrip("Private");
+    await json(ownerApp, "/api/checklist", "POST", {
+      tripId: shared.id,
+      label: "Pack boots",
+    });
+    await json(ownerApp, "/api/checklist", "POST", {
+      tripId: privateTrip.id,
+      label: "Private task",
+    });
+    const member = await invite(shared.id, "david@example.com", "viewer");
+    const viewerApp = appAs(invitedIdentity(member));
+
+    const sharedResponse = await request(
+      viewerApp,
+      `/api/checklist?tripId=${encodeURIComponent(shared.id)}`,
+    );
+    expect(sharedResponse.status).toBe(200);
+    expect(await sharedResponse.json()).toEqual([
+      expect.objectContaining({ tripId: shared.id, label: "Pack boots" }),
+    ]);
+    expect((await request(
+      viewerApp,
+      `/api/checklist?tripId=${encodeURIComponent(privateTrip.id)}`,
+    )).status).toBe(404);
+  });
+
   it("lets viewers read a shared trip but not change it", async () => {
     const trip = await createTrip("Glacier");
     const member = await invite(trip.id, "david@example.com", "viewer");

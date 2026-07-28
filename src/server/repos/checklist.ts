@@ -76,6 +76,22 @@ export class ChecklistRepo extends TenantRepo {
   }
 
   async listByTrip(tripId: string): Promise<ChecklistItem[]> {
+    const trip =
+      this.ctx.role === "viewer"
+        ? await this.get<{ id: string }>(
+            `SELECT id FROM trip
+              WHERE {scope} AND id = ?2
+                AND id IN (
+                  SELECT trip_id FROM trip_member WHERE user_id = ?3
+                )`,
+            tripId,
+            this.ctx.userId,
+          )
+        : await this.get<{ id: string }>(
+            "SELECT id FROM trip WHERE {scope} AND id = ?2",
+            tripId,
+          );
+    if (!trip) throw new NotFoundError("Trip not found in this household");
     const rows = await this.all<Row>(
       `SELECT * FROM checklist_item
         WHERE {scope} AND trip_id = ?2

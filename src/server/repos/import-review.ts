@@ -467,7 +467,7 @@ export class ImportReviewRepo extends TenantRepo {
                 ?, ?, ?, ?, ?,
                 (SELECT title FROM draft_booking
                   WHERE id = ? AND household_id = ? AND status = 'pending'),
-                ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'planned', ?, ?
+                ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'booked', ?, ?
               )`,
         params: [
           bookingId,

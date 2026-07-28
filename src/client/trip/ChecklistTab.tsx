@@ -27,7 +27,7 @@ export function ChecklistTab({
   useEffect(() => {
     let cancelled = false;
     api.checklist
-      .list()
+      .list(tripId)
       .then((all) => {
         if (!cancelled) setItems(all.filter((i) => i.tripId === tripId));
       })

@@ -100,5 +100,22 @@ void _schemasAreKinds;
 
 export function parseDetails(kind: string, details: unknown): unknown {
   const schema = SCHEMAS[kind as keyof typeof SCHEMAS];
-  return schema ? schema.parse(details) : freeformDetails.parse(details);
+  return schema ? schema.parse(withoutNullOptionals(details)) : freeformDetails.parse(details);
+}
+
+/**
+ * Constrained extractors and older imports often represented an absent
+ * optional value as null. Our kind schemas use optional fields, where absence
+ * is valid but null is not. Normalize those top-level null placeholders away
+ * before validation; a required null is still rejected because removing it
+ * leaves the required field missing.
+ */
+function withoutNullOptionals(details: unknown): unknown {
+  if (details === null || typeof details !== "object" || Array.isArray(details)) {
+    return details;
+  }
+  return Object.fromEntries(
+    Object.entries(details as Record<string, unknown>)
+      .filter(([, value]) => value !== null && value !== undefined),
+  );
 }

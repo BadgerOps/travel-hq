@@ -135,6 +135,14 @@ export function createApi(config: ApiConfig = {}) {
       create: (input: CreateTripInput) => request<Trip>("/api/trips", jsonBody("POST", input)),
       update: (tripId: string, input: UpdateTripInput) =>
         request<Trip>(`/api/trips/${seg(tripId)}`, jsonBody("PUT", input)),
+      uploadPhoto: (tripId: string, file: File) => {
+        const form = new FormData();
+        form.set("photo", file);
+        return request<Trip>(`/api/trips/${seg(tripId)}/photo`, {
+          method: "POST",
+          body: form,
+        });
+      },
       delete: (tripId: string) =>
         // No body: the route reads the id from the path and never calls
         // c.req.json(). Sending a content-type here would be a lie.
@@ -223,7 +231,10 @@ export function createApi(config: ApiConfig = {}) {
         ),
     },
     checklist: {
-      list: () => request<ChecklistItem[]>("/api/checklist"),
+      list: (tripId?: string) =>
+        request<ChecklistItem[]>(
+          `/api/checklist${tripId ? `?tripId=${seg(tripId)}` : ""}`,
+        ),
       create: (input: {
         tripId: string;
         label: string;

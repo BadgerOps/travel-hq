@@ -22,6 +22,10 @@ function makeApi() {
     trips: {
       create: vi.fn(),
       update: vi.fn(async () => ({ ...TRIP, title: "Updated" })),
+      uploadPhoto: vi.fn(async () => ({
+        ...TRIP,
+        photoUrl: "/api/trips/t1/photo?v=1",
+      })),
       addTraveler: vi.fn(),
     },
   };
@@ -74,7 +78,7 @@ describe("TripForm (edit mode)", () => {
 
   it("seeds the cover photo URL and sends null once emptied", async () => {
     const { api } = renderEdit({ ...TRIP, photoUrl: "https://img.example/river.jpg" });
-    const input = screen.getByLabelText(/cover photo/i);
+    const input = screen.getByLabelText("Or use an image URL");
     expect(input).toHaveValue("https://img.example/river.jpg");
     await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
     expect(api.trips.update).toHaveBeenCalledWith(
@@ -87,6 +91,19 @@ describe("TripForm (edit mode)", () => {
     expect(api.trips.update).toHaveBeenLastCalledWith(
       "t1",
       expect.objectContaining({ photoUrl: null }),
+    );
+  });
+
+  it("uploads a selected cover image before saving the trip fields", async () => {
+    const { api } = renderEdit();
+    const file = new File(["jpeg"], "glacier.jpg", { type: "image/jpeg" });
+    await userEvent.upload(screen.getByLabelText("Upload cover photo"), file);
+    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    expect(api.trips.uploadPhoto).toHaveBeenCalledWith("t1", file);
+    expect(api.trips.update).toHaveBeenCalledWith(
+      "t1",
+      expect.not.objectContaining({ photoUrl: expect.anything() }),
     );
   });
 
