@@ -422,16 +422,20 @@ export class ImportReviewRepo extends TenantRepo {
     const peopleByEmail = await this.peopleByEmail();
     for (const draft of drafts) {
       const extracted = asRecord(draft.extracted);
-      const details = parseDetails(draft.kind, extracted.details ?? {});
+      const details = parseDetails(
+        draft.kind,
+        importDetails(draft.kind, draft.title, extracted.details),
+      );
       const costCents =
         typeof extracted.costCents === "number" && Number.isInteger(extracted.costCents)
           ? extracted.costCents
           : null;
+      const personIds = matchedPersonIds(extracted.travelerEmails, peopleByEmail);
+
       const bookingId = newId();
       const encryptedConfirmation = draft.confirmationNumber
         ? await this.ring.encrypt(draft.confirmationNumber)
         : null;
-      const personIds = matchedPersonIds(extracted.travelerEmails, peopleByEmail);
 
       // The title scalar subquery is also the race guard. If another reviewer
       // resolves this draft after prevalidation but before the batch executes,
@@ -468,16 +472,7 @@ export class ImportReviewRepo extends TenantRepo {
           resolvedAt,
         ],
       });
-      for (const personId of personIds) {
-        statements.push({
-          sql: "INSERT OR IGNORE INTO booking_person (booking_id, person_id) VALUES (?, ?)",
-          params: [bookingId, personId],
-        });
-        statements.push({
-          sql: "INSERT OR IGNORE INTO trip_person (trip_id, person_id) VALUES (?, ?)",
-          params: [tripId, personId],
-        });
-      }
+      appendPersonStatements(statements, bookingId, tripId, personIds);
       statements.push({
         sql: `UPDATE draft_booking
                  SET status = 'accepted', booking_id = ?, resolved_at = ?
@@ -564,6 +559,36 @@ function matchedPersonIds(
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function appendPersonStatements(
+  statements: Array<{ sql: string; params: unknown[] }>,
+  bookingId: string,
+  tripId: string,
+  personIds: string[],
+): void {
+  for (const personId of personIds) {
+    statements.push({
+      sql: "INSERT OR IGNORE INTO booking_person (booking_id, person_id) VALUES (?, ?)",
+      params: [bookingId, personId],
+    });
+    statements.push({
+      sql: "INSERT OR IGNORE INTO trip_person (trip_id, person_id) VALUES (?, ?)",
+      params: [tripId, personId],
+    });
+  }
+}
+
+function importDetails(kind: string, title: string, value: unknown): unknown {
+  const details = asRecord(value);
+  if (kind !== "lodging") return details;
+  return {
+    propertyName:
+      typeof details.propertyName === "string" && details.propertyName.trim() !== ""
+        ? details.propertyName
+        : title,
+    ...details,
+  };
 }
 
 function draftDateRange(draft: Pick<

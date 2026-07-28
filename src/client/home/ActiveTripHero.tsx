@@ -4,8 +4,8 @@ import {
   ArrowRight,
   Bed,
   Car,
-  ForkKnife,
   Confetti,
+  Ticket,
 } from "@phosphor-icons/react";
 import type { Booking, ItineraryDay, Person, Trip } from "../api/types.js";
 import { formatTimeInZone } from "../lib/dates.js";
@@ -17,11 +17,11 @@ const KIND_ICON = {
   lodging: Bed,
   car: Car,
   activity: Confetti,
-  other: ForkKnife,
+  other: Ticket,
 } as const;
 
 function iconFor(kind: string) {
-  return KIND_ICON[kind as keyof typeof KIND_ICON] ?? ForkKnife;
+  return KIND_ICON[kind as keyof typeof KIND_ICON] ?? Ticket;
 }
 
 function minutesUntil(startsAt: string, now: Date): number {

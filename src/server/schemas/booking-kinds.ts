@@ -12,14 +12,14 @@ export const flightDetails = z.object({
   destinationIata: iata,
   cabin: z.string().optional(),
   seat: z.string().optional(),
-});
+}).passthrough();
 
 export const lodgingDetails = z.object({
   propertyName: z.string().min(1),
   address: z.string().optional(),
   roomType: z.string().optional(),
   nights: z.number().int().positive().optional(),
-});
+}).passthrough();
 
 export const carDetails = z.object({
   vendor: z.string().min(1),
@@ -28,7 +28,7 @@ export const carDetails = z.object({
   dropoffLocation: z.string().optional(),
   dropoffTime: z.string().optional(),
   vehicleClass: z.string().optional(),
-});
+}).passthrough();
 
 /**
  * An excursion is not a restaurant booking: what the family needs on the
@@ -60,7 +60,7 @@ export const activityDetails = z.object({
   duration: z.string().optional(),
   description: z.string().optional(),
   notes: z.string().optional(),
-});
+}).passthrough();
 
 /** Anything not modeled yet. The escape hatch that makes the JSON column worth having. */
 export const freeformDetails = z.record(z.string(), z.unknown());

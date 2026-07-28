@@ -170,6 +170,14 @@ export class InboundEmailRepo extends TenantRepo {
     return row ? toInboundEmail(row) : undefined;
   }
 
+  async findByMessageId(messageId: string): Promise<InboundEmail | undefined> {
+    const row = await this.get<Row>(
+      "SELECT * FROM inbound_email WHERE {scope} AND message_id = ?2",
+      messageId,
+    );
+    return row ? toInboundEmail(row) : undefined;
+  }
+
   /** received → extracted. The extractor (#6) calls this on success. */
   async markExtracted(id: string): Promise<InboundEmail> {
     // `return await`, not `return`: transition() can reject synchronously

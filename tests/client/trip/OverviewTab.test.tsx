@@ -51,6 +51,20 @@ describe("OverviewTab", () => {
   it("masks the confirmation number", () => {
     renderTab([booking()]);
     expect(screen.getByText("••••X4T2")).toBeInTheDocument();
+    expect(screen.getByText(/Confirmation/)).toBeInTheDocument();
+  });
+
+  it("surfaces site details so separate RV reservations are distinguishable", () => {
+    renderTab([booking({
+      kind: "lodging",
+      title: "Silverwood RV Park Reservation",
+      location: "Silverwood RV Park",
+      details: { propertyName: "Silverwood RV Park", site: "11", type: "RV" },
+    })]);
+
+    expect(screen.getByText("Stay & car")).toBeInTheDocument();
+    expect(screen.getByText("Site 11")).toBeInTheDocument();
+    expect(screen.getByText("RV")).toBeInTheDocument();
   });
 
   it("keeps prices out of the event-focused overview", () => {

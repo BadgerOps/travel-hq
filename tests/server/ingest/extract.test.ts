@@ -168,6 +168,41 @@ describe("extractInboundEmail", () => {
     ]);
   });
 
+  it("classifies an RV park as lodging and converts its local check-in deterministically", async () => {
+    const ai = fakeAi({
+      response: {
+        bookings: [{
+          kind: "other",
+          title: "Silverwood RV Park Reservation",
+          location: "Silverwood RV Park",
+          startsAt: "2026-07-29T13:00:00",
+          startsAtTz: "America/Boise",
+          endsAt: "2026-07-30T10:00:00",
+          endsAtTz: "America/Boise",
+          confirmationNumber: "218088",
+          costCents: 16_416,
+          details: { site: "1", type: "RV", waterParkOpen: true },
+        }],
+      },
+    });
+    const email = await store("Subject: RV park\r\n\r\nSite 1, check in 1 PM");
+    await run(email, ai);
+
+    expect(await drafts(email.id)).toMatchObject([{
+      kind: "lodging",
+      startsAt: "2026-07-29T19:00:00.000Z",
+      endsAt: "2026-07-30T16:00:00.000Z",
+      extracted: {
+        details: {
+          propertyName: "Silverwood RV Park Reservation",
+          site: "1",
+          type: "RV",
+          waterParkOpen: true,
+        },
+      },
+    }]);
+  });
+
   it("sends HTML-only forwarded booking details to AI as readable text", async () => {
     const ai = fakeAi({ response: { bookings: [MODEL_BOOKING] } });
     const email = await store([
@@ -253,6 +288,8 @@ describe("buildExtractionPrompt", () => {
     expect(prompt.system).toContain(
       "Do not include a forwarding sender or recipient",
     );
+    expect(prompt.system).toContain("local wall-clock");
+    expect(prompt.system).toContain("RV parks as lodging");
     expect(prompt.system).toContain("Household notes");
     expect(prompt.system).toContain("Prefer Boise departures.");
     expect(prompt.system.indexOf("Household notes")).toBeGreaterThan(

@@ -163,6 +163,45 @@ beforeEach(async () => {
 });
 
 describe("email() ingest", () => {
+  it("ignores an exact Message-ID redelivery before extracting it again", async () => {
+    const ai = {
+      run: vi.fn(async () => ({
+        response: {
+          bookings: [{
+            kind: "lodging",
+            title: "Dawn Ranch",
+            location: null,
+            startsAt: null,
+            startsAtTz: null,
+            endsAt: null,
+            endsAtTz: null,
+            confirmationNumber: "ABC123",
+            costCents: null,
+            details: { propertyName: "Dawn Ranch" },
+          }],
+        },
+      })),
+    };
+    const headers = {
+      "Authentication-Results": AUTH_PASS,
+      "Message-ID": "<same-delivery@example.com>",
+    };
+
+    await worker.email(
+      fakeMessage({ headers }),
+      { DB: env.DB, AI: ai },
+      {} as ExecutionContext,
+    );
+    await worker.email(
+      fakeMessage({ headers }),
+      { DB: env.DB, AI: ai },
+      {} as ExecutionContext,
+    );
+
+    expect(ai.run).toHaveBeenCalledTimes(1);
+    expect(await storedRows()).toHaveLength(1);
+  });
+
   it("runs AI extraction inline after storing a verified plain message", async () => {
     const ai = {
       run: vi.fn(async () => ({
