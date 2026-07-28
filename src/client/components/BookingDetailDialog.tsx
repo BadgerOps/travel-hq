@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Clock, MapPin, PencilSimple } from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
 import type {
   Booking,
@@ -9,22 +10,51 @@ import { useCanWrite } from "../api/identity.js";
 import { formatBookingWhen } from "../lib/dates.js";
 import { errorMessage } from "../lib/errors.js";
 import { formatMoney } from "../lib/money.js";
+import { BookingDialog } from "../trip/BookingDialog.js";
 import { Dialog } from "./Dialog.js";
 import { MaskedValue } from "./MaskedValue.js";
 import { StructuredDetails } from "./StructuredDetails.js";
 import { TravelerToggles } from "./TravelerToggles.js";
+
+/**
+ * The logistics keys this dialog renders itself, in the order it renders
+ * them. They are lifted out of the generic label–value grid because for an
+ * excursion they ARE the booking: "Pickup 1:30 PM · Quarter Circle/West Side
+ * Parking Lot" is what someone opens this dialog on the morning of the tour
+ * to read, and "Arrive minutes before: 15" buried between "Operator" and
+ * "Party size" is not that.
+ *
+ * Kept in sync by hand with `activityDetails`/`carDetails` in
+ * src/server/schemas/booking-kinds.ts — the client may import types from the
+ * server but not values, so there is nothing to share.
+ */
+const LOGISTICS_KEYS = [
+  "pickupTime",
+  "pickupLocation",
+  "arriveMinutesBefore",
+  "returnTime",
+  "dropoffTime",
+  "dropoffLocation",
+] as const;
 
 export function BookingDetailDialog({
   booking,
   people = [],
   api = defaultApi,
   onPeopleChanged,
+  onSaved,
   onClose,
 }: {
   booking: Booking;
   people?: Person[];
   api?: typeof defaultApi;
   onPeopleChanged?: () => void;
+  /**
+   * Called after an edit is saved. The booking this dialog was handed is a
+   * snapshot the parent owns, so the parent — not this component — decides
+   * how to refresh it (TripDetail reloads the trip and closes the dialog).
+   */
+  onSaved?: () => void;
   onClose: () => void;
 }) {
   const [artifact, setArtifact] = useState<BookingSourceArtifact | null | undefined>(
@@ -34,6 +64,7 @@ export function BookingDetailDialog({
   const [personIds, setPersonIds] = useState(booking.personIds);
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [peopleBusy, setPeopleBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
   const canWrite = useCanWrite();
 
   useEffect(() => {
@@ -72,15 +103,49 @@ export function BookingDetailDialog({
     }
   }
 
+  // The edit form replaces this dialog rather than stacking a second one on
+  // top of it: two nested modals share one Escape key and one scroll lock.
+  if (editing) {
+    return (
+      <BookingDialog
+        // `personIds`, not `booking.personIds`: the toggles above write
+        // through to the server immediately, so the prop is already stale if
+        // anyone was linked or unlinked before Edit was pressed — and the edit
+        // form diffs against what it was seeded with, which would undo them.
+        booking={{ ...booking, personIds }}
+        people={people}
+        api={api}
+        onSaved={() => {
+          setEditing(false);
+          // The snapshot this dialog holds is now stale; the parent refreshes.
+          (onSaved ?? onPeopleChanged)?.();
+        }}
+        onClose={() => setEditing(false)}
+      />
+    );
+  }
+
   return (
     <Dialog title={booking.title} subtitle="Booking details" onClose={onClose}>
       <div style={{ display: "grid", gap: 10 }}>
-        <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
           <span className="tag tag-accent">{booking.kind}</span>
           <span className="tag tag-neutral">{booking.status}</span>
+          {canWrite && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ marginLeft: "auto" }}
+              aria-label={`Edit ${booking.title}`}
+              onClick={() => setEditing(true)}
+            >
+              <PencilSimple size={14} /> Edit
+            </button>
+          )}
         </div>
         <div className="card-meta">{formatBookingWhen(booking, "No date yet")}</div>
         {booking.location && <div className="card-body">{booking.location}</div>}
+        <ExcursionLogistics details={booking.details} />
         {booking.confirmationNumberMasked && (
           <div className="card-meta">
             Confirmation{" "}
@@ -95,10 +160,11 @@ export function BookingDetailDialog({
         {booking.costCents !== null && (
           <div className="card-meta">Cost {formatMoney(booking.costCents)}</div>
         )}
-        {hasDetails(booking.details) && (
+        {hasDetails(booking.details, LOGISTICS_KEYS) && (
           <>
             <h5 style={{ margin: "4px 0 0" }}>Booking details</h5>
-            <StructuredDetails value={booking.details} />
+            {/* The logistics are already rendered above, in their own block. */}
+            <StructuredDetails value={booking.details} omit={[...LOGISTICS_KEYS]} />
           </>
         )}
 
@@ -187,10 +253,90 @@ const artifactTextStyle = {
   fontSize: 12,
 } as const;
 
-function hasDetails(value: unknown): boolean {
-  return value !== null &&
-    typeof value === "object" &&
-    Object.keys(value as Record<string, unknown>).length > 0;
+/**
+ * The pickup/return block: where to stand, when, and how early. Rendered
+ * above the fold for any booking that carries the keys, whatever its kind —
+ * an excursion imported from a calendar attachment is stored as `other`, and
+ * hiding its pickup behind a kind check would hide it for exactly the
+ * bookings that need it most.
+ */
+function ExcursionLogistics({ details }: { details: unknown }) {
+  const record = asRecord(details);
+  const pickupTime = text(record.pickupTime);
+  const pickupLocation = text(record.pickupLocation);
+  const returnTime = text(record.returnTime) || text(record.dropoffTime);
+  const returnLocation = text(record.dropoffLocation);
+  const arriveEarly = typeof record.arriveMinutesBefore === "number"
+    ? record.arriveMinutesBefore
+    : null;
+
+  if (!pickupTime && !pickupLocation && !returnTime && !returnLocation && arriveEarly === null) {
+    return null;
+  }
+
+  return (
+    <div className="booking-logistics">
+      {(pickupTime || pickupLocation) && (
+        <div className="booking-logistics-row">
+          <Clock size={14} />
+          <span>
+            <strong>Pickup</strong>
+            {pickupTime && ` ${pickupTime}`}
+            {pickupLocation && (
+              <>
+                {" · "}
+                <MapPin size={12} /> {pickupLocation}
+              </>
+            )}
+          </span>
+        </div>
+      )}
+      {arriveEarly !== null && (
+        <div className="booking-logistics-row booking-logistics-row--note">
+          <span>
+            Arrive {arriveEarly} {arriveEarly === 1 ? "minute" : "minutes"} early
+          </span>
+        </div>
+      )}
+      {(returnTime || returnLocation) && (
+        <div className="booking-logistics-row">
+          <Clock size={14} />
+          <span>
+            <strong>Return</strong>
+            {returnTime && ` ${returnTime}`}
+            {returnLocation && (
+              <>
+                {" · "}
+                <MapPin size={12} /> {returnLocation}
+              </>
+            )}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * True when there is anything left to show once `omit`ted keys are removed —
+ * without the filter, a booking whose only details ARE its logistics renders
+ * an empty "Booking details" heading under the block that already showed them.
+ */
+function hasDetails(value: unknown, omit: readonly string[]): boolean {
+  return Object.entries(asRecord(value)).some(
+    ([key, entry]) =>
+      !omit.includes(key) && entry !== null && entry !== undefined && entry !== "",
+  );
 }
 
 function formatReceivedAt(value: string): string {

@@ -14,6 +14,7 @@ const createdTrip: Trip = {
   endsOn: "2026-07-30",
   status: "planning",
   notes: null,
+  photoUrl: null,
 };
 
 function draft(id: string, title: string): PendingImportDraft {
@@ -37,6 +38,7 @@ function draft(id: string, title: string): PendingImportDraft {
       receivedAt: "2026-07-27T19:28:40.411Z",
     },
     suggestedTrip: null,
+    duplicates: [],
   };
 }
 
@@ -125,7 +127,7 @@ describe("PendingImportCard", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Add to trip" }));
 
-    expect(accept).toHaveBeenCalledWith([unmatched.id], createdTrip.id);
+    expect(accept).toHaveBeenCalledWith([unmatched.id], createdTrip.id, false);
     await vi.waitFor(() =>
       expect(screen.queryByTestId("pending-import-card")).not.toBeInTheDocument(),
     );

@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { MapPin, PencilSimple, Plus } from "@phosphor-icons/react";
+import { CalendarBlank, MapPin, PencilSimple, Plus } from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
 import { useCanWrite } from "../api/identity.js";
 import type { Booking, Person, Trip, TripRollup } from "../api/types.js";
-import { resolveTripState, tripStateBadge } from "../lib/dates.js";
+import { formatDateRange, resolveTripState, tripStateBadge } from "../lib/dates.js";
+import { TripCoverPhoto } from "../components/TripCoverPhoto.js";
+import "../trip/trip.css";
 import { errorMessage } from "../lib/errors.js";
 import { Dialog } from "../components/Dialog.js";
 import { PersonChips } from "../components/PersonChip.js";
@@ -12,6 +14,7 @@ import { TripForm } from "../components/TripForm.js";
 import { OverviewTab } from "../trip/OverviewTab.js";
 import { TravelersTab } from "../trip/TravelersTab.js";
 import { TripWarnings } from "../trip/TripWarnings.js";
+import { DuplicatesCard } from "../trip/DuplicatesCard.js";
 import { ChecklistTab } from "../trip/ChecklistTab.js";
 import { DayView } from "../dayview/DayView.js";
 import { BookingDialog } from "../trip/BookingDialog.js";
@@ -112,7 +115,8 @@ export function TripDetail({
   }, [api, id, reloadKey]);
 
   useEffect(() => {
-    if (tab !== "costs" || rollup !== null) return;
+    // Overview's rail cost card shares this rollup; other tabs stay lazy.
+    if ((tab !== "costs" && tab !== "overview") || rollup !== null) return;
     let cancelled = false;
     setRollupLoading(true);
     setRollupFailed(false);
@@ -201,47 +205,79 @@ export function TripDetail({
         with `findByText(trip.title)` — a query that requires a unique match,
         which a repeated crumb would break.
       */}
-      <div className="card-meta" style={{ marginBottom: 8 }}>
-        <Link href="/trips" style={{ color: "inherit" }}>
-          Trips
-        </Link>
+      <div className="trip-breadcrumb">
+        <Link href="/trips">Trips</Link>
       </div>
 
-      <header style={{ marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          <h3 style={{ margin: 0 }}>{trip.title}</h3>
-          {canWrite && (
+      {/* Photo banner (spec: photo headers everywhere trips appear). The
+          cover art sits behind a bottom scrim so the title stays legible on
+          any photo; without a photo the deterministic fallback art renders. */}
+      <header className="detail-banner">
+        <TripCoverPhoto photoUrl={trip.photoUrl} tripId={trip.id} />
+        <div className="banner-scrim" />
+        <div className="banner-content">
+          <div className="banner-title-block">
+            <div className="banner-title-row">
+              <h2>{trip.title}</h2>
+              <span className={state === "cancelled" ? "tag tag-neutral" : "tag tag-accent"}>
+                {tripStateBadge(trip, today)}
+              </span>
+            </div>
+            {(trip.startsOn || trip.destination) && (
+              <p className="banner-sub">
+                {trip.startsOn && (
+                  <>
+                    <CalendarBlank size={13} />
+                    <span>{formatDateRange(trip.startsOn, trip.endsOn, today)}</span>
+                  </>
+                )}
+                {trip.startsOn && trip.destination && (
+                  <span className="banner-sub-sep">·</span>
+                )}
+                {trip.destination && (
+                  <>
+                    <MapPin size={13} />
+                    <span>{trip.destination}</span>
+                  </>
+                )}
+              </p>
+            )}
+            <PersonChips people={travelers} />
+          </div>
+          <div className="banner-actions">
+            {canWrite && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-icon"
+                aria-label={`Edit ${trip.title}`}
+                onClick={() => setEditing(true)}
+              >
+                <PencilSimple size={14} />
+              </button>
+            )}
             <button
               type="button"
-              className="btn btn-secondary btn-icon"
-              aria-label={`Edit ${trip.title}`}
-              onClick={() => setEditing(true)}
+              className="btn btn-primary"
+              onClick={() => setAddingBooking(true)}
             >
-              <PencilSimple size={14} />
+              <Plus size={14} /> Add booking
             </button>
-          )}
-          <span className={state === "cancelled" ? "tag tag-neutral" : "tag tag-accent"}>
-            {tripStateBadge(trip, today)}
-          </span>
-          <PersonChips people={travelers} />
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ marginLeft: "auto" }}
-            onClick={() => setAddingBooking(true)}
-          >
-            <Plus size={14} /> Add booking
-          </button>
-        </div>
-        {trip.destination && (
-          <div className="card-meta">
-            <MapPin size={12} />
-            <span>{trip.destination}</span>
           </div>
-        )}
+        </div>
       </header>
 
       <TripWarnings people={travelers} arrivalOn={trip.startsOn} today={today} />
+
+      {/* Duplicate imports are trip-level news for the same reason an expiring
+          passport is: a doubled flight is wrong in the day view, the cost
+          rollup, and the checklist alike, so it cannot live inside one tab. */}
+      <DuplicatesCard
+        tripId={trip.id}
+        people={people}
+        api={api}
+        reloadKey={reloadKey}
+        onResolved={() => setReloadKey((n) => n + 1)}
+      />
 
       {/*
         A native radio group, not an ARIA tablist — see this task's Interfaces
@@ -278,11 +314,16 @@ export function TripDetail({
           api={api}
           onStatusChanged={() => setReloadKey((n) => n + 1)}
           onBookingClick={setSelectedBooking}
+          travelers={travelers}
+          rollup={rollup}
+          onOpenTab={selectTab}
+          today={today}
         />
       )}
       {tab === "days" && (
         <DayView
           tripId={trip.id}
+          tripTitle={trip.title}
           people={travelers}
           api={api}
           onBookingClick={setSelectedBooking}
@@ -466,6 +507,14 @@ export function TripDetail({
           people={people}
           api={api}
           onPeopleChanged={() => setReloadKey((n) => n + 1)}
+          onSaved={() => {
+            // The dialog holds a snapshot of the booking as it was when the
+            // row was clicked. After an edit that snapshot is wrong, and
+            // re-rendering the detail view from it would show the operator
+            // their old values back. Close and reload instead.
+            setSelectedBooking(null);
+            setReloadKey((n) => n + 1);
+          }}
           onClose={() => setSelectedBooking(null)}
         />
       )}

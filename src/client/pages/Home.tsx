@@ -2,13 +2,20 @@ import { useEffect, useState } from "react";
 import { api as defaultApi } from "../api/client.js";
 import { useIdentity } from "../api/identity.js";
 import type { Booking, ItineraryDay, Person, Trip } from "../api/types.js";
-import { compareTrips, resolveTripState, tripStateBadge } from "../lib/dates.js";
+import {
+  compareTrips,
+  daysUntil,
+  formatLongDate,
+  resolveTripState,
+  tripStateBadge,
+} from "../lib/dates.js";
 import { errorMessage } from "../lib/errors.js";
 import { ActiveTripHero } from "../home/ActiveTripHero.js";
 import { IdleTripHero } from "../home/IdleTripHero.js";
 import { NextBestActions } from "../home/NextBestActions.js";
 import { TripCard } from "../home/TripCard.js";
 import { PendingImportCard } from "../imports/PendingImportCard.js";
+import "../home/home.css";
 
 type Api = typeof defaultApi;
 
@@ -36,6 +43,18 @@ function todayIso(): string {
   return new Intl.DateTimeFormat("en-CA").format(new Date());
 }
 
+/** "Wedding trip · today" / "Wedding trip · in 12 days" — the header tag. */
+function countdownTagText(trip: Trip, today: string): string {
+  const state = resolveTripState(trip, today);
+  if (state === "active") return `${trip.title} · today`;
+  if (trip.startsOn) {
+    const days = daysUntil(trip.startsOn, today);
+    if (days === 1) return `${trip.title} · tomorrow`;
+    if (days > 1) return `${trip.title} · in ${days} days`;
+  }
+  return `${trip.title} · ${tripStateBadge(trip, today).toLowerCase()}`;
+}
+
 export function Home({
   api = defaultApi,
   today = todayIso(),
@@ -49,7 +68,7 @@ export function Home({
   const identity = useIdentity();
   const [trips, setTrips] = useState<Trip[] | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [bookingsByTrip, setBookingsByTrip] = useState<Record<string, Booking[]>>({});
   const [days, setDays] = useState<ItineraryDay[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,21 +90,34 @@ export function Home({
         if (cancelled) return;
         setTrips(t);
         setPeople(p);
-        const current = t.find((trip) => resolveTripState(trip, today) === "active");
-        if (current) {
-          // Two calls, two purposes: the itinerary is day-grouped in each
-          // booking's own timezone and drives the hero; the flat list drives
-          // the active card's "n booked · m to go" count, which is a whole-trip
-          // number and must not be scoped to today.
-          const [b, d] = await Promise.all([
-            api.trips.bookings(current.id),
-            api.trips.itinerary(current.id),
-          ]);
-          if (!cancelled) {
-            setBookings(b);
-            setDays(d);
-          }
-        }
+
+        const dashboard = t.filter((trip) => resolveTripState(trip, today) !== "cancelled");
+        const current = dashboard.find((trip) => resolveTripState(trip, today) === "active");
+
+        // Every visible trip's flat bookings list in parallel (small N):
+        // it feeds each card's day-by-day teaser and "n booked · m to go"
+        // count, and the idle hero's chips. A failed fetch degrades that one
+        // trip to a card without a teaser instead of erroring the page.
+        const perTrip = Promise.all(
+          dashboard.map(async (trip) => {
+            try {
+              return [trip.id, await api.trips.bookings(trip.id)] as const;
+            } catch {
+              return [trip.id, [] as Booking[]] as const;
+            }
+          }),
+        );
+        // The itinerary is a separate call for a separate purpose: it is
+        // day-grouped in each booking's own timezone and drives the active
+        // hero's "next up" — the flat list above must not be scoped to today.
+        const itinerary = current
+          ? api.trips.itinerary(current.id).catch(() => [] as ItineraryDay[])
+          : Promise.resolve([] as ItineraryDay[]);
+
+        const [pairs, d] = await Promise.all([perTrip, itinerary]);
+        if (cancelled) return;
+        setBookingsByTrip(Object.fromEntries(pairs));
+        setDays(d);
       } catch (err) {
         if (!cancelled) setError(errorMessage(err));
       }
@@ -149,25 +181,22 @@ export function Home({
 
   return (
     <>
-      <header
-        style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 24 }}
-      >
-        <div>
-          <h3 style={{ marginBottom: 4 }}>{greeting(now, name)}</h3>
-          <p className="text-muted" style={{ margin: 0 }}>
+      <header className="page-header">
+        <div className="page-title-group">
+          <h3>{greeting(now, name)}</h3>
+          <p className="page-subline">
+            {formatLongDate(today)}
             {active
-              ? `${active.title} · travel day`
-              : `Coming up: ${heroTrip.title}`}
+              ? ` · travel day — ${active.title}`
+              : ` · Coming up: ${heroTrip.title}`}
           </p>
         </div>
-        <span className="tag tag-accent" style={{ marginLeft: "auto" }}>
-          {heroTrip.title} · {tripStateBadge(heroTrip, today)}
-        </span>
+        <span className="tag tag-accent">{countdownTagText(heroTrip, today)}</span>
       </header>
 
       {pendingImports}
 
-      <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+      <div className="hero-row">
         {active ? (
           <ActiveTripHero
             trip={active}
@@ -179,25 +208,24 @@ export function Home({
             }
           />
         ) : (
-          <IdleTripHero trip={heroTrip} today={today} />
+          <IdleTripHero
+            trip={heroTrip}
+            today={today}
+            people={people}
+            bookings={bookingsByTrip[heroTrip.id] ?? []}
+          />
         )}
         <NextBestActions api={api} today={today} />
       </div>
 
       <hr className="hr" />
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(min(380px, 100%), 1fr))",
-          gap: 14,
-        }}
-      >
+      <div className="grid-cards">
         {ordered.map((t) => (
           <TripCard
             key={t.id}
             trip={t}
-            bookings={t.id === active?.id ? bookings : []}
+            bookings={bookingsByTrip[t.id] ?? []}
             people={people}
             today={today}
           />

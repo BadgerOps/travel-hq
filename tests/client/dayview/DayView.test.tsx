@@ -196,7 +196,7 @@ describe("DayView", () => {
   it("resolves a person chip for every personId on a booking", async () => {
     renderDayView();
     await screen.findByText("Shared flight");
-    const flightCard = screen.getByText("Shared flight").closest(".card") as HTMLElement;
+    const flightCard = screen.getByText("Shared flight").closest(".booking-row") as HTMLElement;
     expect(within(flightCard).getByTitle("Badger")).toBeInTheDocument();
     expect(within(flightCard).getByTitle("Ava")).toBeInTheDocument();
   });

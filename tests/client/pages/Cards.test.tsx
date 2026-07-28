@@ -172,18 +172,38 @@ describe("Cards page", () => {
     expect(screen.getByText("unspent")).toBeInTheDocument();
   });
 
-  it("deletes a perk after a confirm", async () => {
-    const api = makeApi();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    try {
-      renderCards(api);
-      await userEvent.click(await screen.findByRole("button", { name: /delete annual travel credit/i }));
-      expect(api.cards.removePerk).toHaveBeenCalledWith("c1", "k1");
-      await vi.waitFor(() => {
-        expect(screen.queryByText("Annual travel credit")).not.toBeInTheDocument();
-      });
-    } finally {
-      confirmSpy.mockRestore();
-    }
+  it("deletes a perk through the two-step confirm dialog", async () => {
+    const api = renderCards();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /delete annual travel credit/i }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: /delete annual travel credit\?/i });
+    // First click only arms the button — nothing is deleted yet.
+    await userEvent.click(within(dialog).getByRole("button", { name: /^delete perk$/i }));
+    expect(api.cards.removePerk).not.toHaveBeenCalled();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /yes, permanently delete/i }),
+    );
+    expect(api.cards.removePerk).toHaveBeenCalledWith("c1", "k1");
+    await vi.waitFor(() => {
+      expect(screen.queryByText("Annual travel credit")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("dialog-backdrop")).not.toBeInTheDocument();
+  });
+
+  it("deletes a card through the two-step confirm dialog", async () => {
+    const api = renderCards();
+    await userEvent.click(await screen.findByRole("button", { name: /delete sapphire reserve/i }));
+    const dialog = await screen.findByRole("dialog", { name: /delete sapphire reserve\?/i });
+    await userEvent.click(within(dialog).getByRole("button", { name: /^delete card$/i }));
+    expect(api.cards.remove).not.toHaveBeenCalled();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /yes, permanently delete/i }),
+    );
+    expect(api.cards.remove).toHaveBeenCalledWith("c1");
+    await vi.waitFor(() => {
+      expect(screen.queryByText("Sapphire Reserve")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("dialog-backdrop")).not.toBeInTheDocument();
   });
 });

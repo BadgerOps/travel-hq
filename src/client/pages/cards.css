@@ -1,0 +1,129 @@
+/* Cards page — portfolio tiles and perk rows. Shared primitives
+   (.page-header, .grid-cards, .stat-big, .card, .hr) live in styles.css. */
+
+.cards-summary {
+  margin-bottom: 14px;
+}
+
+.card-tile {
+  align-items: stretch;
+  gap: 10px;
+}
+.card-tile-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.card-tile-head .card-tile-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+.card-tile-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.card-tile-foot .btn {
+  margin-left: auto;
+}
+
+/* Perk rows: one consistent flex grid — name/meta stack left, controls
+   right — with Nocturne fading hairlines between rows (32px ramps; the
+   full-width 48px ramp swallows a 320px card). */
+.perk-list {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: grid;
+}
+.perk-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  min-width: 0;
+}
+.perk-list > li + li {
+  background:
+    linear-gradient(
+        to right,
+        transparent,
+        var(--color-divider) 32px,
+        var(--color-divider) calc(100% - 32px),
+        transparent
+      )
+      top / 100% 1px no-repeat;
+}
+.perk-main {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+.perk-name {
+  font-size: 13.5px;
+  line-height: 1.35;
+}
+.perk-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* The used-toggle: a real checkbox (tests and screen readers depend on the
+   role) drawn as a Nocturne chip control instead of the OS default. */
+.perk-used {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px;
+  font-size: 11px;
+  color: var(--color-neutral-400);
+  cursor: pointer;
+  border: 1px solid var(--color-divider);
+  border-radius: calc(var(--radius-md) * 0.75);
+}
+.perk-used:hover {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+.perk-used:has(input:checked) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.perk-used input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1.5px solid var(--color-neutral-600);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.perk-used input[type="checkbox"]:checked {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+.perk-used input[type="checkbox"]:checked::after {
+  content: "";
+  width: 7px;
+  height: 4px;
+  margin-top: -1.5px;
+  border-left: 1.5px solid var(--color-bg);
+  border-bottom: 1.5px solid var(--color-bg);
+  transform: rotate(-45deg);
+}
+.perk-used input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}

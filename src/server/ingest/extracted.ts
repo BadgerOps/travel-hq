@@ -135,7 +135,17 @@ export const EXTRACTED_JSON_SCHEMA = {
             description:
               "Email addresses explicitly associated with a traveler, passenger, guest, or reservation holder for this booking",
           },
-          details: { type: "object", additionalProperties: true },
+          details: {
+            type: "object",
+            additionalProperties: true,
+            description:
+              "Kind-specific facts. flight: carrier, flightNumber, originIata, destinationIata, cabin, seat. " +
+              "lodging: propertyName, address, roomType, nights. " +
+              "car: vendor, pickupLocation, pickupTime, dropoffLocation, dropoffTime, vehicleClass. " +
+              "activity: venue, address, operator, partySize, pickupTime, pickupLocation, " +
+              "arriveMinutesBefore (whole minutes), returnTime, dropoffLocation, duration, description. " +
+              'pickupTime/returnTime are local wall-clock times copied as written ("1:30 PM").',
+          },
         },
       },
     },

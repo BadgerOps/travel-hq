@@ -12,6 +12,7 @@ const TRIP = {
   endsOn: "2026-10-11",
   status: "planning" as const,
   notes: null,
+  photoUrl: null,
 };
 
 const PEOPLE = [{ id: "p1", displayName: "Badger" }] as never[];
@@ -66,8 +67,27 @@ describe("TripForm (edit mode)", () => {
       startsOn: "2026-10-09",
       endsOn: "2026-10-11",
       notes: null,
+      photoUrl: null,
     });
     expect(onSaved).toHaveBeenCalled();
+  });
+
+  it("seeds the cover photo URL and sends null once emptied", async () => {
+    const { api } = renderEdit({ ...TRIP, photoUrl: "https://img.example/river.jpg" });
+    const input = screen.getByLabelText(/cover photo/i);
+    expect(input).toHaveValue("https://img.example/river.jpg");
+    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    expect(api.trips.update).toHaveBeenCalledWith(
+      "t1",
+      expect.objectContaining({ photoUrl: "https://img.example/river.jpg" }),
+    );
+
+    await userEvent.clear(input);
+    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    expect(api.trips.update).toHaveBeenLastCalledWith(
+      "t1",
+      expect.objectContaining({ photoUrl: null }),
+    );
   });
 
   it("sends the status only when the operator changed it", async () => {

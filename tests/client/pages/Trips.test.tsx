@@ -13,6 +13,7 @@ const TRIP = {
   endsOn: "2026-10-11",
   status: "planning" as const,
   notes: null,
+  photoUrl: null,
 };
 
 const PEOPLE = [
@@ -20,10 +21,30 @@ const PEOPLE = [
   { id: "p2", displayName: "Ava" },
 ];
 
+const BOOKING = {
+  id: "b1",
+  tripId: "t1",
+  kind: "flight",
+  title: "DL 2214 BOI → STS",
+  location: null,
+  startsAt: "2026-10-09T15:00:00Z",
+  startsAtTz: "America/Boise",
+  endsAt: null,
+  endsAtTz: null,
+  confirmationNumberMasked: null,
+  costCents: null,
+  pointsUsed: null,
+  pointsProgram: null,
+  status: "booked" as const,
+  details: {},
+  personIds: ["p1"],
+};
+
 function makeApi(trips = [TRIP]) {
   return {
     trips: {
       list: vi.fn(async () => trips),
+      bookings: vi.fn(async () => [] as unknown[]),
       create: vi.fn(async () => ({ ...TRIP, id: "t2", title: "Kauai" })),
       addTraveler: vi.fn(async () => undefined),
     },
@@ -50,6 +71,37 @@ describe("Trips", () => {
     const api = renderTrips();
     expect(await screen.findByText("Mary & Winter Wedding")).toBeInTheDocument();
     expect(api.trips.list).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders photo cards with the fallback cover art", async () => {
+    renderTrips();
+    await screen.findByText("Mary & Winter Wedding");
+    const card = screen.getByRole("link", { name: /Mary & Winter Wedding/ });
+    expect(card.querySelector("svg.cover-fallback")).not.toBeNull();
+    expect(card.querySelector("img")).toBeNull();
+  });
+
+  it("fetches each trip's bookings and renders the day teaser with chips", async () => {
+    const api = makeApi();
+    api.trips.bookings = vi.fn(async () => [BOOKING]);
+    renderTrips(api);
+    await screen.findByText("Mary & Winter Wedding");
+    expect(api.trips.bookings).toHaveBeenCalledWith("t1");
+    // 15:00Z is 9:00 AM Fri Oct 9 in Boise — the teaser's day gutter.
+    expect(await screen.findByText("Fri 9")).toBeInTheDocument();
+    expect(screen.getByText("DL 2214 BOI → STS")).toBeInTheDocument();
+    // People were fetched, so the traveler on the booking gets a chip.
+    expect(screen.getByTitle("Badger")).toBeInTheDocument();
+  });
+
+  it("still renders cards when a bookings fetch fails", async () => {
+    const api = makeApi();
+    api.trips.bookings = vi.fn(async () => {
+      throw new Error("500");
+    });
+    renderTrips(api);
+    expect(await screen.findByText("Mary & Winter Wedding")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("shows pending imports on the trips screen", async () => {

@@ -1,8 +1,14 @@
 import { useState } from "react";
-import { AirplaneTakeoff, Bed, Car, Ticket } from "@phosphor-icons/react";
+import { AirplaneTakeoff, Bed, Car, ForkKnife, Ticket } from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
-import type { BookingStatus, Person, Trip } from "../api/types.js";
-import { zonedToUtc } from "../lib/dates.js";
+import type {
+  Booking,
+  BookingStatus,
+  Person,
+  Trip,
+  UpdateBookingInput,
+} from "../api/types.js";
+import { utcToZonedLocal, zonedToUtc } from "../lib/dates.js";
 import { errorMessage } from "../lib/errors.js";
 import { Dialog } from "../components/Dialog.js";
 import { TravelerToggles } from "../components/TravelerToggles.js";
@@ -12,17 +18,30 @@ import { TravelerToggles } from "../components/TravelerToggles.js";
  * fieldset, "who's on it" per booking (not per trip), cost, and a
  * Planned/Booked status control.
  *
- * The kind list matches BOOKING_KINDS on the server minus "other", which is
- * the freeform escape hatch and has no fields of its own to draw.
+ * It is also the EDIT form (pass `booking`), so there is exactly one place
+ * that knows which field belongs to which kind. A second, read-only-shaped
+ * "edit booking" dialog is how the add form and the edit form end up
+ * disagreeing about what a car rental has.
+ *
+ * The kind list matches BOOKING_KINDS on the server, "other" included: every
+ * booking parsed out of a calendar attachment lands as `other`, and an edit
+ * form that cannot show that kind would silently retype an imported excursion
+ * as a flight the moment it was saved.
  */
 const KINDS = [
   { id: "flight", label: "Flight", Icon: AirplaneTakeoff },
   { id: "lodging", label: "Stay", Icon: Bed },
   { id: "car", label: "Car", Icon: Car },
   { id: "activity", label: "Activity", Icon: Ticket },
+  // ForkKnife is the icon OverviewTab already gives an unrecognised kind, so
+  // the row a freeform booking gets and the option that produces it match.
+  { id: "other", label: "Other", Icon: ForkKnife },
 ] as const;
 
 type Kind = (typeof KINDS)[number]["id"];
+
+/** The kinds whose logistics are "be standing here at this time". */
+const EXCURSION_KINDS = new Set<Kind>(["activity", "other"]);
 
 /**
  * A short, curated zone list rather than `Intl.supportedValuesOf("timeZone")`
@@ -44,9 +63,17 @@ const COMMON_ZONES = [
   "UTC",
 ];
 
-function zoneOptions(): string[] {
+/**
+ * The viewer's zone, then the curated list, then whatever zones this booking
+ * is actually stored in — an imported booking can carry a zone that is on
+ * neither list, and a <select> without its own value silently reassigns it.
+ */
+function zoneOptions(booking?: Booking): string[] {
   const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return [local, ...COMMON_ZONES.filter((z) => z !== local)];
+  const stored = [booking?.startsAtTz, booking?.endsAtTz].filter(
+    (zone): zone is string => typeof zone === "string" && zone !== "",
+  );
+  return [...new Set([local, ...COMMON_ZONES, ...stored])];
 }
 
 /** "684.30" -> 68430. Returns undefined for blank, null for unparseable. */
@@ -58,47 +85,132 @@ function toCents(raw: string): number | null | undefined {
   return Math.round(value * 100);
 }
 
+/** "15" -> 15. Returns undefined for blank, null for unparseable/negative. */
+function toMinutes(raw: string): number | null | undefined {
+  const trimmed = raw.trim();
+  if (trimmed === "") return undefined;
+  const value = Number(trimmed);
+  if (!Number.isInteger(value) || value < 0 || value > 720) return null;
+  return value;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** A stored detail as form text. Numbers included — `arriveMinutesBefore`. */
+function detailText(details: unknown, key: string): string {
+  const value = asRecord(details)[key];
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  return "";
+}
+
+function seedKind(booking: Booking | undefined): Kind {
+  const match = KINDS.find((k) => k.id === booking?.kind);
+  return match?.id ?? "flight";
+}
+
+/** A stored UTC instant as the wall clock its own zone shows. */
+function seedLocal(at: string | null | undefined, tz: string | null | undefined): string {
+  return at && tz ? utcToZonedLocal(at, tz) : "";
+}
+
 export function BookingDialog({
   trip,
+  booking,
   people,
   api = defaultApi,
   onSaved,
   onClose,
 }: {
-  trip: Trip;
+  /** Required to CREATE — the trip the new booking is added to. */
+  trip?: Trip;
+  /** Present to EDIT. The booking's own tripId is used, so `trip` is optional
+   *  here: the detail dialog that launches an edit has the booking, not the
+   *  trip. */
+  booking?: Booking;
   /** The trip's travellers, so the toggles list who is actually on this trip. */
   people: Person[];
   api?: typeof defaultApi;
   onSaved: () => void;
   onClose: () => void;
 }) {
-  const [kind, setKind] = useState<Kind>("flight");
-  const [title, setTitle] = useState("");
+  const editing = booking !== undefined;
+
+  const [kind, setKind] = useState<Kind>(() => seedKind(booking));
+  const [title, setTitle] = useState(booking?.title ?? "");
   const [confirmationNumber, setConfirmationNumber] = useState("");
-  const [location, setLocation] = useState("");
+  const [location, setLocation] = useState(booking?.location ?? "");
 
   // Per-kind detail fields. Held flat and assembled per kind at submit time,
   // so switching kinds does not discard what was typed.
-  const [carrier, setCarrier] = useState("");
-  const [flightNumber, setFlightNumber] = useState("");
-  const [originIata, setOriginIata] = useState("");
-  const [destinationIata, setDestinationIata] = useState("");
-  const [propertyName, setPropertyName] = useState("");
-  const [vendor, setVendor] = useState("");
-  const [venue, setVenue] = useState("");
+  const [carrier, setCarrier] = useState(() => detailText(booking?.details, "carrier"));
+  const [flightNumber, setFlightNumber] = useState(() =>
+    detailText(booking?.details, "flightNumber"),
+  );
+  const [originIata, setOriginIata] = useState(() => detailText(booking?.details, "originIata"));
+  const [destinationIata, setDestinationIata] = useState(() =>
+    detailText(booking?.details, "destinationIata"),
+  );
+  const [propertyName, setPropertyName] = useState(() =>
+    detailText(booking?.details, "propertyName"),
+  );
+  const [vendor, setVendor] = useState(() => detailText(booking?.details, "vendor"));
+  const [venue, setVenue] = useState(() => detailText(booking?.details, "venue"));
 
-  const [startsAt, setStartsAt] = useState("");
-  const [startsAtTz, setStartsAtTz] = useState("");
-  const [endsAt, setEndsAt] = useState("");
-  const [endsAtTz, setEndsAtTz] = useState("");
+  // Excursion (and car) logistics: the pickup and the return. Wall-clock text,
+  // not timestamps — see the note on `activityDetails` in the server's
+  // booking-kinds schema for why an operator's "Approximate return time: 5:00"
+  // must not be promoted to an instant.
+  const [pickupTime, setPickupTime] = useState(() => detailText(booking?.details, "pickupTime"));
+  const [pickupLocation, setPickupLocation] = useState(() =>
+    detailText(booking?.details, "pickupLocation"),
+  );
+  const [arriveEarly, setArriveEarly] = useState(() =>
+    detailText(booking?.details, "arriveMinutesBefore"),
+  );
+  const [returnTime, setReturnTime] = useState(() =>
+    detailText(booking?.details, "returnTime") || detailText(booking?.details, "dropoffTime"),
+  );
+  const [dropoffLocation, setDropoffLocation] = useState(() =>
+    detailText(booking?.details, "dropoffLocation"),
+  );
+  const [description, setDescription] = useState(() =>
+    detailText(booking?.details, "description"),
+  );
 
-  const [selected, setSelected] = useState<string[]>([]);
-  const [cost, setCost] = useState("");
-  const [status, setStatus] = useState<BookingStatus>("booked");
+  const [startsAt, setStartsAt] = useState(() =>
+    seedLocal(booking?.startsAt, booking?.startsAtTz),
+  );
+  const [startsAtTz, setStartsAtTz] = useState(booking?.startsAtTz ?? "");
+  const [endsAt, setEndsAt] = useState(() => seedLocal(booking?.endsAt, booking?.endsAtTz));
+  const [endsAtTz, setEndsAtTz] = useState(booking?.endsAtTz ?? "");
+
+  const [selected, setSelected] = useState<string[]>(booking?.personIds ?? []);
+  const [cost, setCost] = useState(() =>
+    booking?.costCents === null || booking?.costCents === undefined
+      ? ""
+      : (booking.costCents / 100).toFixed(2),
+  );
+  const [status, setStatus] = useState<BookingStatus>(booking?.status ?? "booked");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const zones = zoneOptions();
+  const zones = zoneOptions(booking);
+  const showExcursion = EXCURSION_KINDS.has(kind);
+  const showPickup = showExcursion || kind === "car";
+
+  /**
+   * Planned/Booked, plus whatever this booking already is. A draft import
+   * edited here must not be silently promoted, and a cancelled booking must
+   * not be silently revived, just because the control had nowhere to show it.
+   */
+  const statuses: BookingStatus[] = [
+    ...new Set<BookingStatus>(["planned", "booked", ...(booking ? [booking.status] : [])]),
+  ];
 
   function toggle(personId: string) {
     setSelected((prev) =>
@@ -112,23 +224,55 @@ export function BookingDialog({
    * flightNumber, the two IATA codes, propertyName, vendor) are required
    * here too, because a ZodError from the server surfaces as a bare
    * "Invalid request" the operator cannot act on.
+   *
+   * When editing, the stored record is the starting point rather than an empty
+   * object: `details` is replaced wholesale by the API, and rebuilding it from
+   * this form alone would drop every key the form does not draw (a flight's
+   * `seat`, an imported excursion's `duration`). Clearing a field the form DOES
+   * draw still removes its key — that is the point of being able to edit.
    */
   function details(): Record<string, unknown> {
+    const next: Record<string, unknown> = { ...asRecord(booking?.details) };
+    const put = (key: string, value: string) => {
+      const trimmed = value.trim();
+      if (trimmed === "") delete next[key];
+      else next[key] = trimmed;
+    };
+
     switch (kind) {
       case "flight":
-        return {
-          carrier: carrier.trim(),
-          flightNumber: flightNumber.trim(),
-          originIata: originIata.trim(),
-          destinationIata: destinationIata.trim(),
-        };
+        put("carrier", carrier);
+        put("flightNumber", flightNumber);
+        put("originIata", originIata);
+        put("destinationIata", destinationIata);
+        break;
       case "lodging":
-        return { propertyName: propertyName.trim() };
+        put("propertyName", propertyName);
+        break;
       case "car":
-        return { vendor: vendor.trim() };
+        put("vendor", vendor);
+        put("pickupLocation", pickupLocation);
+        put("pickupTime", pickupTime);
+        put("dropoffLocation", dropoffLocation);
+        // A car's return field is spelled dropoffTime; an excursion's is
+        // returnTime. One control, the key the kind's schema actually has.
+        put("dropoffTime", returnTime);
+        delete next.returnTime;
+        break;
       case "activity":
-        return venue.trim() === "" ? {} : { venue: venue.trim() };
+      case "other":
+        put("venue", venue);
+        put("pickupTime", pickupTime);
+        put("pickupLocation", pickupLocation);
+        put("returnTime", returnTime);
+        put("dropoffLocation", dropoffLocation);
+        put("description", description);
+        delete next.dropoffTime;
+        if (arriveEarly.trim() === "") delete next.arriveMinutesBefore;
+        else next.arriveMinutesBefore = Number(arriveEarly.trim());
+        break;
     }
+    return next;
   }
 
   function detailsProblem(): string | null {
@@ -142,6 +286,9 @@ export function BookingDialog({
     }
     if (kind === "lodging" && propertyName.trim() === "") return "A stay needs a property name.";
     if (kind === "car" && vendor.trim() === "") return "A car needs a rental company.";
+    if (showExcursion && toMinutes(arriveEarly) === null) {
+      return "Arrive early must be a whole number of minutes.";
+    }
     return null;
   }
 
@@ -186,21 +333,10 @@ export function BookingDialog({
     setBusy(true);
     setError(null);
     try {
-      const booking = await api.trips.createBooking(trip.id, {
-        kind,
-        title: title.trim(),
-        status,
-        details: details(),
-        ...(location.trim() === "" ? {} : { location: location.trim() }),
-        ...(confirmationNumber.trim() === ""
-          ? {}
-          : { confirmationNumber: confirmationNumber.trim() }),
-        ...(startsUtc ? { startsAt: startsUtc, startsAtTz } : {}),
-        ...(endsUtc ? { endsAt: endsUtc, endsAtTz } : {}),
-        ...(cents === undefined ? {} : { costCents: cents }),
-      });
-      for (const personId of selected) {
-        await api.bookings.assignPerson(booking.id, personId);
+      if (booking) {
+        await saveEdit(booking, startsUtc, endsUtc, cents);
+      } else {
+        await saveNew(startsUtc, endsUtc, cents);
       }
       onSaved();
     } catch (err) {
@@ -212,8 +348,80 @@ export function BookingDialog({
     }
   }
 
+  async function saveNew(
+    startsUtc: string | undefined,
+    endsUtc: string | undefined,
+    cents: number | undefined,
+  ) {
+    if (!trip) throw new Error("No trip to add this booking to.");
+    const created = await api.trips.createBooking(trip.id, {
+      kind,
+      title: title.trim(),
+      status,
+      details: details(),
+      ...(location.trim() === "" ? {} : { location: location.trim() }),
+      ...(confirmationNumber.trim() === ""
+        ? {}
+        : { confirmationNumber: confirmationNumber.trim() }),
+      ...(startsUtc ? { startsAt: startsUtc, startsAtTz } : {}),
+      ...(endsUtc ? { endsAt: endsUtc, endsAtTz } : {}),
+      ...(cents === undefined ? {} : { costCents: cents }),
+    });
+    for (const personId of selected) {
+      await api.bookings.assignPerson(created.id, personId);
+    }
+  }
+
+  /**
+   * `null` where the field was emptied, so clearing a date or a cost in the
+   * form actually clears it. The confirmation number is the exception: the
+   * form is never seeded with the stored one (it is masked, and echoing a
+   * masked value back is a deliberate 400), so blank means "leave it alone"
+   * and clearing it has its own control.
+   */
+  async function saveEdit(
+    current: Booking,
+    startsUtc: string | undefined,
+    endsUtc: string | undefined,
+    cents: number | undefined,
+  ) {
+    const patch: UpdateBookingInput = {
+      kind,
+      title: title.trim(),
+      status,
+      details: details(),
+      location: location.trim() === "" ? null : location.trim(),
+      startsAt: startsUtc ?? null,
+      startsAtTz: startsUtc ? startsAtTz : null,
+      endsAt: endsUtc ?? null,
+      endsAtTz: endsUtc ? endsAtTz : null,
+      costCents: cents ?? null,
+      ...(confirmationNumber.trim() === ""
+        ? {}
+        : { confirmationNumber: confirmationNumber.trim() }),
+    };
+    await api.bookings.update(current.id, patch);
+
+    // Travellers are a join table, not a column, so they move separately —
+    // one call per actual change, never a blanket re-assign.
+    for (const personId of selected) {
+      if (!current.personIds.includes(personId)) {
+        await api.bookings.assignPerson(current.id, personId);
+      }
+    }
+    for (const personId of current.personIds) {
+      if (!selected.includes(personId)) {
+        await api.bookings.unassignPerson(current.id, personId);
+      }
+    }
+  }
+
   return (
-    <Dialog title="Add booking" subtitle={trip.title} onClose={onClose}>
+    <Dialog
+      title={editing ? "Edit booking" : "Add booking"}
+      subtitle={booking?.title ?? trip?.title}
+      onClose={onClose}
+    >
       <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
         {error && (
           <p className="warning" role="alert" style={{ margin: 0 }}>
@@ -256,6 +464,11 @@ export function BookingDialog({
               value={confirmationNumber}
               onChange={(e) => setConfirmationNumber(e.target.value)}
             />
+            {editing && booking.confirmationNumberMasked && (
+              <p className="text-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+                Leave blank to keep {booking.confirmationNumberMasked}.
+              </p>
+            )}
           </div>
         </div>
 
@@ -332,9 +545,9 @@ export function BookingDialog({
           </div>
         )}
 
-        {kind === "activity" && (
+        {showExcursion && (
           <div className="field">
-            <label htmlFor="bd-venue">Venue</label>
+            <label htmlFor="bd-venue">Venue or operator</label>
             <input
               id="bd-venue"
               className="input"
@@ -342,6 +555,90 @@ export function BookingDialog({
               onChange={(e) => setVenue(e.target.value)}
             />
           </div>
+        )}
+
+        {/*
+          The excursion's whole point. A tour confirmation's useful content is
+          "1:30pm at Quarter Circle/West Side Parking Lot, be there 15 minutes
+          early, back around 5" — none of which is a start/end instant, and all
+          of which used to be unrepresentable without hand-editing JSON.
+        */}
+        {showPickup && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
+              <div className="field">
+                <label htmlFor="bd-pickup-time">Pickup time</label>
+                <input
+                  id="bd-pickup-time"
+                  className="input"
+                  placeholder="1:30 PM"
+                  value={pickupTime}
+                  onChange={(e) => setPickupTime(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="bd-pickup-place">Pickup location</label>
+                <input
+                  id="bd-pickup-place"
+                  className="input"
+                  placeholder="Quarter Circle/West Side Parking Lot"
+                  value={pickupLocation}
+                  onChange={(e) => setPickupLocation(e.target.value)}
+                />
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
+              <div className="field">
+                <label htmlFor="bd-return-time">
+                  {kind === "car" ? "Drop-off time" : "Return time"}
+                </label>
+                <input
+                  id="bd-return-time"
+                  className="input"
+                  placeholder="5:00 PM"
+                  value={returnTime}
+                  onChange={(e) => setReturnTime(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="bd-return-place">
+                  {kind === "car" ? "Drop-off location" : "Return location"}
+                </label>
+                <input
+                  id="bd-return-place"
+                  className="input"
+                  value={dropoffLocation}
+                  onChange={(e) => setDropoffLocation(e.target.value)}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {showExcursion && (
+          <>
+            <div className="field">
+              <label htmlFor="bd-arrive-early">Arrive early (minutes)</label>
+              <input
+                id="bd-arrive-early"
+                className="input"
+                inputMode="numeric"
+                placeholder="15"
+                value={arriveEarly}
+                onChange={(e) => setArriveEarly(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="bd-description">Description</label>
+              <textarea
+                id="bd-description"
+                className="input"
+                rows={3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </div>
+          </>
         )}
 
         <div className="field">
@@ -434,7 +731,7 @@ export function BookingDialog({
           <div className="field">
             <label htmlFor="bd-status">Status</label>
             <div className="seg" role="radiogroup" aria-label="Status" style={{ width: "100%" }}>
-              {(["planned", "booked"] as const).map((s) => (
+              {statuses.map((s) => (
                 <label key={s} className="seg-opt" style={{ flex: 1, justifyContent: "center" }}>
                   <input
                     type="radio"
@@ -443,7 +740,7 @@ export function BookingDialog({
                     checked={status === s}
                     onChange={() => setStatus(s)}
                   />
-                  {s === "planned" ? "Planned" : "Booked"}
+                  {STATUS_LABELS[s]}
                 </label>
               ))}
             </div>
@@ -455,10 +752,17 @@ export function BookingDialog({
             Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={busy}>
-            Save booking
+            {editing ? "Save changes" : "Save booking"}
           </button>
         </div>
       </form>
     </Dialog>
   );
 }
+
+const STATUS_LABELS: Record<BookingStatus, string> = {
+  draft: "Draft",
+  planned: "Planned",
+  booked: "Booked",
+  cancelled: "Cancelled",
+};

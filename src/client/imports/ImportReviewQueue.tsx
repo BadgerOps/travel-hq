@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowClockwise, Check, Plus, Trash } from "@phosphor-icons/react";
+import { ArrowClockwise, Check, EnvelopeOpen, Plus, Trash } from "@phosphor-icons/react";
 import { Link } from "wouter";
-import { api as defaultApi } from "../api/client.js";
+import { api as defaultApi, ApiError } from "../api/client.js";
 import type {
   ExtractedBooking,
   ImportReviewResult,
@@ -11,6 +11,9 @@ import type {
 import { DraftBookingCard } from "../components/DraftBookingCard.js";
 import { errorMessage } from "../lib/errors.js";
 import { CreateImportedTripDialog } from "./CreateImportedTripDialog.js";
+import { DuplicateNotice } from "./DuplicateNotice.js";
+// Queue styles ship with the Import page sheet (2b anatomy).
+import "../pages/import.css";
 
 type SourceGroup = {
   inboundEmailId: string;
@@ -36,6 +39,8 @@ export function ImportReviewQueue({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<ImportReviewResult | null>(null);
   const [creating, setCreating] = useState(false);
+  /** The accept a 409 refused, kept so "Import anyway" can repeat it. */
+  const [conflict, setConflict] = useState<{ draftIds: string[]; tripId: string } | null>(null);
 
   async function load(signal?: AbortSignal) {
     setLoading(true);
@@ -88,16 +93,23 @@ export function ImportReviewQueue({
     setSelected((current) => current.filter((id) => !ids.includes(id)));
   }
 
-  async function accept(draftIds: string[], tripId: string) {
+  async function accept(draftIds: string[], tripId: string, allowDuplicates = false) {
     setBusy(true);
     setError(null);
     setNotice(null);
+    setConflict(null);
     try {
-      const result = await api.imports.accept(draftIds, tripId);
+      const result = await api.imports.accept(draftIds, tripId, allowDuplicates);
       removeResolved(result.acceptedDraftIds);
       setNotice(result);
     } catch (err) {
       setError(errorMessage(err));
+      // A 409 is not a failure to report and forget: the server is asking a
+      // question only the reviewer can answer, so keep what was attempted and
+      // offer to send it again with the override.
+      if (err instanceof ApiError && err.status === 409) {
+        setConflict({ draftIds, tripId });
+      }
     } finally {
       setBusy(false);
     }
@@ -129,19 +141,11 @@ export function ImportReviewQueue({
   }
 
   return (
-    <section aria-labelledby="import-review-title" style={{ marginTop: 32, maxWidth: 760 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
-          marginBottom: 12,
-        }}
-      >
+    <section aria-labelledby="import-review-title" className="import-queue">
+      <div className="import-queue-head">
         <div>
-          <h4 id="import-review-title" style={{ margin: 0 }}>Pending review</h4>
-          <p className="text-muted" style={{ margin: "4px 0 0" }}>
+          <h4 id="import-review-title">Pending review</h4>
+          <p className="text-muted">
             Accept suggested matches or combine selected imports into a new trip.
           </p>
         </div>
@@ -159,6 +163,17 @@ export function ImportReviewQueue({
       {error && (
         <p className="warning" role="alert">
           {error}
+          {conflict && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ marginLeft: 8 }}
+              disabled={busy}
+              onClick={() => void accept(conflict.draftIds, conflict.tripId, true)}
+            >
+              Import anyway
+            </button>
+          )}
         </p>
       )}
       {notice && (
@@ -171,21 +186,21 @@ export function ImportReviewQueue({
       {loading ? (
         <p className="text-muted" role="status">Loading pending imports…</p>
       ) : drafts.length === 0 ? (
-        <div className="card" style={{ alignItems: "flex-start" }}>
-          <span className="card-title">All caught up</span>
-          <p className="card-body">Forwarded emails and uploaded files will appear here.</p>
-        </div>
+        // A failed load renders the alert above instead — never this empty
+        // state, so an outage can't masquerade as "nothing to review".
+        error ? null : (
+          <div className="import-queue-empty">
+            <EnvelopeOpen size={18} aria-hidden="true" />
+            <div>
+              <strong>All caught up</strong>
+              <p>Forwarded emails and uploaded files will appear here.</p>
+            </div>
+          </div>
+        )
       ) : (
-        <div style={{ display: "grid", gap: 16 }}>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+        <div className="import-queue-body">
+          <div className="import-bulkbar">
+            <label className="import-select-all">
               <input
                 type="checkbox"
                 aria-label="Select all pending imports"
@@ -228,7 +243,7 @@ export function ImportReviewQueue({
             </button>
             {trips.length > 0 && (
               <>
-                <label className="field" style={{ minWidth: 180 }}>
+                <label className="field">
                   <span className="card-meta">Existing trip</span>
                   <select
                     className="input"
@@ -259,8 +274,7 @@ export function ImportReviewQueue({
             return (
               <article
                 key={group.inboundEmailId}
-                className="card"
-                style={{ alignItems: "stretch", gap: 12 }}
+                className="card import-source-card"
               >
                 <header>
                   <span className="card-kicker">
@@ -277,14 +291,7 @@ export function ImportReviewQueue({
                 </header>
 
                 {suggested && (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      alignItems: "center",
-                      gap: 8,
-                    }}
-                  >
+                  <div className="import-suggest-row">
                     <span className="tag tag-accent">
                       Suggested trip: {suggested.title}
                     </span>
@@ -305,36 +312,19 @@ export function ImportReviewQueue({
                   </div>
                 )}
 
-                <div style={{ display: "grid", gap: 10 }}>
+                <div className="import-draft-rows">
                   {group.drafts.map((draft) => (
-                    <div
-                      key={draft.id}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "auto minmax(0, 1fr)",
-                        gap: 10,
-                        alignItems: "start",
-                      }}
-                    >
+                    <div key={draft.id} className="import-draft-row">
                       <input
                         type="checkbox"
                         aria-label={`Select ${draft.title}`}
                         checked={selected.includes(draft.id)}
                         disabled={busy}
                         onChange={() => toggle(draft.id)}
-                        style={{ marginTop: 18 }}
                       />
                       <div>
                         <DraftBookingCard booking={asExtractedBooking(draft)} />
-                        <div
-                          style={{
-                            display: "flex",
-                            flexWrap: "wrap",
-                            alignItems: "center",
-                            gap: 8,
-                            marginTop: 6,
-                          }}
-                        >
+                        <div className="import-draft-row-tags">
                           {draft.suggestedTrip ? (
                             <>
                               <span className="tag tag-accent">
@@ -366,6 +356,7 @@ export function ImportReviewQueue({
                                 : ""}
                             </span>
                           )}
+                          <DuplicateNotice duplicates={draft.duplicates ?? []} />
                         </div>
                       </div>
                     </div>

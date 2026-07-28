@@ -25,18 +25,28 @@ import type {
   UpdatePersonInput,
   UpdatePerkInput,
   UpdateTripInput,
+  UpdateBookingInput,
   ExtractedBooking,
   FileImportResult,
   PendingImportDraft,
   CreateTripFromDraftsInput,
   ImportReviewResult,
   BookingSourceArtifact,
+  TripDuplicateGroup,
 } from "./types.js";
 
 export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /**
+     * The server's own `error` string, unprefixed. `message` is for logs and
+     * carries the path; this is the sentence the body actually contained.
+     * Almost every status maps to a written-here message instead (see
+     * lib/errors.ts) — 409 is the exception, where the server knows something
+     * the client cannot phrase for itself.
+     */
+    readonly detail?: string,
   ) {
     super(message);
   }
@@ -58,13 +68,17 @@ export function createApi(config: ApiConfig = {}) {
     });
     if (!res.ok) {
       let detail = res.statusText;
+      let fromBody: string | undefined;
       try {
         const body = (await res.json()) as { error?: string };
-        if (body.error) detail = body.error;
+        if (body.error) {
+          detail = body.error;
+          fromBody = body.error;
+        }
       } catch {
         // Non-JSON error body; the status line is all we have.
       }
-      throw new ApiError(`${path} failed: ${detail}`, res.status);
+      throw new ApiError(`${path} failed: ${detail}`, res.status, fromBody);
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
@@ -130,6 +144,18 @@ export function createApi(config: ApiConfig = {}) {
         request<void>(`/api/trips/${seg(tripId)}/people/${seg(personId)}`, { method: "DELETE" }),
       createBooking: (tripId: string, input: Omit<CreateBookingInput, "tripId">) =>
         request<Booking>(`/api/trips/${seg(tripId)}/bookings`, jsonBody("POST", input)),
+      duplicates: (tripId: string) =>
+        request<{ groups: TripDuplicateGroup[] }>(`/api/trips/${seg(tripId)}/duplicates`),
+      mergeDuplicates: (tripId: string, keepId: string, mergeIds: string[]) =>
+        request<Booking>(
+          `/api/trips/${seg(tripId)}/duplicates/merge`,
+          jsonBody("POST", { keepId, mergeIds }),
+        ),
+      dismissDuplicates: (tripId: string, bookingIds: string[]) =>
+        request<void>(
+          `/api/trips/${seg(tripId)}/duplicates/dismiss`,
+          jsonBody("POST", { bookingIds }),
+        ),
     },
     bookings: {
       artifact: (bookingId: string) =>
@@ -148,6 +174,17 @@ export function createApi(config: ApiConfig = {}) {
         ),
       setStatus: (bookingId: string, status: BookingStatus) =>
         request<void>(`/api/bookings/${seg(bookingId)}/status`, jsonBody("PUT", { status })),
+      /**
+       * Partial edit. The route's schema is `.strict()`, so send only the keys
+       * being changed — echoing back a whole `Booking` (with its `id`,
+       * `personIds` and MASKED confirmation number) is a 400, deliberately.
+       */
+      update: (bookingId: string, input: UpdateBookingInput) =>
+        request<Booking>(`/api/bookings/${seg(bookingId)}`, jsonBody("PUT", input)),
+      remove: (bookingId: string) =>
+        // No body: the route reads the id from the path and never calls
+        // c.req.json(). Sending a content-type here would be a lie.
+        request<void>(`/api/bookings/${seg(bookingId)}`, { method: "DELETE" }),
     },
     cards: {
       list: () => request<CardWithPerks[]>("/api/cards"),
@@ -208,10 +245,16 @@ export function createApi(config: ApiConfig = {}) {
     },
     imports: {
       pending: () => request<PendingImportDraft[]>("/api/imports/pending"),
-      accept: (draftIds: string[], tripId: string) =>
+      accept: (draftIds: string[], tripId: string, allowDuplicates = false) =>
         request<ImportReviewResult>(
           "/api/imports/accept",
-          jsonBody("POST", { draftIds, tripId }),
+          // The key is omitted rather than sent as false, so the ordinary
+          // accept is byte-identical to what it was before the guard existed.
+          jsonBody("POST", {
+            draftIds,
+            tripId,
+            ...(allowDuplicates ? { allowDuplicates: true } : {}),
+          }),
         ),
       createTrip: (input: CreateTripFromDraftsInput) =>
         request<ImportReviewResult>(

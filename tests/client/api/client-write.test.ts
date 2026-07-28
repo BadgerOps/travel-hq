@@ -130,3 +130,36 @@ describe("api client writes", () => {
     );
   });
 });
+
+describe("api client booking edits", () => {
+  it("PUTs a booking patch to the booking's own endpoint", async () => {
+    const fetchMock = mockFetch({ id: "b1", title: "Red Bus tour" });
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    await api.bookings.update("b1", {
+      title: "Red Bus tour",
+      details: { pickupTime: "1:30 PM", pickupLocation: "West Side Lot" },
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/bookings/b1",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          title: "Red Bus tour",
+          details: { pickupTime: "1:30 PM", pickupLocation: "West Side Lot" },
+        }),
+      }),
+    );
+  });
+
+  it("sends an explicit null so a cleared field is actually cleared", async () => {
+    const fetchMock = mockFetch({ id: "b1" });
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    await api.bookings.update("b1", { startsAt: null, startsAtTz: null });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/bookings/b1",
+      expect.objectContaining({
+        body: JSON.stringify({ startsAt: null, startsAtTz: null }),
+      }),
+    );
+  });
+});

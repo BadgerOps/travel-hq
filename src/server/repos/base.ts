@@ -29,6 +29,15 @@ export class NotFoundError extends RepoError {}
 /** The request itself is malformed in a way only the repo layer can catch. Map to 400. */
 export class ValidationError extends RepoError {}
 
+/**
+ * The request is well-formed but collides with state the caller may not have
+ * known about, and the right answer is for a human to decide rather than for
+ * the server to pick one. Map to 409 — distinct from ValidationError's 400
+ * precisely because the client is expected to offer an override rather than
+ * treat it as a bug in what it sent. The .message is written for that human.
+ */
+export class ConflictError extends RepoError {}
+
 function logScopeBug(reason: string, detail: string): void {
   // Never silent outside production so tests/dev/CI see the offending SQL.
   const nodeEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env

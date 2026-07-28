@@ -7,7 +7,7 @@ import type { Booking } from "../../../src/client/api/types.js";
 const TRIP = {
   id: "t1", title: "Wedding", destination: "Guerneville, CA",
   startsOn: "2026-10-09", endsOn: "2026-10-11",
-  status: "planning" as const, notes: null,
+  status: "planning" as const, notes: null, photoUrl: null,
 };
 
 function booking(over: Record<string, unknown> = {}) {

@@ -24,14 +24,42 @@ export const lodgingDetails = z.object({
 export const carDetails = z.object({
   vendor: z.string().min(1),
   pickupLocation: z.string().optional(),
+  pickupTime: z.string().optional(),
   dropoffLocation: z.string().optional(),
+  dropoffTime: z.string().optional(),
   vehicleClass: z.string().optional(),
 }).passthrough();
 
+/**
+ * An excursion is not a restaurant booking: what the family needs on the
+ * morning of a Red Bus tour is the pickup time, the car park it leaves from,
+ * how early to be standing there, and roughly when they are back — none of
+ * which fit `venue`/`address`.
+ *
+ * These are strings, not timestamps, on purpose. "Approximate return time:
+ * 5:00" is an operator's estimate printed in local wall-clock time with no
+ * date and often no meridiem; promoting it to an instant would mean inventing
+ * a date and a zone, and `endsAt` is where a real one belongs. They are
+ * displayed verbatim (see the client's ExcursionLogistics) and never fed to
+ * the itinerary.
+ *
+ * `pickupTime`/`pickupLocation` are named to match `carDetails`, so the same
+ * "where do I collect the thing" idea reads the same way in both.
+ */
 export const activityDetails = z.object({
   venue: z.string().optional(),
   address: z.string().optional(),
   partySize: z.number().int().positive().optional(),
+  operator: z.string().optional(),
+  pickupTime: z.string().optional(),
+  pickupLocation: z.string().optional(),
+  /** "Please arrive 15 minutes before departure" -> 15. */
+  arriveMinutesBefore: z.number().int().nonnegative().max(720).optional(),
+  returnTime: z.string().optional(),
+  dropoffLocation: z.string().optional(),
+  duration: z.string().optional(),
+  description: z.string().optional(),
+  notes: z.string().optional(),
 }).passthrough();
 
 /** Anything not modeled yet. The escape hatch that makes the JSON column worth having. */

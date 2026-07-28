@@ -127,6 +127,62 @@ export function countdownLabel(
   return `In ${days} days`;
 }
 
+/* All three calendar-date formatters below parse YYYY-MM-DD as UTC midnight
+   and format in UTC, for the same reason daysUntil does: these are dates with
+   no time or zone, and going through local time shifts them by a day for
+   viewers west of the ISO date line the string implies. */
+
+function utcDate(isoDate: string): Date {
+  return new Date(`${isoDate}T00:00:00Z`);
+}
+
+function fmtUtc(d: Date, opts: Intl.DateTimeFormatOptions): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", ...opts }).format(d);
+}
+
+/** "Sunday, July 27" — the greeting subline's long form of a calendar date. */
+export function formatLongDate(isoDate: string): string {
+  return fmtUtc(utcDate(isoDate), { weekday: "long", month: "long", day: "numeric" });
+}
+
+/** "Fri 9" — the day gutter label on day-by-day teaser rows. */
+export function formatDayLabel(isoDate: string): string {
+  const d = utcDate(isoDate);
+  return `${fmtUtc(d, { weekday: "short" })} ${fmtUtc(d, { day: "numeric" })}`;
+}
+
+/**
+ * Human date range for a trip: "Oct 9–11", "Oct 30 – Nov 2", "Mar 20–28, 2027".
+ * The year appears only when it is not `today`'s year — the mockups label the
+ * current year's wedding "Oct 9–11" and next spring's Kauai "Mar 20–28, 2027".
+ * A missing or equal `endsOn` collapses to the single day ("Oct 9").
+ */
+export function formatDateRange(
+  startsOn: string,
+  endsOn: string | null,
+  today: string,
+): string {
+  const refYear = Number(today.slice(0, 4));
+  const s = utcDate(startsOn);
+  const sYear = s.getUTCFullYear();
+  const sMonth = fmtUtc(s, { month: "short" });
+  const sDay = fmtUtc(s, { day: "numeric" });
+  if (!endsOn || endsOn === startsOn) {
+    return `${sMonth} ${sDay}${sYear !== refYear ? `, ${sYear}` : ""}`;
+  }
+  const e = utcDate(endsOn);
+  const eYear = e.getUTCFullYear();
+  const eMonth = fmtUtc(e, { month: "short" });
+  const eDay = fmtUtc(e, { day: "numeric" });
+  if (sYear !== eYear) {
+    return `${sMonth} ${sDay}, ${sYear} – ${eMonth} ${eDay}, ${eYear}`;
+  }
+  const year = sYear !== refYear ? `, ${sYear}` : "";
+  return sMonth === eMonth
+    ? `${sMonth} ${sDay}–${eDay}${year}`
+    : `${sMonth} ${sDay} – ${eMonth} ${eDay}${year}`;
+}
+
 export function formatTimeInZone(utcInstant: string, tz: string): string {
   return new Intl.DateTimeFormat("en-US", {
     timeZone: tz,
@@ -257,4 +313,42 @@ export function zonedToUtc(localDateTime: string, timeZone: string): string {
   let instant = naive - offsetAt(naive, timeZone);
   instant = naive - offsetAt(instant, timeZone);
   return new Date(instant).toISOString();
+}
+
+/**
+ * The inverse of `zonedToUtc`: a stored UTC instant back to the
+ * `"2026-10-09T09:40"` wall-clock string an `<input type="datetime-local">`
+ * expects, in a named IANA zone.
+ *
+ * Needed to seed the edit form. Slicing `new Date(instant).toISOString()`
+ * would show the departure in UTC, and `toLocaleString` would show it in the
+ * browser's zone — both put a 1:30 PM Montana pickup on screen as some other
+ * time, and saving that back would move the booking.
+ *
+ * Returns `""` for an instant or zone the platform cannot render, so a bad
+ * stored value leaves the field blank instead of writing "Invalid Date" into
+ * it (and then back to the server).
+ */
+export function utcToZonedLocal(utcInstant: string, timeZone: string): string {
+  const date = new Date(utcInstant);
+  if (Number.isNaN(date.valueOf())) return "";
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).formatToParts(date);
+  } catch {
+    return "";
+  }
+  const read = (type: string): string => parts.find((p) => p.type === type)?.value ?? "";
+  // Some engines render midnight as hour 24 under hour12:false, the same
+  // quirk offsetAt() above compensates for.
+  const hour = String(Number(read("hour")) % 24).padStart(2, "0");
+  return `${read("year")}-${read("month")}-${read("day")}T${hour}:${read("minute")}`;
 }

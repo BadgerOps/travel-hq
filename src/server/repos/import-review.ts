@@ -1,15 +1,44 @@
-import { TenantRepo, ForbiddenError, NotFoundError, ValidationError } from "./base.js";
+import {
+  TenantRepo,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+} from "./base.js";
 import type { HouseholdContext } from "./base.js";
 import { DraftBookingRepo } from "./draft-booking.js";
 import type { DraftBooking } from "./draft-booking.js";
 import { InboundEmailRepo } from "./inbound-email.js";
+import { openConfirmation } from "./confirmation.js";
 import { TripRepo } from "./trip.js";
 import type { Trip } from "./trip.js";
 import type { Keyring } from "../crypto/envelope.js";
+import { findDuplicates } from "../dedupe.js";
+import type { DuplicateCandidate, DuplicateGroup } from "../dedupe.js";
 import { newId } from "../ids.js";
 import { parseDetails } from "../schemas/booking-kinds.js";
 import { isValidCalendarDate } from "../time.js";
-import { openConfirmation } from "./confirmation.js";
+
+/**
+ * Something a pending draft appears to repeat — either a booking the household
+ * already has, or another draft still sitting in the same queue (two forwards
+ * of one confirmation land as two drafts, and neither is a booking yet).
+ *
+ * Reported for information at every confidence; only `high` blocks an accept.
+ * See `assertNoDuplicates`.
+ */
+export type PendingImportDuplicate = {
+  reason: DuplicateGroup["reason"];
+  confidence: DuplicateGroup["confidence"];
+  target: "booking" | "draft";
+  id: string;
+  title: string;
+  startsAt: string | null;
+  startsAtTz: string | null;
+  /** Where it already lives. Null for a `draft` target — it lives nowhere yet. */
+  tripId: string | null;
+  tripTitle: string | null;
+};
 
 export type PendingImportDraft = {
   id: string;
@@ -31,6 +60,13 @@ export type PendingImportDraft = {
     receivedAt: string;
   };
   suggestedTrip: Trip | null;
+  /**
+   * What this draft looks like a repeat of. Empty for the ordinary case.
+   * Populated so the review queue can say so BEFORE the draft becomes a
+   * booking — the trip page can only clean up after the fact, and the cheapest
+   * duplicate is the one that never got imported.
+   */
+  duplicates: PendingImportDuplicate[];
 };
 
 export type CreateTripFromDraftsInput = {
@@ -39,6 +75,13 @@ export type CreateTripFromDraftsInput = {
   destination?: string;
   startsOn?: string;
   endsOn?: string;
+  /**
+   * Import even the drafts that duplicate something. The default refusal is a
+   * 409 the reviewer can answer; this is how they answer it. Never defaulted
+   * to true — a silent import is exactly the behaviour that produced the
+   * duplicates in the first place.
+   */
+  allowDuplicates?: boolean;
 };
 
 export type ImportReviewResult = {
@@ -47,34 +90,6 @@ export type ImportReviewResult = {
 };
 
 type DateRange = { startsOn: string; endsOn: string };
-
-type BookingCandidate = {
-  id: string;
-  confirmationNumber: string | null;
-  kind: string;
-  title: string;
-  location: string | null;
-  startsAt: string | null;
-  startsAtTz: string | null;
-  endsAt: string | null;
-  endsAtTz: string | null;
-  costCents: number | null;
-  details: Record<string, unknown>;
-};
-
-type BookingCandidateRow = {
-  id: string;
-  confirmation_number: string | null;
-  kind: string;
-  title: string;
-  location: string | null;
-  starts_at: string | null;
-  starts_at_tz: string | null;
-  ends_at: string | null;
-  ends_at_tz: string | null;
-  cost_cents: number | null;
-  details: string;
-};
 
 export class ImportReviewRepo extends TenantRepo {
   private readonly drafts: DraftBookingRepo;
@@ -102,6 +117,7 @@ export class ImportReviewRepo extends TenantRepo {
     ]);
     const emailCache = new Map<string, Awaited<ReturnType<InboundEmailRepo["findById"]>>>();
     const pending: PendingImportDraft[] = [];
+    const duplicatesByDraft = await this.duplicatesForDrafts(drafts, trips);
 
     for (const draft of drafts) {
       let email = emailCache.get(draft.inboundEmailId);
@@ -132,12 +148,17 @@ export class ImportReviewRepo extends TenantRepo {
           receivedAt: email.receivedAt,
         },
         suggestedTrip: matches.length === 1 ? matches[0]! : null,
+        duplicates: duplicatesByDraft.get(draft.id) ?? [],
       });
     }
     return pending;
   }
 
-  async acceptIntoTrip(draftIds: string[], tripId: string): Promise<ImportReviewResult> {
+  async acceptIntoTrip(
+    draftIds: string[],
+    tripId: string,
+    allowDuplicates = false,
+  ): Promise<ImportReviewResult> {
     this.requireWrite();
     const trip = await this.trips.findById(tripId);
     if (!trip) throw new NotFoundError("Trip not found in this household");
@@ -145,6 +166,9 @@ export class ImportReviewRepo extends TenantRepo {
       throw new ValidationError("Pending imports cannot be added to a cancelled trip");
     }
     const drafts = await this.pendingDrafts(draftIds);
+    // Before the batch, not after: an accepted draft is a booking, and undoing
+    // that means finding it again on the trip page and merging it back.
+    await this.assertNoDuplicates(drafts, trip, allowDuplicates);
     await this.commitDraftsToTrip(drafts, trip.id);
     return { trip, acceptedDraftIds: drafts.map((draft) => draft.id) };
   }
@@ -154,6 +178,11 @@ export class ImportReviewRepo extends TenantRepo {
     const title = input.title.trim();
     if (title === "") throw new ValidationError("A trip title is required");
     const drafts = await this.pendingDrafts(input.draftIds);
+    // A brand-new trip has no bookings to collide with, so this only catches
+    // the batch repeating itself — two forwards of one confirmation selected
+    // together, which is the shape that makes a freshly created trip already
+    // need cleaning up.
+    await this.assertNoDuplicates(drafts, null, input.allowDuplicates ?? false);
     const derived = combinedDateRange(drafts);
     const startsOn = input.startsOn ?? derived?.startsOn ?? null;
     const endsOn = input.endsOn ?? derived?.endsOn ?? null;
@@ -194,6 +223,173 @@ export class ImportReviewRepo extends TenantRepo {
     return drafts.map((draft) => draft.id);
   }
 
+  /**
+   * What each pending draft looks like a repeat of — an existing booking
+   * anywhere in the household, or another draft still in the queue.
+   *
+   * Deliberately not scoped to the draft's suggested trip: a confirmation
+   * email is as often forwarded twice a week apart as twice in a minute, and
+   * by the second forward the booking may already be sitting on a trip this
+   * draft was never matched to. Naming the trip in the result is what makes
+   * that useful rather than confusing.
+   */
+  private async duplicatesForDrafts(
+    drafts: DraftBooking[],
+    trips: Trip[],
+  ): Promise<Map<string, PendingImportDuplicate[]>> {
+    const byDraft = new Map<string, PendingImportDuplicate[]>();
+    if (drafts.length === 0) return byDraft;
+
+    const liveTrips = new Map(
+      trips.filter((trip) => trip.status !== "cancelled").map((trip) => [trip.id, trip]),
+    );
+    // Only kinds actually present in the queue can match anything — a
+    // household with years of bookings should not decrypt every one of them to
+    // review one hotel confirmation.
+    const kinds = new Set(drafts.map((draft) => draft.kind));
+    const rows = (await this.all<BookingCandidateRow>(
+      `SELECT id, trip_id, kind, title, location, starts_at, starts_at_tz, confirmation_number
+         FROM booking
+        WHERE {scope} AND status != 'cancelled'`,
+    )).filter((row) => kinds.has(row.kind as DraftBooking["kind"]) && liveTrips.has(row.trip_id));
+
+    const bookings = await Promise.all(
+      rows.map(async (row) => ({
+        row,
+        candidate: {
+          id: bookingKey(row.id),
+          kind: row.kind,
+          title: row.title,
+          location: row.location,
+          startsAt: row.starts_at,
+          // Decrypted to compare, never returned: PendingImportDuplicate
+          // carries a title and a trip, not a confirmation number.
+          confirmation: await openConfirmation(this.ring, row.confirmation_number),
+        } satisfies DuplicateCandidate,
+      })),
+    );
+
+    const groups = findDuplicates([
+      ...drafts.map((draft) => draftCandidate(draft)),
+      ...bookings.map((booking) => booking.candidate),
+    ]);
+    if (groups.length === 0) return byDraft;
+
+    const draftsById = new Map(drafts.map((draft) => [draft.id, draft]));
+    const bookingsById = new Map(bookings.map((booking) => [booking.row.id, booking.row]));
+
+    for (const group of groups) {
+      for (const memberKey of group.bookingIds) {
+        const draftId = draftIdOf(memberKey);
+        if (!draftId) continue; // a booking-to-booking pair: the trip page's job
+        const others: PendingImportDuplicate[] = [];
+        for (const otherKey of group.bookingIds) {
+          if (otherKey === memberKey) continue;
+          const otherDraftId = draftIdOf(otherKey);
+          if (otherDraftId) {
+            const other = draftsById.get(otherDraftId);
+            if (!other) continue;
+            others.push({
+              reason: group.reason,
+              confidence: group.confidence,
+              target: "draft",
+              id: other.id,
+              title: other.title,
+              startsAt: other.startsAt,
+              startsAtTz: other.startsAtTz,
+              tripId: null,
+              tripTitle: null,
+            });
+            continue;
+          }
+          const row = bookingsById.get(bookingIdOf(otherKey));
+          if (!row) continue;
+          others.push({
+            reason: group.reason,
+            confidence: group.confidence,
+            target: "booking",
+            id: row.id,
+            title: row.title,
+            startsAt: row.starts_at,
+            startsAtTz: row.starts_at_tz,
+            tripId: row.trip_id,
+            tripTitle: liveTrips.get(row.trip_id)?.title ?? null,
+          });
+        }
+        if (others.length > 0) byDraft.set(draftId, others);
+      }
+    }
+    return byDraft;
+  }
+
+  /**
+   * Refuses an accept that would re-import something the household already
+   * has, unless the reviewer has explicitly said to do it anyway.
+   *
+   * Only `high` confidence blocks. The weakest rule — same place, same minute,
+   * different names — is exactly the shape of two hotel rooms for one family,
+   * and a queue that refused to import the second room until you argued with
+   * it would be worse than one that never checked. Medium matches are reported
+   * by `listPending` and left to the reviewer's eye.
+   */
+  private async assertNoDuplicates(
+    drafts: DraftBooking[],
+    trip: Trip | null,
+    allowDuplicates: boolean,
+  ): Promise<void> {
+    if (allowDuplicates) return;
+
+    const kinds = new Set(drafts.map((draft) => draft.kind));
+    const rows = trip
+      ? (await this.all<BookingCandidateRow>(
+          `SELECT id, trip_id, kind, title, location, starts_at, starts_at_tz, confirmation_number
+             FROM booking
+            WHERE {scope} AND trip_id = ?2 AND status != 'cancelled'`,
+          trip.id,
+        )).filter((row) => kinds.has(row.kind as DraftBooking["kind"]))
+      : [];
+
+    const existing = await Promise.all(
+      rows.map(async (row) => ({
+        id: bookingKey(row.id),
+        kind: row.kind,
+        title: row.title,
+        location: row.location,
+        startsAt: row.starts_at,
+        confirmation: await openConfirmation(this.ring, row.confirmation_number),
+      } satisfies DuplicateCandidate)),
+    );
+
+    const accepting = new Set(drafts.map((draft) => draftKey(draft.id)));
+    let redundant = 0;
+    let againstExisting = false;
+    for (const group of findDuplicates([...drafts.map(draftCandidate), ...existing])) {
+      if (group.confidence !== "high") continue;
+      const fromBatch = group.bookingIds.filter((key) => accepting.has(key)).length;
+      if (fromBatch === 0) continue;
+      if (fromBatch < group.bookingIds.length) {
+        // The group also holds a booking already on the trip: every draft in
+        // it is a re-import of something the household has.
+        redundant += fromBatch;
+        againstExisting = true;
+      } else {
+        // The batch repeating itself. One of them is the booking they all
+        // wanted to be; the rest are the duplicates.
+        redundant += fromBatch - 1;
+      }
+    }
+
+    if (redundant === 0) return;
+    const one = redundant === 1;
+    const where = againstExisting && trip
+      ? `already on ${trip.title}`
+      : "already in this selection";
+    throw new ConflictError(
+      `${redundant} of these imports ${one ? "looks" : "look"} like ` +
+        `${one ? "a booking" : "bookings"} ${where}. Import anyway to keep both copies.`,
+    );
+  }
+
   private async pendingDrafts(ids: string[]): Promise<DraftBooking[]> {
     const unique = [...new Set(ids)];
     if (unique.length === 0) throw new ValidationError("Choose at least one pending import");
@@ -223,93 +419,18 @@ export class ImportReviewRepo extends TenantRepo {
     resolvedAt: string,
   ): Promise<Array<{ sql: string; params: unknown[] }>> {
     const statements: Array<{ sql: string; params: unknown[] }> = [];
-    const [peopleByEmail, candidates] = await Promise.all([
-      this.peopleByEmail(),
-      this.bookingCandidates(tripId),
-    ]);
+    const peopleByEmail = await this.peopleByEmail();
     for (const draft of drafts) {
       const extracted = asRecord(draft.extracted);
       const details = parseDetails(
         draft.kind,
         importDetails(draft.kind, draft.title, extracted.details),
       );
-      const detailRecord = asRecord(details);
       const costCents =
         typeof extracted.costCents === "number" && Number.isInteger(extracted.costCents)
           ? extracted.costCents
           : null;
       const personIds = matchedPersonIds(extracted.travelerEmails, peopleByEmail);
-      const incoming: Omit<BookingCandidate, "id"> = {
-        confirmationNumber: draft.confirmationNumber,
-        kind: draft.kind,
-        title: draft.title,
-        location: draft.location,
-        startsAt: draft.startsAt,
-        startsAtTz: draft.startsAtTz,
-        endsAt: draft.endsAt,
-        endsAtTz: draft.endsAtTz,
-        costCents,
-        details: detailRecord,
-      };
-      const duplicate = candidates.find((candidate) =>
-        sameReservation(candidate, incoming)
-      );
-
-      if (duplicate) {
-        const mergedDetails = mergeDetails(duplicate.details, detailRecord);
-        statements.push({
-          sql: `UPDATE booking
-                   SET kind = CASE WHEN kind = 'other' AND ? != 'other' THEN ? ELSE kind END,
-                       location = coalesce(location, ?),
-                       starts_at = coalesce(starts_at, ?),
-                       starts_at_tz = coalesce(starts_at_tz, ?),
-                       ends_at = coalesce(ends_at, ?),
-                       ends_at_tz = coalesce(ends_at_tz, ?),
-                       cost_cents = coalesce(cost_cents, ?),
-                       details = ?
-                 WHERE id = ? AND household_id = ?`,
-          params: [
-            draft.kind,
-            draft.kind,
-            draft.location,
-            draft.startsAt,
-            draft.startsAtTz,
-            draft.endsAt,
-            draft.endsAtTz,
-            costCents,
-            JSON.stringify(mergedDetails),
-            duplicate.id,
-            this.ctx.householdId,
-          ],
-        });
-        appendPersonStatements(
-          statements,
-          duplicate.id,
-          tripId,
-          personIds,
-        );
-        statements.push({
-          sql: `UPDATE draft_booking
-                   SET status = 'accepted', booking_id = ?, resolved_at = ?
-                 WHERE id = ? AND household_id = ? AND status = 'pending'`,
-          params: [
-            duplicate.id,
-            resolvedAt,
-            draft.id,
-            this.ctx.householdId,
-          ],
-        });
-        duplicate.details = mergedDetails;
-        duplicate.kind =
-          duplicate.kind === "other" ? draft.kind : duplicate.kind;
-        duplicate.location ??= draft.location;
-        duplicate.startsAt ??= draft.startsAt;
-        duplicate.startsAtTz ??= draft.startsAtTz;
-        duplicate.endsAt ??= draft.endsAt;
-        duplicate.endsAtTz ??= draft.endsAtTz;
-        duplicate.costCents ??= costCents;
-        continue;
-      }
 
       const bookingId = newId();
       const encryptedConfirmation = draft.confirmationNumber
@@ -358,7 +479,6 @@ export class ImportReviewRepo extends TenantRepo {
                WHERE id = ? AND household_id = ? AND status = 'pending'`,
         params: [bookingId, resolvedAt, draft.id, this.ctx.householdId],
       });
-      candidates.push({ id: bookingId, ...incoming });
     }
     return statements;
   }
@@ -371,43 +491,50 @@ export class ImportReviewRepo extends TenantRepo {
     );
     return new Map(rows.map((row) => [normalizeEmail(row.email), row.id]));
   }
+}
 
-  private async bookingCandidates(tripId: string): Promise<BookingCandidate[]> {
-    const rows = await this.all<BookingCandidateRow>(
-      `SELECT id, confirmation_number, kind, title, location,
-              starts_at, starts_at_tz, ends_at, ends_at_tz, cost_cents, details
-         FROM booking
-        WHERE {scope} AND trip_id = ?2 AND status != 'cancelled'`,
-      tripId,
-    );
-    const candidates: BookingCandidate[] = [];
-    for (const row of rows) {
-      try {
-        candidates.push({
-          id: row.id,
-          confirmationNumber: await openConfirmation(
-            this.ring,
-            row.confirmation_number,
-          ),
-          kind: row.kind,
-          title: row.title,
-          location: row.location,
-          startsAt: row.starts_at,
-          startsAtTz: row.starts_at_tz,
-          endsAt: row.ends_at,
-          endsAtTz: row.ends_at_tz,
-          costCents: row.cost_cents,
-          details: parseStoredDetails(row.details),
-        });
-      } catch (err) {
-        console.error(
-          `[ImportReviewRepo] skipping booking ${row.id} during duplicate detection`,
-          err,
-        );
-      }
-    }
-    return candidates;
-  }
+type BookingCandidateRow = {
+  id: string;
+  trip_id: string;
+  kind: string;
+  title: string;
+  location: string | null;
+  starts_at: string | null;
+  starts_at_tz: string | null;
+  confirmation_number: string | null;
+};
+
+/**
+ * Drafts and bookings are matched in one pass, so their ids share a namespace
+ * for the length of that call. Both are generated by newId() and cannot
+ * actually collide, but an unprefixed mix would make "is this member a draft?"
+ * a lookup against two maps whose answer changes silently the day a draft id
+ * is reused as a booking id. The prefix makes it a property of the key.
+ */
+function draftKey(id: string): string {
+  return `d:${id}`;
+}
+function bookingKey(id: string): string {
+  return `b:${id}`;
+}
+function draftIdOf(key: string): string | null {
+  return key.startsWith("d:") ? key.slice(2) : null;
+}
+function bookingIdOf(key: string): string {
+  return key.startsWith("b:") ? key.slice(2) : key;
+}
+
+function draftCandidate(draft: DraftBooking): DuplicateCandidate {
+  return {
+    id: draftKey(draft.id),
+    kind: draft.kind,
+    title: draft.title,
+    location: draft.location,
+    startsAt: draft.startsAt,
+    // Draft confirmation numbers are stored in the clear (draft_booking has no
+    // envelope column) — only an accepted booking's is encrypted.
+    confirmation: draft.confirmationNumber,
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -449,99 +576,6 @@ function appendPersonStatements(
       sql: "INSERT OR IGNORE INTO trip_person (trip_id, person_id) VALUES (?, ?)",
       params: [tripId, personId],
     });
-  }
-}
-
-function sameReservation(
-  existing: BookingCandidate,
-  incoming: Omit<BookingCandidate, "id">,
-): boolean {
-  const existingConfirmation = normalizeConfirmation(existing.confirmationNumber);
-  const incomingConfirmation = normalizeConfirmation(incoming.confirmationNumber);
-  if (
-    existingConfirmation === "" ||
-    existingConfirmation !== incomingConfirmation ||
-    normalizeTitle(existing.title) !== normalizeTitle(incoming.title)
-  ) {
-    return false;
-  }
-
-  if (
-    datesConflict(
-      existing.startsAt,
-      existing.startsAtTz,
-      incoming.startsAt,
-      incoming.startsAtTz,
-    ) ||
-    datesConflict(
-      existing.endsAt,
-      existing.endsAtTz,
-      incoming.endsAt,
-      incoming.endsAtTz,
-    )
-  ) {
-    return false;
-  }
-
-  // The same confirmation can legitimately contain multiple rooms, sites,
-  // or units. If both extractions identify different units, keep both.
-  const existingUnit = reservationUnit(existing.details);
-  const incomingUnit = reservationUnit(incoming.details);
-  return !existingUnit || !incomingUnit || existingUnit === incomingUnit;
-}
-
-function normalizeConfirmation(value: string | null): string {
-  return (value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
-
-function normalizeTitle(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function datesConflict(
-  firstAt: string | null,
-  firstZone: string | null,
-  secondAt: string | null,
-  secondZone: string | null,
-): boolean {
-  const first = localDate(firstAt, firstZone);
-  const second = localDate(secondAt, secondZone);
-  return !!first && !!second && first !== second;
-}
-
-function reservationUnit(details: Record<string, unknown>): string | undefined {
-  for (const key of ["siteNumber", "site", "roomNumber", "room", "unit"]) {
-    const value = details[key];
-    if (typeof value === "string" || typeof value === "number") {
-      const normalized = String(value).trim().toLowerCase();
-      if (normalized !== "") return normalized;
-    }
-  }
-  return undefined;
-}
-
-function mergeDetails(
-  existing: Record<string, unknown>,
-  incoming: Record<string, unknown>,
-): Record<string, unknown> {
-  const merged = { ...existing };
-  for (const [key, value] of Object.entries(incoming)) {
-    if (
-      merged[key] === undefined ||
-      merged[key] === null ||
-      merged[key] === ""
-    ) {
-      merged[key] = value;
-    }
-  }
-  return merged;
-}
-
-function parseStoredDetails(value: string): Record<string, unknown> {
-  try {
-    return asRecord(JSON.parse(value) as unknown);
-  } catch {
-    return {};
   }
 }
 

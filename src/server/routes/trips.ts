@@ -3,6 +3,7 @@ import { z } from "zod";
 import { TripRepo, TRIP_STATUSES } from "../repos/trip.js";
 import type { UpdateTripInput } from "../repos/trip.js";
 import { BookingRepo } from "../repos/booking.js";
+import { DuplicateRepo } from "../repos/duplicates.js";
 import { PersonRepo } from "../repos/person.js";
 import { RollupRepo } from "../repos/rollup.js";
 import { BOOKING_KINDS } from "../schemas/booking-kinds.js";
@@ -11,12 +12,33 @@ import { NotFoundError } from "../repos/base.js";
 import type { AppEnv } from "../index.js";
 import { isJsonAction } from "./request.js";
 
+// A cover photo URL is rendered straight into an <img src> on the trip card,
+// so only web-fetchable http(s) URLs may be stored — javascript:, data:, and
+// every other scheme must fail here as a 400, not execute at render time.
+// WHATWG URL parsing (not a substring check) is what defeats scheme-smuggling
+// spellings like "jAvAsCrIpT:" or leading whitespace.
+function isHttpUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return url.protocol === "http:" || url.protocol === "https:";
+}
+
+const photoUrlSchema = z
+  .string()
+  .max(2048)
+  .refine(isHttpUrl, { message: "photoUrl must be an http(s) URL" });
+
 const createTripSchema = z.object({
   title: z.string().min(1),
   destination: z.string().optional(),
   startsOn: z.string().optional(),
   endsOn: z.string().optional(),
   notes: z.string().optional(),
+  photoUrl: photoUrlSchema.optional(),
 });
 
 /**
@@ -43,6 +65,7 @@ const updateTripSchema = z
     endsOn: z.string().nullable().optional(),
     status: z.enum(TRIP_STATUSES).optional(),
     notes: z.string().nullable().optional(),
+    photoUrl: photoUrlSchema.nullable().optional(),
   })
   .strict();
 
@@ -50,8 +73,9 @@ const updateTripSchema = z
 // timezone must be something `Intl.DateTimeFormat` recognizes as an IANA
 // zone identifier -- otherwise it passes validation as a bare non-empty
 // string, gets stored as-is, and bricks `ItineraryRepo`'s day view (via
-// `localDateOf()`) on every future read of that trip, permanently, since
-// there is no PATCH/DELETE booking endpoint to fix it through the API.
+// `localDateOf()`) on every future read of that trip. `PUT /api/bookings/:id`
+// can now repair such a row, but it enforces the same two checks, so the only
+// way in remains a write that bypasses both -- keep them here.
 // `isValidTimestamp`/`isValidTimezone` live in `../time.js`, shared with
 // `repos/booking.ts` and `ingest/extracted.ts` -- see that module's doc
 // comment for why the three must never drift apart.
@@ -99,6 +123,26 @@ const createBookingSchema = z
     message: "endsAt requires endsAtTz (an IANA timezone)",
     path: ["endsAtTz"],
   });
+
+// `.strict()` on both: a client that posts `bookingIds` to /merge (or
+// `mergeIds` to /dismiss) has confused the two resolutions, and the two do
+// opposite things — one deletes rows, the other only records a decision. A
+// permissive schema would drop the misplaced key and then fail on the missing
+// one, which reads as a validation quibble rather than the mistake it is.
+const mergeDuplicatesSchema = z
+  .object({
+    keepId: z.string().min(1),
+    mergeIds: z.array(z.string().min(1)).min(1),
+  })
+  .strict();
+
+const dismissDuplicatesSchema = z
+  .object({
+    // Two ids is a pair; more is a group the human is declaring distinct in
+    // one go, which the repo expands to every pair among them.
+    bookingIds: z.array(z.string().min(1)).min(2),
+  })
+  .strict();
 
 export const trips = new Hono<AppEnv>();
 
@@ -224,6 +268,60 @@ trips.post("/:tripId/bookings/:bookingId/reveal", async (c) => {
   );
 
   return c.json({ value });
+});
+
+// Read-only, and open to viewers for the same reason the booking list is: it
+// returns exactly what GET /:tripId/bookings already returns, grouped. The
+// confirmation numbers the matcher compares are decrypted inside the repo and
+// never reach this response — see DuplicateRepo.forTrip.
+trips.get("/:tripId/duplicates", async (c) =>
+  c.json({
+    groups: await new DuplicateRepo(c.get("db"), c.get("identity"), c.get("ring")).forTrip(
+      c.req.param("tripId"),
+    ),
+  }),
+);
+
+trips.post("/:tripId/duplicates/merge", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const parsed = mergeDuplicatesSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid merge", details: parsed.error.issues }, 400);
+  }
+  // Deleting the merged-away rows is the point, so the failure modes matter:
+  // an id outside this trip (NotFoundError, 404), a cross-kind pair or an
+  // empty merge list (ValidationError, 400), and a viewer (ForbiddenError,
+  // 403) all throw before any statement runs, and the batch itself is atomic.
+  return c.json(
+    await new DuplicateRepo(c.get("db"), c.get("identity"), c.get("ring")).merge(
+      c.req.param("tripId"),
+      parsed.data.keepId,
+      parsed.data.mergeIds,
+    ),
+  );
+});
+
+trips.post("/:tripId/duplicates/dismiss", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const parsed = dismissDuplicatesSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid dismissal", details: parsed.error.issues }, 400);
+  }
+  await new DuplicateRepo(c.get("db"), c.get("identity"), c.get("ring")).dismiss(
+    c.req.param("tripId"),
+    parsed.data.bookingIds,
+  );
+  return c.body(null, 204);
 });
 
 trips.put("/:tripId/people/:personId", async (c) => {
