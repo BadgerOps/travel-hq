@@ -169,10 +169,12 @@ export function buildExtractionPrompt(
     "You read travel confirmation emails and extract the bookings they describe.",
     "Return one entry per booking. A round trip is two flights.",
     'Use kind flight, lodging, car, activity, or "other" if unsure.',
-    "Use UTC ISO-8601 instants and IANA zones for the event locations.",
+    "Return local wall-clock ISO-8601 date-times exactly as stated by the reservation, without Z or a UTC offset, plus the event location's IANA timezone.",
     "If a timestamp or zone is uncertain, set both to null.",
+    "Classify hotels, motels, lodges, vacation rentals, campgrounds, campsites, KOAs, and RV parks as lodging.",
     "Copy confirmation numbers exactly and never invent values.",
     "costCents is the total cost in cents.",
+    "Preserve useful booking-specific facts in details, including site or room number/type, campsite or product, nights, party size, ticket quantity, pickup instructions, and addresses when present.",
     "For travelerEmails, include only addresses explicitly associated with a traveler, passenger, guest, or reservation holder for that booking.",
     "Do not include a forwarding sender or recipient merely because they forwarded or received the message.",
   ];

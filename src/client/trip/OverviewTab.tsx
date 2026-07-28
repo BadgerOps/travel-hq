@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AirplaneTakeoff, Bed, Car, Confetti, ForkKnife } from "@phosphor-icons/react";
+import { AirplaneTakeoff, Bed, Car, Confetti, Ticket } from "@phosphor-icons/react";
 import type { api as defaultApi } from "../api/client.js";
 import type { Booking, Person, Trip } from "../api/types.js";
 import { formatBookingWhen } from "../lib/dates.js";
@@ -18,6 +18,7 @@ const ICONS: Record<string, typeof AirplaneTakeoff> = {
   lodging: Bed,
   car: Car,
   activity: Confetti,
+  other: Ticket,
 };
 
 export function OverviewTab({
@@ -82,7 +83,8 @@ export function OverviewTab({
               <h6 className="card-kicker">{heading}</h6>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {group.map((b) => {
-                  const Icon = ICONS[b.kind] ?? ForkKnife;
+                  const Icon = ICONS[b.kind] ?? Ticket;
+                  const highlights = bookingHighlights(b);
                   // Three distinct states, not two. `planned` is a decision
                   // the family has made but not yet paid for; `draft` is an
                   // unreviewed email import that no one has confirmed is even
@@ -131,10 +133,18 @@ export function OverviewTab({
                           />
                         </span>
                       </div>
+                      {highlights.length > 0 && (
+                        <div className="card-meta">
+                          {highlights.map((highlight) => (
+                            <span key={highlight}>{highlight}</span>
+                          ))}
+                        </div>
+                      )}
                       <div className="card-meta">
                         <span>{formatBookingWhen(b, "No date yet")}</span>
                         {b.confirmationNumberMasked && (
                           <span onClick={(event) => event.stopPropagation()}>
+                            Confirmation{" "}
                             <MaskedValue
                               masked={b.confirmationNumberMasked}
                               onReveal={async () =>
@@ -168,4 +178,110 @@ export function OverviewTab({
       })}
     </div>
   );
+}
+
+function bookingHighlights(booking: Booking): string[] {
+  const details = detailRecord(booking.details);
+  const highlights: string[] = [];
+  const location = usefulLocation(booking.title, booking.location);
+  if (location) highlights.push(location);
+
+  switch (booking.kind) {
+    case "flight":
+      pushParts(highlights, [
+        joined(details.carrier, details.flightNumber),
+        route(details.originIata, details.destinationIata),
+        labeled("Seat", details.seat),
+        text(details.cabin),
+      ]);
+      break;
+    case "lodging":
+      pushParts(highlights, [
+        labeled("Site", first(details.siteNumber, details.site)),
+        text(first(details.siteType, details.type)),
+        text(first(details.campsite, details.product, details.roomType)),
+        count(details.nights, "night"),
+      ]);
+      break;
+    case "car":
+      pushParts(highlights, [
+        text(details.vendor),
+        text(details.vehicleClass),
+        labeled("Pickup", details.pickupLocation),
+      ]);
+      break;
+    case "activity":
+      pushParts(highlights, [
+        text(details.venue),
+        count(details.partySize, "traveler"),
+        count(first(details.ticketQuantity, details.quantity), "ticket"),
+      ]);
+      break;
+    default:
+      pushParts(highlights, [
+        labeled("Site", first(details.siteNumber, details.site)),
+        text(first(details.siteType, details.type)),
+        text(first(details.campsite, details.product, details.roomType)),
+        count(details.nights, "night"),
+      ]);
+  }
+
+  return [...new Set(highlights)].slice(0, 4);
+}
+
+function detailRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function usefulLocation(title: string, location: string | null): string | undefined {
+  const value = location?.trim();
+  if (!value) return undefined;
+  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, " ");
+  const normalizedLocation = value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return normalizedLocation !== "" && !normalizedTitle.includes(normalizedLocation)
+    ? truncate(value)
+    : undefined;
+}
+
+function pushParts(target: string[], values: Array<string | undefined>): void {
+  for (const value of values) {
+    if (value && !target.includes(value)) target.push(value);
+  }
+}
+
+function first(...values: unknown[]): unknown {
+  return values.find((value) => value !== null && value !== undefined && value !== "");
+}
+
+function text(value: unknown): string | undefined {
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  const normalized = String(value).trim();
+  return normalized === "" ? undefined : truncate(normalized);
+}
+
+function labeled(label: string, value: unknown): string | undefined {
+  const rendered = text(value);
+  return rendered ? `${label} ${rendered}` : undefined;
+}
+
+function joined(firstValue: unknown, secondValue: unknown): string | undefined {
+  const values = [text(firstValue), text(secondValue)].filter(Boolean);
+  return values.length > 0 ? values.join(" ") : undefined;
+}
+
+function route(origin: unknown, destination: unknown): string | undefined {
+  const from = text(origin);
+  const to = text(destination);
+  return from && to ? `${from.toUpperCase()} → ${to.toUpperCase()}` : undefined;
+}
+
+function count(value: unknown, singular: string): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
+  return `${value} ${singular}${value === 1 ? "" : "s"}`;
+}
+
+function truncate(value: string): string {
+  return value.length > 72 ? `${value.slice(0, 69)}…` : value;
 }

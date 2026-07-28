@@ -138,6 +138,16 @@ export async function handleInboundEmail(
       return;
     }
 
+    // Email Routing can redeliver the exact same RFC message. Message-ID is
+    // scoped to the household; short-circuiting here avoids
+    // rereading/re-extracting it in the normal case. A separately
+    // forwarded copy has a different outer Message-ID and is handled later by
+    // semantic booking deduplication during import review.
+    if (meta.messageId && await repo.findByMessageId(meta.messageId)) {
+      console.info("[email-ingest] ignored duplicate Message-ID");
+      return;
+    }
+
     const raw = await readRawLimited(message.raw);
     if (verdict.decision === "verify-dkim") {
       const dkim = await verifyAlignedDkim(
@@ -155,6 +165,18 @@ export async function handleInboundEmail(
     }
     stored = await repo.create({ ...meta, raw, status: "received" });
   } catch (err) {
+    // If a concurrent invocation stored this Message-ID first, this delivery
+    // is complete—not a failed message to store or forward.
+    if (meta.messageId) {
+      try {
+        if (await repo.findByMessageId(meta.messageId)) {
+          console.info("[email-ingest] ignored concurrently duplicated Message-ID");
+          return;
+        }
+      } catch {
+        // Fall through to the normal fail-soft handling below.
+      }
+    }
     console.error("[email-ingest] ingest failed; storing a failed row", err);
     try {
       // raw: "" — the stream may be what failed (or is already consumed);
