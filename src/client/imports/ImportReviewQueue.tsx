@@ -416,8 +416,10 @@ function asExtractedBooking(draft: PendingImportDraft): ExtractedBooking {
     endsAt: draft.endsAt,
     endsAtTz: draft.endsAtTz,
     confirmationNumber: draft.confirmationNumber,
-    costCents: null,
-    details: {},
+    costCents: draft.costCents,
+    travelerNames: draft.travelerNames,
+    travelerEmails: draft.travelerEmails,
+    details: draft.details,
   };
 }
 

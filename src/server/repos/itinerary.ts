@@ -38,7 +38,10 @@ export class ItineraryRepo extends BookingAwareRepo {
           AND b.trip_id = ?2
           AND bp.person_id = ?3
           AND b.status != 'cancelled'
-          AND b.starts_at IS NOT NULL
+          AND (
+            b.starts_at IS NOT NULL
+            OR (b.kind = 'lodging' AND json_extract(b.details, '$.checkInDate') IS NOT NULL)
+          )
         ORDER BY b.starts_at`,
       tripId,
       personId,
@@ -62,7 +65,10 @@ export class ItineraryRepo extends BookingAwareRepo {
         WHERE {scope}
           AND b.trip_id = ?2
           AND b.status != 'cancelled'
-          AND b.starts_at IS NOT NULL
+          AND (
+            b.starts_at IS NOT NULL
+            OR (b.kind = 'lodging' AND json_extract(b.details, '$.checkInDate') IS NOT NULL)
+          )
         ORDER BY b.starts_at`,
       tripId,
     );
@@ -102,14 +108,14 @@ export class ItineraryRepo extends BookingAwareRepo {
     const peopleByBooking = await this.personIdsByBooking(rows.map((row) => row.id));
 
     const converted = await Promise.all(rows.map(async (r) => {
-      let date: string;
+      let dates: string[];
       let booking: Booking;
       try {
         // starts_at is non-null by the query; its tz is guaranteed paired
         // with it by BookingRepo.create() for any row written through the
         // API -- but not for a row inserted directly by hand.
-        date = localDateOf(r.starts_at!, r.starts_at_tz ?? "UTC");
         booking = await toBooking(this.ring, r, peopleByBooking.get(r.id) ?? []);
+        dates = itineraryDates(booking);
       } catch (err) {
         console.error(
           `[ItineraryRepo] skipping booking ${r.id} in day view: cannot format row`,
@@ -117,21 +123,59 @@ export class ItineraryRepo extends BookingAwareRepo {
         );
         return null;
       }
-      return { date, booking };
+      return { dates, booking };
     }));
 
     for (const item of converted) {
       if (!item) continue;
-      const { date, booking } = item;
-      const list = byDate.get(date) ?? [];
-      list.push(booking);
-      byDate.set(date, list);
+      const { dates, booking } = item;
+      for (const [index, date] of dates.entries()) {
+        const list = byDate.get(date) ?? [];
+        list.push(dates.length === 1 ? booking : {
+          ...booking,
+          itineraryPosition:
+            index === 0 ? "start" : index === dates.length - 1 ? "end" : "ongoing",
+        });
+        byDate.set(date, list);
+      }
     }
 
     return [...byDate.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, bookings]) => ({ date, bookings }));
   }
+}
+
+function itineraryDates(booking: Booking): string[] {
+  const details =
+    booking.details !== null && typeof booking.details === "object"
+      ? booking.details as Record<string, unknown>
+      : {};
+  const start =
+    booking.kind === "lodging" && typeof details.checkInDate === "string"
+      ? details.checkInDate
+      : booking.startsAt
+        ? localDateOf(booking.startsAt, booking.startsAtTz ?? "UTC")
+        : null;
+  const end =
+    booking.kind === "lodging" && typeof details.checkOutDate === "string"
+      ? details.checkOutDate
+      : booking.kind === "lodging" && booking.endsAt
+        ? localDateOf(booking.endsAt, booking.endsAtTz ?? booking.startsAtTz ?? "UTC")
+        : null;
+  if (!start) return [];
+  if (!end || end <= start) return [start];
+
+  const dates: string[] = [];
+  const cursor = new Date(`${start}T12:00:00Z`);
+  const last = new Date(`${end}T12:00:00Z`);
+  // Stay ranges are bounded to protect the itinerary from malformed imported
+  // years while still covering any realistic trip.
+  while (cursor <= last && dates.length < 370) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
 }
 
 /**

@@ -51,6 +51,10 @@ export type PendingImportDraft = {
   endsAt: string | null;
   endsAtTz: string | null;
   confirmationNumber: string | null;
+  costCents: number | null;
+  details: unknown;
+  travelerNames: string[];
+  travelerEmails: string[];
   extractionSource: DraftBooking["source"];
   localStartsOn: string | null;
   localEndsOn: string | null;
@@ -127,6 +131,7 @@ export class ImportReviewRepo extends TenantRepo {
       }
       if (!email) continue;
       const range = draftDateRange(draft);
+      const extracted = asRecord(draft.extracted);
       const matches = range ? dateCompatibleTrips(trips, range) : [];
       pending.push({
         id: draft.id,
@@ -139,6 +144,13 @@ export class ImportReviewRepo extends TenantRepo {
         endsAt: draft.endsAt,
         endsAtTz: draft.endsAtTz,
         confirmationNumber: draft.confirmationNumber,
+        costCents:
+          typeof extracted.costCents === "number" && Number.isInteger(extracted.costCents)
+            ? extracted.costCents
+            : null,
+        details: extracted.details ?? {},
+        travelerNames: stringArray(extracted.travelerNames),
+        travelerEmails: stringArray(extracted.travelerEmails),
         extractionSource: draft.source,
         localStartsOn: range?.startsOn ?? null,
         localEndsOn: range?.endsOn ?? null,
@@ -419,7 +431,7 @@ export class ImportReviewRepo extends TenantRepo {
     resolvedAt: string,
   ): Promise<Array<{ sql: string; params: unknown[] }>> {
     const statements: Array<{ sql: string; params: unknown[] }> = [];
-    const peopleByEmail = await this.peopleByEmail();
+    const people = await this.peopleForMatching();
     for (const draft of drafts) {
       const extracted = asRecord(draft.extracted);
       const details = parseDetails(
@@ -430,7 +442,11 @@ export class ImportReviewRepo extends TenantRepo {
         typeof extracted.costCents === "number" && Number.isInteger(extracted.costCents)
           ? extracted.costCents
           : null;
-      const personIds = matchedPersonIds(extracted.travelerEmails, peopleByEmail);
+      const personIds = matchedPersonIds(
+        extracted.travelerNames,
+        extracted.travelerEmails,
+        people,
+      );
 
       const bookingId = newId();
       const encryptedConfirmation = draft.confirmationNumber
@@ -483,13 +499,19 @@ export class ImportReviewRepo extends TenantRepo {
     return statements;
   }
 
-  private async peopleByEmail(): Promise<Map<string, string>> {
-    const rows = await this.all<{ id: string; email: string }>(
-      `SELECT id, email
-         FROM person
-        WHERE {scope} AND email IS NOT NULL AND trim(email) != ''`,
+  private async peopleForMatching(): Promise<Array<{
+    id: string;
+    displayName: string;
+    email: string | null;
+  }>> {
+    const rows = await this.all<{ id: string; display_name: string; email: string | null }>(
+      `SELECT id, display_name, email FROM person WHERE {scope}`,
     );
-    return new Map(rows.map((row) => [normalizeEmail(row.email), row.id]));
+    return rows.map((row) => ({
+      id: row.id,
+      displayName: row.display_name,
+      email: row.email,
+    }));
   }
 }
 
@@ -544,12 +566,27 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function matchedPersonIds(
-  value: unknown,
-  peopleByEmail: Map<string, string>,
+  names: unknown,
+  emails: unknown,
+  people: Array<{ id: string; displayName: string; email: string | null }>,
 ): string[] {
-  if (!Array.isArray(value)) return [];
   const ids = new Set<string>();
-  for (const candidate of value) {
+  const peopleByName = new Map(
+    people.map((person) => [normalizeName(person.displayName), person.id]),
+  );
+  const peopleByEmail = new Map(
+    people
+      .filter((person): person is typeof person & { email: string } => !!person.email)
+      .map((person) => [normalizeEmail(person.email), person.id]),
+  );
+  // Names deliberately win. Forwarded mail frequently contains a traveler's
+  // work address while their profile contains a personal address.
+  for (const candidate of Array.isArray(names) ? names : []) {
+    if (typeof candidate !== "string") continue;
+    const personId = peopleByName.get(normalizeName(candidate));
+    if (personId) ids.add(personId);
+  }
+  for (const candidate of Array.isArray(emails) ? emails : []) {
     if (typeof candidate !== "string") continue;
     const personId = peopleByEmail.get(normalizeEmail(candidate));
     if (personId) ids.add(personId);
@@ -559,6 +596,20 @@ function matchedPersonIds(
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function normalizeName(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase();
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim() !== "")
+    : [];
 }
 
 function appendPersonStatements(
@@ -593,13 +644,22 @@ function importDetails(kind: string, title: string, value: unknown): unknown {
 
 function draftDateRange(draft: Pick<
   DraftBooking,
-  "startsAt" | "startsAtTz" | "endsAt" | "endsAtTz"
+  "startsAt" | "startsAtTz" | "endsAt" | "endsAtTz" | "extracted"
 >): DateRange | undefined {
   const start = localDate(draft.startsAt, draft.startsAtTz);
   const end = localDate(draft.endsAt, draft.endsAtTz);
-  if (!start && !end) return undefined;
-  const startsOn = start ?? end!;
-  const endsOn = end ?? start!;
+  const details = asRecord(asRecord(draft.extracted).details);
+  const detailStart =
+    typeof details.checkInDate === "string" && isValidCalendarDate(details.checkInDate)
+      ? details.checkInDate
+      : undefined;
+  const detailEnd =
+    typeof details.checkOutDate === "string" && isValidCalendarDate(details.checkOutDate)
+      ? details.checkOutDate
+      : undefined;
+  if (!start && !end && !detailStart && !detailEnd) return undefined;
+  const startsOn = start ?? detailStart ?? end ?? detailEnd!;
+  const endsOn = end ?? detailEnd ?? start ?? detailStart!;
   return startsOn <= endsOn
     ? { startsOn, endsOn }
     : { startsOn: endsOn, endsOn: startsOn };

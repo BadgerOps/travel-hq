@@ -12,6 +12,7 @@ const ctxB: HouseholdContext = { householdId: "hh-b", userId: "u2", role: "owner
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM person");
   await env.DB.exec("DELETE FROM household");
+  await env.DB.exec("DELETE FROM user");
   const now = new Date().toISOString();
   for (const id of ["hh-a", "hh-b"]) {
     await env.DB.prepare("INSERT INTO household (id,name,created_at) VALUES (?,?,?)").bind(id, id, now).run();
@@ -35,6 +36,21 @@ describe("PersonRepo", () => {
     });
     expect(list[0]?.passportNumberMasked).toBe("••••2119");
     expect(JSON.stringify(list)).not.toContain("C03X72119");
+  });
+
+  it("creates one idempotent traveler profile for the signed-in user", async () => {
+    const now = new Date().toISOString();
+    await env.DB.prepare("INSERT INTO user (id, email, created_at) VALUES (?, ?, ?)")
+      .bind("u1", "sol@badgerops.net", now)
+      .run();
+    const repo = new PersonRepo(env.DB, ctxA, ring);
+    const first = await repo.ensureCurrentUser("sol@badgerops.net");
+    const second = await repo.ensureCurrentUser("sol@badgerops.net");
+    expect(second.id).toBe(first.id);
+    expect(first).toMatchObject({ displayName: "Sol", email: "sol@badgerops.net" });
+    expect(await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM person WHERE household_id = ? AND user_id = ?",
+    ).bind("hh-a", "u1").first()).toEqual({ count: 1 });
   });
 
   it("isolates people by household", async () => {

@@ -25,7 +25,8 @@ export function DraftBookingCard({ booking }: { booking: ExtractedBooking }) {
   const ends = formatStamp(booking.endsAt, booking.endsAtTz);
   const cost =
     typeof booking.costCents === "number" ? formatMoney(booking.costCents) : null;
-  const hasFields = Boolean(starts || ends || booking.confirmationNumber || cost);
+  const highlights = detailHighlights(booking.details);
+  const hasFields = Boolean(starts || ends || booking.confirmationNumber || cost || highlights.length);
 
   return (
     <article className="card draft-card">
@@ -57,11 +58,57 @@ export function DraftBookingCard({ booking }: { booking: ExtractedBooking }) {
                 {cost}
               </div>
             )}
+            {highlights.map(([label, value]) => (
+              <div className="draft-field" key={label}>
+                <span className="draft-field-label">{label}</span>
+                {value}
+              </div>
+            ))}
           </div>
         </>
       )}
     </article>
   );
+}
+
+function detailHighlights(value: unknown): Array<[string, string]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const details = value as Record<string, unknown>;
+  const wanted: Array<[string, string]> = [
+    ["checkInDate", "Check-in date"],
+    ["checkOutDate", "Check-out date"],
+    ["nights", "Nights"],
+    ["siteNumber", "Site"],
+    ["siteType", "Site type"],
+    ["roomType", "Room"],
+    ["partySize", "Party size"],
+    ["ticketQuantity", "Tickets"],
+    ["pickupTime", "Pickup"],
+    ["pickupLocation", "Pickup location"],
+    ["returnTime", "Return"],
+    ["operator", "Operator"],
+  ];
+  return wanted.flatMap(([key, label]) => {
+    const item = details[key];
+    return typeof item === "string" || typeof item === "number"
+      ? [[label, detailValue(key, item)] as [string, string]]
+      : [];
+  }).slice(0, 8);
+}
+
+function detailValue(key: string, value: string | number): string {
+  if ((key === "checkInDate" || key === "checkOutDate") && typeof value === "string") {
+    const date = new Date(`${value}T00:00:00Z`);
+    if (!Number.isNaN(date.valueOf())) {
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: "UTC",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }).format(date);
+    }
+  }
+  return String(value);
 }
 
 function Field({ label, stamp }: { label: string; stamp: Stamp }) {

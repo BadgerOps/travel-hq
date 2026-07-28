@@ -104,6 +104,7 @@ function rejectMasked(field: string, value: string): void {
 
 type PersonRow = {
   id: string;
+  user_id: string | null;
   display_name: string;
   dob: string | null;
   email: string | null;
@@ -147,6 +148,56 @@ export class PersonRepo extends TenantRepo {
     });
     const created = await this.findById(id);
     if (!created) throw new Error("Person disappeared immediately after creation");
+    return created;
+  }
+
+  /**
+   * Returns the profile representing the signed-in account, creating or
+   * linking it once when older households predate user-backed people.
+   */
+  async ensureCurrentUser(email: string): Promise<Person> {
+    this.requireWrite();
+    let row = await this.get<PersonRow>(
+      "SELECT * FROM person WHERE {scope} AND user_id = ?2 LIMIT 1",
+      this.ctx.userId,
+    );
+    if (row) return this.toPerson(row);
+
+    row = await this.get<PersonRow>(
+      `SELECT * FROM person
+        WHERE {scope} AND user_id IS NULL AND lower(trim(email)) = lower(trim(?2))
+        LIMIT 1`,
+      email,
+    );
+    if (row) {
+      await this.run(
+        "UPDATE person SET user_id = ?2 WHERE {scope} AND id = ?3 AND user_id IS NULL",
+        this.ctx.userId,
+        row.id,
+      );
+      const linked = await this.findById(row.id);
+      if (!linked) throw new Error("Current user profile disappeared after linking");
+      return linked;
+    }
+
+    const id = newId();
+    await this.insert("person", {
+      id,
+      user_id: this.ctx.userId,
+      display_name: displayNameFromEmail(email),
+      dob: null,
+      email,
+      phone: null,
+      notes: null,
+      passport_expiry: null,
+      passport_country: null,
+      passport_number: null,
+      known_traveler_number: null,
+      redress_number: null,
+      created_at: new Date().toISOString(),
+    });
+    const created = await this.findById(id);
+    if (!created) throw new Error("Current user profile disappeared after creation");
     return created;
   }
 
@@ -281,4 +332,10 @@ export class PersonRepo extends TenantRepo {
       redressNumberMasked: await this.unsealAndMask(r.redress_number),
     };
   }
+}
+
+function displayNameFromEmail(email: string): string {
+  const words = email.split("@")[0]!.split(/[._+-]+/).filter(Boolean);
+  const value = words.map((word) => word[0]!.toUpperCase() + word.slice(1)).join(" ");
+  return value || "Me";
 }

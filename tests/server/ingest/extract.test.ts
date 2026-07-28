@@ -203,6 +203,46 @@ describe("extractInboundEmail", () => {
     }]);
   });
 
+  it("recovers explicit KOA stay dates when the model omits them", async () => {
+    const ai = fakeAi({
+      response: {
+        bookings: [{
+          kind: "lodging",
+          title: "St. Mary / East Glacier KOA Holiday",
+          location: "St. Mary, MT",
+          startsAt: null,
+          startsAtTz: null,
+          endsAt: null,
+          endsAtTz: null,
+          confirmationNumber: "21081900",
+          costCents: 42_500,
+          details: { propertyName: "St. Mary / East Glacier KOA Holiday", address: null },
+        }],
+      },
+    });
+    const email = await store([
+      "Subject: Reservation confirmation",
+      "",
+      "Check In Wednesday Aug 05 2026",
+      "Check Out Sunday Aug 09 2026",
+    ].join("\r\n"));
+    await run(email, ai);
+
+    expect(await drafts(email.id)).toMatchObject([{
+      kind: "lodging",
+      startsAt: null,
+      endsAt: null,
+      extracted: {
+        details: {
+          propertyName: "St. Mary / East Glacier KOA Holiday",
+          checkInDate: "2026-08-05",
+          checkOutDate: "2026-08-09",
+          nights: 4,
+        },
+      },
+    }]);
+  });
+
   it("sends HTML-only forwarded booking details to AI as readable text", async () => {
     const ai = fakeAi({ response: { bookings: [MODEL_BOOKING] } });
     const email = await store([

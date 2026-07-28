@@ -159,7 +159,7 @@ describe("import review routes", () => {
     ).toEqual([drafts[2]!.id]);
   });
 
-  it("links an imported booking to the profile whose email identifies its traveler", async () => {
+  it("links an imported booking by traveler name before a mismatched email", async () => {
     const now = new Date().toISOString();
     await env.DB.prepare(
       "INSERT INTO person (id, household_id, display_name, email, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -191,7 +191,8 @@ describe("import review routes", () => {
       source: "ai",
       extracted: {
         details: { propertyName: "Silverwood RV Park" },
-        travelerEmails: ["DAPSLEY1@GMAIL.COM"],
+        travelerNames: ["David Apsley"],
+        travelerEmails: ["david.apsley@work.example"],
       },
     }]);
 

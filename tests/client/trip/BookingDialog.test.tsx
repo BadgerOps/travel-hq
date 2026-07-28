@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { BookingDialog } from "../../../src/client/trip/BookingDialog.js";
 
 /**
- * `userEvent.type()` into `<input type="datetime-local">` is unreliable under
+ * `userEvent.type()` into native date/time inputs is unreliable under
  * jsdom — it types character by character against a control jsdom does not
  * implement segment editing for, and frequently leaves the value empty, which
  * would make the two timezone assertions below pass or fail for reasons
@@ -13,7 +13,7 @@ import { BookingDialog } from "../../../src/client/trip/BookingDialog.js";
  *
  * Do not "modernise" this back to userEvent.type.
  */
-function setDateTime(label: string, value: string): void {
+function setField(label: string, value: string): void {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 }
 
@@ -86,10 +86,9 @@ describe("BookingDialog", () => {
     await userEvent.type(screen.getByLabelText(/Flight number/), "2214");
     await userEvent.type(screen.getByLabelText("From"), "BOI");
     await userEvent.type(screen.getByLabelText("To"), "STS");
-    // Exact strings, not /^Departs/: the dialog has BOTH "Departs / starts"
-    // and "Departs timezone", and Testing Library throws on a multiple match.
-    setDateTime("Departs / starts", "2026-10-09T09:40");
-    await userEvent.selectOptions(screen.getByLabelText("Departs timezone"), "America/Boise");
+    setField("Start date", "2026-10-09");
+    setField("Start time", "09:40");
+    await userEvent.selectOptions(screen.getByLabelText("Timezone"), "America/Boise");
     await userEvent.click(screen.getByRole("button", { name: /save booking/i }));
 
     expect(api.trips.createBooking).toHaveBeenCalledWith(
@@ -112,8 +111,9 @@ describe("BookingDialog", () => {
     await userEvent.type(screen.getByLabelText(/Flight number/), "2214");
     await userEvent.type(screen.getByLabelText("From"), "BOI");
     await userEvent.type(screen.getByLabelText("To"), "STS");
-    setDateTime("Departs / starts", "2026-10-09T09:40");
-    await userEvent.selectOptions(screen.getByLabelText("Departs timezone"), "");
+    setField("Start date", "2026-10-09");
+    setField("Start time", "09:40");
+    await userEvent.selectOptions(screen.getByLabelText("Timezone"), "");
     await userEvent.click(screen.getByRole("button", { name: /save booking/i }));
     expect(api.trips.createBooking).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent(/timezone/i);

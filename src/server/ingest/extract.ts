@@ -11,6 +11,7 @@ import { InboundEmailRepo } from "../repos/inbound-email.js";
 import type { InboundEmail } from "../repos/inbound-email.js";
 import { DraftBookingRepo } from "../repos/draft-booking.js";
 import type { CreateDraftBookingInput, DraftBookingSource } from "../repos/draft-booking.js";
+import { zonedTimestampToUtc } from "../time.js";
 
 export type { ExtractionAi } from "./providers.js";
 
@@ -165,7 +166,133 @@ export async function extractBookings(
   extractionInstructions = "",
 ): Promise<ExtractedBooking[]> {
   const bookings = await provider.extract(buildExtractionPrompt(email, extractionInstructions));
-  return withExcursionLogistics(bookings, email.textBody);
+  return withDeterministicFacts(
+    withExcursionLogistics(bookings, email.textBody),
+    email.textBody,
+  );
+}
+
+/**
+ * The model is useful for understanding arbitrary confirmations, but explicit
+ * dates and simple return times should not depend on its mood. Preserve the
+ * model's values and fill only blanks from conservative patterns.
+ */
+function withDeterministicFacts(
+  bookings: ExtractedBooking[],
+  textBody: string | null,
+): ExtractedBooking[] {
+  if (!textBody) return bookings;
+  const lodgingDates = explicitLodgingDates(textBody);
+  return bookings.map((booking) => {
+    const details = asDetails(booking.details);
+    if (booking.kind === "lodging" && lodgingDates) {
+      if (!details.checkInDate) details.checkInDate = lodgingDates.checkInDate;
+      if (!details.checkOutDate) details.checkOutDate = lodgingDates.checkOutDate;
+      if (!details.nights) {
+        const nights = daysBetween(lodgingDates.checkInDate, lodgingDates.checkOutDate);
+        if (nights > 0) details.nights = nights;
+      }
+    }
+    if (
+      booking.kind === "activity" &&
+      booking.startsAt &&
+      booking.startsAtTz &&
+      !booking.endsAt &&
+      typeof details.returnTime === "string"
+    ) {
+      const endsAt = instantAtLocalTime(
+        booking.startsAt,
+        booking.startsAtTz,
+        details.returnTime,
+      );
+      if (endsAt) {
+        return {
+          ...booking,
+          endsAt,
+          endsAtTz: booking.startsAtTz,
+          details,
+        };
+      }
+    }
+    return { ...booking, details };
+  });
+}
+
+function explicitLodgingDates(
+  text: string,
+): { checkInDate: string; checkOutDate: string } | null {
+  const labeledIn = text.match(
+    /\bcheck[\s-]*in(?:\s+(?:date|on))?\s*:?\s*(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)?[,]?\s*([A-Z][a-z]{2,8}\s+\d{1,2}(?:st|nd|rd|th)?[,]?\s+\d{4})/i,
+  );
+  const labeledOut = text.match(
+    /\bcheck[\s-]*out(?:\s+(?:date|on))?\s*:?\s*(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)?[,]?\s*([A-Z][a-z]{2,8}\s+\d{1,2}(?:st|nd|rd|th)?[,]?\s+\d{4})/i,
+  );
+  let start = labeledIn?.[1] ? calendarDate(labeledIn[1]) : null;
+  let end = labeledOut?.[1] ? calendarDate(labeledOut[1]) : null;
+  if (!start || !end) {
+    const range = text.match(
+      /\b(?:your\s+booking|booking\s+dates?|stay)\s*:?\s*([A-Z][a-z]{2,8}\s+\d{1,2}(?:st|nd|rd|th)?[,]?\s+\d{4})\s+(?:to|through|-)\s+([A-Z][a-z]{2,8}\s+\d{1,2}(?:st|nd|rd|th)?[,]?\s+\d{4})/i,
+    );
+    start ??= range?.[1] ? calendarDate(range[1]) : null;
+    end ??= range?.[2] ? calendarDate(range[2]) : null;
+  }
+  return start && end && start <= end
+    ? { checkInDate: start, checkOutDate: end }
+    : null;
+}
+
+function calendarDate(value: string): string | null {
+  const cleaned = value.replace(/(\d)(?:st|nd|rd|th)\b/gi, "$1").replace(/,/g, "");
+  const parsed = new Date(`${cleaned} 12:00:00 UTC`);
+  return Number.isNaN(parsed.valueOf()) ? null : parsed.toISOString().slice(0, 10);
+}
+
+function daysBetween(start: string, end: string): number {
+  return Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000);
+}
+
+function asDetails(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? { ...value as Record<string, unknown> }
+    : {};
+}
+
+function instantAtLocalTime(
+  startsAt: string,
+  zone: string,
+  wallTime: string,
+): string | null {
+  const match = wallTime.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*([ap]m)?$/i);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? "0");
+  const meridiem = match[3]?.toLowerCase();
+  if (hour > 23 || minute > 59 || (meridiem && hour > 12)) return null;
+  if (meridiem === "pm" && hour < 12) hour += 12;
+  if (meridiem === "am" && hour === 12) hour = 0;
+  const day = new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(startsAt));
+  try {
+    let result = zonedTimestampToUtc(
+      `${day}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`,
+      zone,
+    );
+    if (result <= startsAt) {
+      const next = new Date(`${day}T00:00:00Z`);
+      next.setUTCDate(next.getUTCDate() + 1);
+      result = zonedTimestampToUtc(
+        `${next.toISOString().slice(0, 10)}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`,
+        zone,
+      );
+    }
+    return result;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -209,10 +336,12 @@ export function buildExtractionPrompt(
     "Classify hotels, motels, lodges, vacation rentals, campgrounds, campsites, KOAs, and RV parks as lodging.",
     "Copy confirmation numbers exactly and never invent values.",
     "costCents is the total cost in cents.",
-    "Put kind-specific facts in details. flight: carrier, flightNumber, originIata, destinationIata, cabin, seat. lodging: propertyName, address, roomType, nights, siteNumber, siteType, campsite, product. car: vendor, pickupLocation, pickupTime, dropoffLocation, dropoffTime, vehicleClass. activity: venue, address, operator, partySize, ticketQuantity, pickupTime, pickupLocation, arriveMinutesBefore, returnTime, dropoffLocation, duration, description.",
+    "Never omit an explicit reservation date. For lodging, extract check-in and check-out date-times when times are stated; if only dates are stated, copy YYYY-MM-DD values into details.checkInDate and details.checkOutDate.",
+    "Put kind-specific facts in details. flight: carrier, flightNumber, originIata, destinationIata, cabin, seat. lodging: propertyName, address, roomType, nights, checkInDate, checkOutDate, siteNumber, siteType, campsite, product. car: vendor, pickupLocation, pickupTime, dropoffLocation, dropoffTime, vehicleClass. activity: venue, address, operator, partySize, ticketQuantity, pickupTime, pickupLocation, arriveMinutesBefore, returnTime, dropoffLocation, duration, description.",
     "For a tour, excursion, or any activity, the pickup time and the pickup location are the two most important facts in the email — always copy them into details.pickupTime and details.pickupLocation when they appear, even if they are buried in a paragraph.",
     'details.pickupTime and details.returnTime are local wall-clock times copied as written ("1:30 PM", "5:00"), not timestamps. details.arriveMinutesBefore is a whole number of minutes ("arrive 15 minutes before departure" is 15).',
     "details.description is a short summary of what the activity is, in the operator's own words.",
+    "For travelerNames, copy the full names of every explicitly identified traveler, passenger, guest, or reservation holder. Names are required even when their email is absent or differs from a profile email.",
     "For travelerEmails, include only addresses explicitly associated with a traveler, passenger, guest, or reservation holder for that booking.",
     "Do not include a forwarding sender or recipient merely because they forwarded or received the message.",
   ];

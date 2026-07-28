@@ -36,6 +36,7 @@ export function DuplicatesCard({
   people,
   api,
   reloadKey = 0,
+  checkRequest = 0,
   onResolved,
 }: {
   tripId: string;
@@ -43,6 +44,8 @@ export function DuplicatesCard({
   api: typeof defaultApi;
   /** Bumped by the page after any write, so a new import re-runs detection. */
   reloadKey?: number;
+  /** Incremented by the trip menu to run and open an on-demand check. */
+  checkRequest?: number;
   onResolved: () => void;
 }) {
   const [groups, setGroups] = useState<TripDuplicateGroup[]>([]);
@@ -51,24 +54,33 @@ export function DuplicatesCard({
   const [failed, setFailed] = useState<string | null>(null);
   const canWrite = useCanWrite();
 
-  const load = useCallback(async (): Promise<void> => {
+  const load = useCallback(async (reportFailure = false): Promise<boolean> => {
     const fetchDuplicates = api.trips?.duplicates;
     // Progressive enhancement, the same guard OverviewTab applies to the
     // itinerary strip: a harness with a partial api stub renders no card
     // rather than throwing.
-    if (typeof fetchDuplicates !== "function") return;
+    if (typeof fetchDuplicates !== "function") return false;
     try {
       setGroups((await fetchDuplicates(tripId)).groups);
-    } catch {
+      if (reportFailure) setFailed(null);
+      return true;
+    } catch (err) {
       // Detection is an extra, not the trip. A failure here degrades to no
       // card — every booking is still listed by Overview and the day view.
       setGroups([]);
+      if (reportFailure) setFailed(errorMessage(err));
+      return false;
     }
   }, [api, tripId]);
 
   useEffect(() => {
     void load();
   }, [load, reloadKey]);
+
+  useEffect(() => {
+    if (checkRequest === 0) return;
+    void load(true).then(() => setReviewing(true));
+  }, [checkRequest, load]);
 
   async function resolve(action: () => Promise<unknown>): Promise<void> {
     setBusy(true);
@@ -88,39 +100,49 @@ export function DuplicatesCard({
     }
   }
 
-  if (groups.length === 0) return null;
+  if (groups.length === 0 && !reviewing) return null;
 
   const count = groups.length;
 
   return (
     <>
-      <div
-        role="status"
-        className="card"
-        style={{ border: "1px solid #8a6d3b", marginBottom: 20 }}
-      >
-        <div className="dup-card-row">
-          <div className="card-meta warning">
-            <CopySimple size={13} />{" "}
-            {count === 1
-              ? "1 booking on this trip looks like a duplicate import"
-              : `${count} sets of bookings on this trip look like duplicate imports`}
+      {count > 0 && (
+        <div
+          role="status"
+          className="card"
+          style={{ border: "1px solid #8a6d3b", marginBottom: 20 }}
+        >
+          <div className="dup-card-row">
+            <div className="card-meta warning">
+              <CopySimple size={13} />{" "}
+              {count === 1
+                ? "1 booking on this trip looks like a duplicate import"
+                : `${count} sets of bookings on this trip look like duplicate imports`}
+            </div>
+            {canWrite && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setReviewing(true)}
+              >
+                Review duplicates
+              </button>
+            )}
           </div>
-          {canWrite && (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => setReviewing(true)}
-            >
-              Review duplicates
-            </button>
-          )}
         </div>
-      </div>
+      )}
 
       {reviewing && (
         <Dialog
-          title={count === 1 ? "Possible duplicate" : "Possible duplicates"}
+          title={
+            failed && count === 0
+              ? "Could not check duplicates"
+              : count === 0
+                ? "No duplicates found"
+                : count === 1
+                  ? "Possible duplicate"
+                  : "Possible duplicates"
+          }
           subtitle="Merging keeps one booking and fills its blanks from the others"
           onClose={() => setReviewing(false)}
         >
@@ -129,22 +151,26 @@ export function DuplicatesCard({
               {failed}
             </p>
           )}
-          <div className="dup-groups">
-            {groups.map((group) => (
-              <DuplicateGroupReview
-                key={group.bookings.map((b) => b.id).join("-")}
-                group={group}
-                people={people}
-                busy={busy}
-                onMerge={(keepId, mergeIds) =>
-                  void resolve(() => api.trips.mergeDuplicates(tripId, keepId, mergeIds))
-                }
-                onDismiss={(bookingIds) =>
-                  void resolve(() => api.trips.dismissDuplicates(tripId, bookingIds))
-                }
-              />
-            ))}
-          </div>
+          {count === 0 && !failed ? (
+            <p className="text-muted">No likely duplicate bookings were found on this trip.</p>
+          ) : count > 0 ? (
+            <div className="dup-groups">
+              {groups.map((group) => (
+                <DuplicateGroupReview
+                  key={group.bookings.map((b) => b.id).join("-")}
+                  group={group}
+                  people={people}
+                  busy={busy}
+                  onMerge={(keepId, mergeIds) =>
+                    void resolve(() => api.trips.mergeDuplicates(tripId, keepId, mergeIds))
+                  }
+                  onDismiss={(bookingIds) =>
+                    void resolve(() => api.trips.dismissDuplicates(tripId, bookingIds))
+                  }
+                />
+              ))}
+            </div>
+          ) : null}
           <div className="dialog-actions">
             <button
               type="button"

@@ -111,6 +111,21 @@ export function TravelersTab({
     }
   }
 
+  async function addMyself() {
+    if (tripId === undefined) return;
+    setBusy(true);
+    try {
+      const me = await api.people.ensureMe();
+      await api.trips.addTraveler(tripId, me.id);
+      setError(null);
+      onAdded?.();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {error && (
@@ -118,16 +133,26 @@ export function TravelersTab({
           {error}
         </p>
       )}
-      {addable && (
-        <div>
+      {canWrite && tripId !== undefined && onAdded !== undefined && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button
             type="button"
             className="btn btn-primary"
+            disabled={busy}
+            onClick={() => void addMyself()}
+          >
+            Add myself
+          </button>
+          {addable && (
+          <button
+            type="button"
+            className="btn btn-secondary"
             onClick={() => setAdding(true)}
           >
             <Plus size={14} />
             Add travelers
           </button>
+          )}
         </div>
       )}
       {people.length === 0 && (
