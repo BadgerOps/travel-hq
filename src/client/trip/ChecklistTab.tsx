@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { api as defaultApi } from "../api/client.js";
 import type { ChecklistItem, Person } from "../api/types.js";
 import { PersonChip } from "../components/PersonChip.js";
+import { formatDateRange } from "../lib/dates.js";
 import { useCanWrite } from "../api/identity.js";
 
 export function ChecklistTab({
@@ -64,6 +65,10 @@ export function ChecklistTab({
   }
 
   const doneCount = items.filter((i) => i.doneAt !== null).length;
+  // Only feeds formatDateRange's "append the year?" decision, so computing it
+  // per render (rather than plumbing a prop like pages/Checklist.tsx does) is
+  // fine here.
+  const today = new Intl.DateTimeFormat("en-CA").format(new Date());
 
   if (loadFailed) {
     return (
@@ -102,7 +107,9 @@ export function ChecklistTab({
           const content = (
             <>
               <span style={{ fontSize: 13 }}>{item.label}</span>
-              {item.dueOn && <span className="card-meta">due {item.dueOn}</span>}
+              {item.dueOn && (
+                <span className="card-meta">due {formatDateRange(item.dueOn, null, today)}</span>
+              )}
               <span style={{ marginLeft: "auto" }}>
                 {assignee && <PersonChip person={assignee} />}
               </span>

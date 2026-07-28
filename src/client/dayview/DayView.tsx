@@ -20,6 +20,7 @@ export function DayView({
   api,
   onBookingClick,
   tripTitle,
+  today = new Intl.DateTimeFormat("en-CA").format(new Date()),
 }: {
   tripId: string;
   people: Person[];
@@ -29,6 +30,10 @@ export function DayView({
    * that only have an id still render — the kicker falls back to plain
    * "Day by day". */
   tripTitle?: string;
+  /** YYYY-MM-DD; injectable so the first-load day is deterministic under
+   * test. Mid-trip, "Open day view" must land on the current day, not the
+   * trip's first day with entries. */
+  today?: string;
 }) {
   const [days, setDays] = useState<ItineraryDay[] | null>(null);
   const [personId, setPersonId] = useState<string | null>(null);
@@ -62,6 +67,11 @@ export function DayView({
           // available day rather than always snapping to the first. YYYY-MM-DD
           // strings sort chronologically, so plain string comparison works.
           if (current) return nearestDate(d, current);
+          // First load: prefer the actual current day — mid-trip, "Open day
+          // view" means "what's happening today", not the trip's first
+          // scheduled day. For a future/past trip today isn't in the set and
+          // this falls through to the first day as before.
+          if (d.some((day) => day.date === today)) return today;
           return d[0]?.date ?? null;
         });
       })

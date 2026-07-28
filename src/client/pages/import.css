@@ -12,7 +12,12 @@
    (.tag-outline accent). Forward-to-address is informational — real, but
    configured in Settings — so it takes the muted divider outline. */
 .import-methods { display: flex; flex-wrap: wrap; gap: 8px; }
-.import-chip { padding: 6px 12px; gap: 6px; text-decoration: none; }
+/* The page-header base marks .page-actions flex:none, which at 390px let the
+   long "Forward by email" chip prop the whole page open sideways. Let this
+   row shrink with the header and cap a chip at the line width so an
+   over-long label wraps inside its chip instead. */
+.page-header .page-actions.import-methods { flex-shrink: 1; min-width: 0; }
+.import-chip { padding: 6px 12px; gap: 6px; text-decoration: none; max-width: 100%; }
 .import-chip svg { flex: none; }
 button.import-chip { cursor: pointer; background: transparent; font: inherit; font-size: 11px; }
 .import-chip--muted { border: 1px solid var(--color-divider); color: var(--color-neutral-400); }

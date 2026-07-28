@@ -1,4 +1,11 @@
 import React from "react";
+// styles.css is the base sheet: every page/component stylesheet builds on its
+// primitives (.booking-row, .seg, .card, …) and must come AFTER it in the
+// bundle to win the cascade. Vite orders CSS by module graph position, so this
+// import has to sit before any component import — moving it below them puts
+// the base sheet last and silently overrides page-level media-query rules
+// (e.g. trip.css's mobile .booking-main drop).
+import "./styles.css";
 import { createRoot } from "react-dom/client";
 import { Route, Switch } from "wouter";
 import { Shell } from "./components/Shell.js";
@@ -11,7 +18,6 @@ import { Cards } from "./pages/Cards.js";
 import { Import } from "./pages/Import.js";
 import { Settings } from "./pages/Settings.js";
 import { IdentityProvider, useIdentity } from "./api/identity.js";
-import "./styles.css";
 
 function ShellWithIdentity({ children }: { children: React.ReactNode }) {
   return <Shell identity={useIdentity()}>{children}</Shell>;

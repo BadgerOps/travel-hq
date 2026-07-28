@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { CheckSquare, Plus, Square } from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
 import type { ChecklistItem, Person, Trip } from "../api/types.js";
+import { formatDateRange } from "../lib/dates.js";
 import { errorMessage } from "../lib/errors.js";
 import { useCanWrite } from "../api/identity.js";
 import { PersonChip } from "../components/PersonChip.js";
@@ -277,7 +278,9 @@ function TripGroup({
               </span>
               <span className="row-side">
                 {item.dueOn && (
-                  <span className={overdue ? "row-due warning" : "row-due"}>due {item.dueOn}</span>
+                  <span className={overdue ? "row-due warning" : "row-due"}>
+                    due {formatDateRange(item.dueOn, null, today)}
+                  </span>
                 )}
                 {assignee ? (
                   <PersonChip person={assignee} />
