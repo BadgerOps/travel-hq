@@ -11,6 +11,11 @@ import { isValidTimestamp, isValidTimezone } from "../time.js";
 import { ForbiddenError, NotFoundError } from "../repos/base.js";
 import type { AppEnv } from "../index.js";
 import { isJsonAction } from "./request.js";
+import {
+  TripAccessRepo,
+  TRIP_MEMBER_ROLES,
+  type TripMemberRole,
+} from "../repos/trip-access.js";
 
 // A cover photo URL is rendered straight into an <img src> on the trip card,
 // so only web-fetchable http(s) URLs or the app's own authenticated upload
@@ -148,6 +153,13 @@ const dismissDuplicatesSchema = z
   })
   .strict();
 
+const inviteTripMemberSchema = z
+  .object({
+    email: z.string().trim().min(3).max(320),
+    role: z.enum(TRIP_MEMBER_ROLES),
+  })
+  .strict();
+
 export const trips = new Hono<AppEnv>();
 
 const MAX_TRIP_PHOTO_BYTES = 10 * 1024 * 1024;
@@ -228,6 +240,43 @@ trips.post("/:tripId/photo", async (c) => {
   return c.json(await repo.update(trip.id, {
     photoUrl: `/api/trips/${encodeURIComponent(trip.id)}/photo?v=${Date.now()}`,
   }));
+});
+
+trips.get("/:tripId/members", async (c) =>
+  c.json(
+    await new TripAccessRepo(c.get("db"), c.get("identity")).list(
+      c.req.param("tripId"),
+    ),
+  ),
+);
+
+trips.post("/:tripId/members", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const parsed = inviteTripMemberSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid trip invitation", details: parsed.error.issues }, 400);
+  }
+  return c.json(
+    await new TripAccessRepo(c.get("db"), c.get("identity")).invite(
+      c.req.param("tripId"),
+      parsed.data.email,
+      parsed.data.role satisfies TripMemberRole,
+    ),
+    201,
+  );
+});
+
+trips.delete("/:tripId/members/:userId", async (c) => {
+  await new TripAccessRepo(c.get("db"), c.get("identity")).remove(
+    c.req.param("tripId"),
+    c.req.param("userId"),
+  );
+  return c.body(null, 204);
 });
 
 trips.post("/", async (c) => {

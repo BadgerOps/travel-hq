@@ -65,10 +65,10 @@ describe("PUT /api/bookings/:bookingId/status", () => {
     const res = await request(app, `/api/bookings/${bookingId}/status`, { method: "PUT", headers: { "content-type": "application/json" }, body: "{" });
     expect(res.status).toBe(400);
   });
-  it("answers 403 for a viewer", async () => {
+  it("hides a booking on an unshared trip from a viewer", async () => {
     const { bookingId } = await makeBooking("planned");
     const viewerApp = appAs({ ...owner, role: "viewer" });
     const res = await request(viewerApp, `/api/bookings/${bookingId}/status`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "booked" }) });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 });

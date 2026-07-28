@@ -258,7 +258,29 @@ export class PersonRepo extends TenantRepo {
   }
 
   async list(): Promise<Person[]> {
-    const rows = await this.all<PersonRow>("SELECT * FROM person WHERE {scope} ORDER BY display_name");
+    const rows =
+      this.ctx.role === "viewer"
+        ? await this.all<PersonRow>(
+            `SELECT * FROM person
+              WHERE {scope}
+                AND id IN (
+                  SELECT tp.person_id
+                    FROM trip_person tp
+                    JOIN trip_member tm ON tm.trip_id = tp.trip_id
+                   WHERE tm.user_id = ?2
+                  UNION
+                  SELECT bp.person_id
+                    FROM booking_person bp
+                    JOIN booking b ON b.id = bp.booking_id
+                    JOIN trip_member tm ON tm.trip_id = b.trip_id
+                   WHERE tm.user_id = ?2
+                )
+              ORDER BY display_name`,
+            this.ctx.userId,
+          )
+        : await this.all<PersonRow>(
+            "SELECT * FROM person WHERE {scope} ORDER BY display_name",
+          );
     const people: Person[] = [];
     for (const row of rows) {
       try {

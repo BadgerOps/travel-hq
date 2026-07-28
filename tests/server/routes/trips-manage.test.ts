@@ -50,6 +50,17 @@ async function createTrip(): Promise<string> {
   return ((await res.json()) as { id: string }).id;
 }
 
+async function shareWithViewer(tripId: string): Promise<void> {
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO user (id, email, created_at) VALUES (?, ?, ?)",
+  ).bind(owner.userId, owner.email, now).run();
+  await env.DB.prepare(
+    `INSERT INTO trip_member (trip_id, user_id, role, invited_by_user_id, created_at)
+     VALUES (?, ?, 'viewer', ?, ?)`,
+  ).bind(tripId, owner.userId, owner.userId, now).run();
+}
+
 beforeEach(async () => {
   storedPhotos.clear();
   for (const table of ["booking_person", "checklist_item", "booking", "trip_person", "person", "trip", "household"]) {
@@ -134,7 +145,7 @@ describe("PUT /api/trips/:tripId", () => {
     expect((await jsonRequest("/api/trips/t-nope", "PUT", { title: "X" })).status).toBe(404);
   });
 
-  it("answers 403 for a viewer and leaves the trip unchanged", async () => {
+  it("hides an unshared trip from a viewer and leaves it unchanged", async () => {
     const id = await createTrip();
     const viewerApp = appAs({ ...owner, role: "viewer" });
     const res = await request(viewerApp, `/api/trips/${id}`, {
@@ -142,7 +153,7 @@ describe("PUT /api/trips/:tripId", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: "Nope" }),
     });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     const list = (await (await request(app, "/api/trips")).json()) as Trip[];
     expect(list[0]!.title).toBe("Guerneville");
   });
@@ -177,6 +188,7 @@ describe("trip cover photo (photoUrl)", () => {
       body: form,
     })).status).toBe(400);
 
+    await shareWithViewer(id);
     const viewerApp = appAs({ ...owner, role: "viewer" });
     const image = new FormData();
     image.set("photo", new File(["jpeg"], "glacier.jpg", { type: "image/jpeg" }));
@@ -245,10 +257,10 @@ describe("DELETE /api/trips/:tripId", () => {
     expect((await request(app, "/api/trips/t-nope", { method: "DELETE" })).status).toBe(404);
   });
 
-  it("answers 403 for a viewer and keeps the trip", async () => {
+  it("hides an unshared trip from a viewer and keeps it", async () => {
     const id = await createTrip();
     const viewerApp = appAs({ ...owner, role: "viewer" });
-    expect((await request(viewerApp, `/api/trips/${id}`, { method: "DELETE" })).status).toBe(403);
+    expect((await request(viewerApp, `/api/trips/${id}`, { method: "DELETE" })).status).toBe(404);
     expect(((await (await request(app, "/api/trips")).json()) as Trip[]).length).toBe(1);
   });
 });
@@ -274,10 +286,10 @@ describe("DELETE /api/trips/:tripId/people/:personId", () => {
     expect((await request(app, `/api/trips/${id}/people/p-nope`, { method: "DELETE" })).status).toBe(404);
   });
 
-  it("answers 403 for a viewer", async () => {
+  it("hides an unshared trip from a viewer", async () => {
     const id = await createTrip();
     await request(app, `/api/trips/${id}/people/p-ava`, { method: "PUT" });
     const viewerApp = appAs({ ...owner, role: "viewer" });
-    expect((await request(viewerApp, `/api/trips/${id}/people/p-ava`, { method: "DELETE" })).status).toBe(403);
+    expect((await request(viewerApp, `/api/trips/${id}/people/p-ava`, { method: "DELETE" })).status).toBe(404);
   });
 });

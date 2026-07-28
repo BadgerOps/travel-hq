@@ -477,6 +477,7 @@ export class BookingRepo extends BookingAwareRepo {
     // kept as explicit, belt-and-braces intent at the top of every mutating
     // method, not as the sole enforcement.
     this.requireWrite();
+    await this.requireVisiblePerson(personId);
     const booking = await this.get<{ id: string; trip_id: string }>(
       "SELECT id, trip_id FROM booking WHERE {scope} AND id = ?2",
       bookingId,
@@ -518,6 +519,7 @@ export class BookingRepo extends BookingAwareRepo {
 
   async unassignPerson(bookingId: string, personId: string): Promise<void> {
     this.requireWrite();
+    await this.requireVisiblePerson(personId);
     const booking = await this.get<{ id: string }>(
       "SELECT id FROM booking WHERE {scope} AND id = ?2",
       bookingId,

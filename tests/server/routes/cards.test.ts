@@ -95,7 +95,7 @@ describe("/api/cards", () => {
     expect((await request(app, `/api/cards/${cardId}`, { method: "DELETE" })).status).toBe(404);
   });
 
-  it("answers 403 for every viewer write, and still serves the viewer reads", async () => {
+  it("answers 403 for every viewer operation, including household-wide reads", async () => {
     const cardId = await createCard();
     const perkId = await createCredit(cardId);
 
@@ -113,8 +113,7 @@ describe("/api/cards", () => {
     expect((await viewerApp.request(`/api/cards/${cardId}/perks/${perkId}`, { method: "DELETE" }, testEnv)).status).toBe(403);
     expect((await put(`/api/cards/${cardId}/perks/${perkId}/used`, { used: true })).status).toBe(403);
 
-    const list = (await (await viewerApp.request("/api/cards", undefined, testEnv)).json()) as CardWithPerks[];
-    expect(list[0]!.perks).toHaveLength(1);
+    expect((await viewerApp.request("/api/cards", undefined, testEnv)).status).toBe(403);
   });
 });
 

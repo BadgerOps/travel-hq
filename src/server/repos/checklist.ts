@@ -46,6 +46,7 @@ export class ChecklistRepo extends TenantRepo {
     if (!trip) throw new NotFoundError("Trip not found in this household");
 
     if (input.personId) {
+      await this.requireVisiblePerson(input.personId);
       const person = await this.get<{ id: string }>(
         "SELECT id FROM person WHERE {scope} AND id = ?2",
         input.personId,
@@ -75,10 +76,21 @@ export class ChecklistRepo extends TenantRepo {
   }
 
   async listByTrip(tripId: string): Promise<ChecklistItem[]> {
-    const trip = await this.get<{ id: string }>(
-      "SELECT id FROM trip WHERE {scope} AND id = ?2",
-      tripId,
-    );
+    const trip =
+      this.ctx.role === "viewer"
+        ? await this.get<{ id: string }>(
+            `SELECT id FROM trip
+              WHERE {scope} AND id = ?2
+                AND id IN (
+                  SELECT trip_id FROM trip_member WHERE user_id = ?3
+                )`,
+            tripId,
+            this.ctx.userId,
+          )
+        : await this.get<{ id: string }>(
+            "SELECT id FROM trip WHERE {scope} AND id = ?2",
+            tripId,
+          );
     if (!trip) throw new NotFoundError("Trip not found in this household");
     const rows = await this.all<Row>(
       `SELECT * FROM checklist_item
@@ -91,11 +103,22 @@ export class ChecklistRepo extends TenantRepo {
 
   /** Every open item across all trips — the cross-trip checklist route. */
   async listAll(): Promise<ChecklistItem[]> {
-    const rows = await this.all<Row>(
-      `SELECT * FROM checklist_item
-        WHERE {scope}
-        ORDER BY done_at IS NOT NULL, due_on IS NULL, due_on, created_at`,
-    );
+    const rows =
+      this.ctx.role === "viewer"
+        ? await this.all<Row>(
+            `SELECT * FROM checklist_item
+              WHERE {scope}
+                AND trip_id IN (
+                  SELECT trip_id FROM trip_member WHERE user_id = ?2
+                )
+              ORDER BY done_at IS NOT NULL, due_on IS NULL, due_on, created_at`,
+            this.ctx.userId,
+          )
+        : await this.all<Row>(
+            `SELECT * FROM checklist_item
+              WHERE {scope}
+              ORDER BY done_at IS NOT NULL, due_on IS NULL, due_on, created_at`,
+          );
     return rows.map(toItem);
   }
 

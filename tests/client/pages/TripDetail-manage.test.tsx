@@ -33,6 +33,9 @@ function makeApi(trip: Record<string, unknown> = TRIP, bookings: unknown[] = [])
       delete: vi.fn(async () => undefined),
       addTraveler: vi.fn(async () => undefined),
       removeTraveler: vi.fn(async () => undefined),
+      members: vi.fn(async () => []),
+      invite: vi.fn(),
+      removeMember: vi.fn(),
     },
     people: { list: vi.fn(async () => PEOPLE), reveal: vi.fn() },
     checklist: { list: vi.fn(async () => []), create: vi.fn(), setDone: vi.fn() },
@@ -169,6 +172,23 @@ describe("TripDetail management", () => {
     expect(
       screen.queryByRole("button", { name: "Remove Badger from trip" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("uses the trip role so an invited editor can edit without household-wide write access", async () => {
+    renderDetail(makeApi({ ...TRIP, accessRole: "editor" }), "viewer");
+    expect(await screen.findByRole("button", { name: "Edit trip" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add booking" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Share trip" })).not.toBeInTheDocument();
+  });
+
+  it("opens trip sharing for an owner and shows a non-authorizing invite link", async () => {
+    renderDetail(makeApi({ ...TRIP, accessRole: "owner" }), "owner");
+    await userEvent.click(await screen.findByRole("button", { name: "Share trip" }));
+    const dialog = screen.getByRole("dialog", { name: `Share ${TRIP.title}` });
+    expect(within(dialog).getByLabelText("Trip link")).toHaveValue(
+      `${window.location.origin}/trips/t1`,
+    );
+    expect(within(dialog).getByText(/does not grant access by itself/i)).toBeInTheDocument();
   });
 
   it("keeps the page and reports a rejected cancel rather than String(err)", async () => {

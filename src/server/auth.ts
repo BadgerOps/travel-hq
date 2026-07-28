@@ -22,6 +22,7 @@ export type Identity = {
   email: string;
   householdId: string;
   role: Role;
+  tripRole?: "viewer" | "editor";
 };
 
 export type AccessConfig = {
@@ -57,7 +58,7 @@ type Membership = {
 const MEMBERSHIP_SQL = `SELECT u.id AS user_id, u.email, hm.household_id, hm.role
      FROM user u
      JOIN household_member hm ON hm.user_id = u.id
-    WHERE u.email = ?
+    WHERE lower(u.email) = lower(?)
     ORDER BY hm.household_id`;
 
 /**

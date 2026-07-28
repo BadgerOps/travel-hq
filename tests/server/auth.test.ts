@@ -116,6 +116,14 @@ describe("createAccessVerifier", () => {
     expect(id).toMatchObject({ userId: "u1", householdId: "hh-a", role: "owner" });
   });
 
+  it("matches the Access email case-insensitively", async () => {
+    await member("hh-a", "owner");
+    const id = await verifier()(req({
+      [HEADER]: await token({ email: "AVA@EXAMPLE.COM" }),
+    }));
+    expect(id).toMatchObject({ userId: "u1", householdId: "hh-a" });
+  });
+
   it("selects the requested household via the header", async () => {
     await member("hh-a", "owner");
     await member("hh-b", "viewer");

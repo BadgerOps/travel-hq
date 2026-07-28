@@ -33,6 +33,17 @@ async function makeTrip(): Promise<string> {
   return ((await (await json("/api/trips", "POST", { title: "Tokyo" })).json()) as Created).id;
 }
 
+async function shareWithViewer(tripId: string) {
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO user (id, email, created_at) VALUES (?, ?, ?)",
+  ).bind(owner.userId, owner.email, now).run();
+  await env.DB.prepare(
+    `INSERT INTO trip_member (trip_id, user_id, role, invited_by_user_id, created_at)
+     VALUES (?, ?, 'viewer', ?, ?)`,
+  ).bind(tripId, owner.userId, owner.userId, now).run();
+}
+
 async function makeFlight(tripId: string, over: Record<string, unknown> = {}): Promise<string> {
   const res = await json(`/api/trips/${tripId}/bookings`, "POST", {
     kind: "flight",
@@ -94,6 +105,7 @@ describe("GET /api/trips/:tripId/duplicates", () => {
     const tripId = await makeTrip();
     await makeFlight(tripId, { confirmationNumber: "HX7T2Q" });
     await makeFlight(tripId, { confirmationNumber: "HX7T2Q" });
+    await shareWithViewer(tripId);
     const viewerApp = appAs({ ...owner, role: "viewer" });
     const res = await send(viewerApp, `/api/trips/${tripId}/duplicates`, "GET");
     expect(res.status).toBe(200);
@@ -121,6 +133,7 @@ describe("POST /api/trips/:tripId/duplicates/merge", () => {
     const tripId = await makeTrip();
     const keep = await makeFlight(tripId);
     const dup = await makeFlight(tripId, { confirmationNumber: "HX7T2Q" });
+    await shareWithViewer(tripId);
 
     // `bookingIds` is the dismiss payload; .strict() refuses it rather than
     // silently dropping it and complaining about the missing keys.
@@ -144,6 +157,7 @@ describe("POST /api/trips/:tripId/duplicates/dismiss", () => {
     const tripId = await makeTrip();
     const a = await makeFlight(tripId, { confirmationNumber: "HX7T2Q" });
     const b = await makeFlight(tripId, { confirmationNumber: "HX7T2Q" });
+    await shareWithViewer(tripId);
 
     expect((await json(`/api/trips/${tripId}/duplicates/dismiss`, "POST", { bookingIds: [a, b] })).status).toBe(204);
     const body = (await (await send(app, `/api/trips/${tripId}/duplicates`, "GET")).json()) as DuplicatesBody;
@@ -156,6 +170,7 @@ describe("POST /api/trips/:tripId/duplicates/dismiss", () => {
     const tripId = await makeTrip();
     const a = await makeFlight(tripId, { confirmationNumber: "HX7T2Q" });
     const b = await makeFlight(tripId, { confirmationNumber: "HX7T2Q" });
+    await shareWithViewer(tripId);
     expect((await json(`/api/trips/${tripId}/duplicates/dismiss`, "POST", { bookingIds: [a] })).status).toBe(400);
     const viewerApp = appAs({ ...owner, role: "viewer" });
     expect(
@@ -178,6 +193,7 @@ describe("DELETE /api/bookings/:bookingId", () => {
   it("404s for an unknown or cross-household booking and 403s for a viewer", async () => {
     const tripId = await makeTrip();
     const bookingId = await makeFlight(tripId);
+    await shareWithViewer(tripId);
     expect((await send(app, "/api/bookings/b-nope", "DELETE")).status).toBe(404);
     expect((await send(appAs({ ...owner, householdId: "hh-b" }), `/api/bookings/${bookingId}`, "DELETE")).status).toBe(404);
     expect((await send(appAs({ ...owner, role: "viewer" }), `/api/bookings/${bookingId}`, "DELETE")).status).toBe(403);

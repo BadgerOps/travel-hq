@@ -1,8 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { CalendarBlank, CopySimple, DotsThree, MapPin, PencilSimple, Plus } from "@phosphor-icons/react";
+import {
+  CalendarBlank,
+  CopySimple,
+  DotsThree,
+  MapPin,
+  PencilSimple,
+  Plus,
+  ShareNetwork,
+} from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
-import { useCanWrite } from "../api/identity.js";
+import { TripRoleBoundary, useCanWrite } from "../api/identity.js";
 import type { Booking, Person, Trip, TripRollup } from "../api/types.js";
 import { formatDateRange, resolveTripState, tripStateBadge } from "../lib/dates.js";
 import { TripCoverPhoto } from "../components/TripCoverPhoto.js";
@@ -20,6 +28,7 @@ import { DayView } from "../dayview/DayView.js";
 import { BookingDialog } from "../trip/BookingDialog.js";
 import { BookingDetailDialog } from "../components/BookingDetailDialog.js";
 import { CostAnalysisTab } from "../trip/CostAnalysisTab.js";
+import { TripAccessDialog } from "../trip/TripAccessDialog.js";
 
 type Api = typeof defaultApi;
 
@@ -67,6 +76,7 @@ export function TripDetail({
   const [addingBooking, setAddingBooking] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [editing, setEditing] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [duplicateCheck, setDuplicateCheck] = useState(0);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -74,7 +84,7 @@ export function TripDetail({
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const canWrite = useCanWrite();
+  const householdCanWrite = useCanWrite();
   const [, navigate] = useLocation();
   // Bumped after any write, to re-run the core trip load. The Costs tab owns
   // its rollup request separately so opening Overview does not pay for cost
@@ -197,9 +207,12 @@ export function TripDetail({
   if (trip === null) return <p className="text-muted">Trip not found.</p>;
 
   const state = resolveTripState(trip, today);
+  const accessRole = trip.accessRole ?? (householdCanWrite ? "owner" : "viewer");
+  const canWrite = accessRole !== "viewer";
 
   return (
-    <>
+    <TripRoleBoundary role={accessRole}>
+      <>
       {/*
         The current page's name isn't repeated as a breadcrumb crumb: the
         heading right below already carries it, and this component is tested
@@ -268,6 +281,11 @@ export function TripDetail({
                   <button type="button" className="btn btn-ghost" onClick={() => setEditing(true)}>
                     <PencilSimple size={14} /> Edit trip
                   </button>
+                  {accessRole === "owner" && (
+                    <button type="button" className="btn btn-ghost" onClick={() => setSharing(true)}>
+                      <ShareNetwork size={14} /> Share trip
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="btn btn-ghost"
@@ -278,13 +296,15 @@ export function TripDetail({
                 </div>
               </details>
             )}
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setAddingBooking(true)}
-            >
-              <Plus size={14} /> Add booking
-            </button>
+            {canWrite && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setAddingBooking(true)}
+              >
+                <Plus size={14} /> Add booking
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -444,6 +464,10 @@ export function TripDetail({
         />
       )}
 
+      {sharing && (
+        <TripAccessDialog trip={trip} api={api} onClose={() => setSharing(false)} />
+      )}
+
       {confirmingCancel && (
         <Dialog title="Cancel this trip?" onClose={() => setConfirmingCancel(false)}>
           <p style={{ margin: 0, fontSize: 13.5 }}>
@@ -542,6 +566,7 @@ export function TripDetail({
           onClose={() => setSelectedBooking(null)}
         />
       )}
-    </>
+      </>
+    </TripRoleBoundary>
   );
 }
