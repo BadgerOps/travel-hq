@@ -5,6 +5,11 @@
  */
 export type { Person, DocumentField } from "../../server/repos/person.js";
 export type { Trip, TripStatus } from "../../server/repos/trip.js";
+export type {
+  TripMember,
+  TripMemberRole,
+  TripAccessRole,
+} from "../../server/repos/trip-access.js";
 export type { Booking, BookingStatus } from "../../server/repos/booking.js";
 export type { ItineraryDay } from "../../server/repos/itinerary.js";
 export type { TripDuplicateGroup } from "../../server/repos/duplicates.js";

@@ -7,6 +7,7 @@ import { errorMessage } from "../lib/errors.js";
 import { TripCard } from "../home/TripCard.js";
 import { TripForm } from "../components/TripForm.js";
 import { PendingImportCard } from "../imports/PendingImportCard.js";
+import { useCanWrite } from "../api/identity.js";
 import "../home/home.css";
 
 export function Trips({
@@ -22,6 +23,7 @@ export function Trips({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const canWrite = useCanWrite();
 
   useEffect(() => {
     let cancelled = false;
@@ -73,9 +75,11 @@ export function Trips({
           <p className="page-subline">Everything upcoming and past.</p>
         </div>
         <div className="page-actions">
-          <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
-            <Plus size={14} /> New trip
-          </button>
+          {canWrite && (
+            <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
+              <Plus size={14} /> New trip
+            </button>
+          )}
         </div>
       </header>
 
@@ -108,9 +112,11 @@ export function Trips({
             Create one and add flights, lodging, and a car to it. Add the family under People
             first if you have not — a trip with no travellers has no day view.
           </p>
-          <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
-            <Plus size={14} /> New trip
-          </button>
+          {canWrite && (
+            <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
+              <Plus size={14} /> New trip
+            </button>
+          )}
         </div>
       )}
 

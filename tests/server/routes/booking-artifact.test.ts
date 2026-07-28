@@ -111,6 +111,14 @@ describe("booking source artifact route", () => {
     const ownBooking = await seedBooking("hh-a");
     const foreignBooking = await seedBooking("hh-b");
     const viewer: Identity = { ...owner, role: "viewer" };
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO user (id, email, created_at) VALUES (?, ?, ?)",
+    ).bind(viewer.userId, viewer.email, now).run();
+    await env.DB.prepare(
+      `INSERT INTO trip_member (trip_id, user_id, role, invited_by_user_id, created_at)
+       VALUES (?, ?, 'viewer', ?, ?)`,
+    ).bind(ownBooking.tripId, viewer.userId, viewer.userId, now).run();
 
     expect((await request(
       viewer,

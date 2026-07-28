@@ -31,6 +31,7 @@ describe("migrated schema", () => {
       "loyalty_account",
       "person",
       "trip",
+      "trip_member",
       "trip_person",
       "user",
     ]);

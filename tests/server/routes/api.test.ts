@@ -23,6 +23,16 @@ function request(a: ReturnType<typeof createApp>, path: string, init?: RequestIn
 function postJson(path: string, body: unknown) {
   return request(app, path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
+async function shareWithViewer(tripId: string) {
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO user (id, email, created_at) VALUES (?, ?, ?)",
+  ).bind(identity.userId, identity.email, now).run();
+  await env.DB.prepare(
+    `INSERT INTO trip_member (trip_id, user_id, role, invited_by_user_id, created_at)
+     VALUES (?, ?, 'viewer', ?, ?)`,
+  ).bind(tripId, identity.userId, identity.userId, now).run();
+}
 const revealInit: RequestInit = {
   method: "POST",
   headers: { "content-type": "application/json" },
@@ -213,6 +223,7 @@ describe("API", () => {
     it("rejects a viewer revealing a booking confirmation with 403", async () => {
       const trip = (await (await postJson("/api/trips", { title: "Trip" })).json()) as { id: string };
       const booking = (await (await postJson(`/api/trips/${trip.id}/bookings`, { kind: "other", title: "Hotel", confirmationNumber: "ABCDX4T2", details: {} })).json()) as { id: string };
+      await shareWithViewer(trip.id);
       const viewerApp = appAs({ ...identity, role: "viewer" });
       expect(
         (
@@ -297,6 +308,7 @@ describe("API", () => {
     });
     it("rejects a viewer creating a checklist item with 403", async () => {
       const trip = (await (await postJson("/api/trips", { title: "Trip" })).json()) as { id: string };
+      await shareWithViewer(trip.id);
       const viewerApp = appAs({ ...identity, role: "viewer" });
       const res = await request(viewerApp, "/api/checklist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tripId: trip.id, label: "Pack passports" }) });
       expect(res.status).toBe(403);
@@ -313,11 +325,15 @@ describe("API", () => {
       expect(listed.find((i) => i.id === created.id)?.doneAt).not.toBeNull();
     });
     it("rejects a malformed JSON body on setDone with 400", async () => {
-      const res = await request(app, "/api/checklist/whatever/done", { method: "PUT", headers: { "content-type": "application/json" }, body: "{ not json" });
+      const trip = (await (await postJson("/api/trips", { title: "Trip" })).json()) as { id: string };
+      const created = (await (await postJson("/api/checklist", { tripId: trip.id, label: "Pack passports" })).json()) as { id: string };
+      const res = await request(app, `/api/checklist/${created.id}/done`, { method: "PUT", headers: { "content-type": "application/json" }, body: "{ not json" });
       expect(res.status).toBe(400);
     });
     it("rejects a setDone body that is not { done: boolean } with 400", async () => {
-      const res = await request(app, "/api/checklist/whatever/done", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ done: "yes" }) });
+      const trip = (await (await postJson("/api/trips", { title: "Trip" })).json()) as { id: string };
+      const created = (await (await postJson("/api/checklist", { tripId: trip.id, label: "Pack passports" })).json()) as { id: string };
+      const res = await request(app, `/api/checklist/${created.id}/done`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ done: "yes" }) });
       expect(res.status).toBe(400);
     });
     it("404s setDone for an item that does not exist", async () => {
@@ -327,6 +343,7 @@ describe("API", () => {
     it("rejects a viewer toggling a checklist item with 403", async () => {
       const trip = (await (await postJson("/api/trips", { title: "Trip" })).json()) as { id: string };
       const created = (await (await postJson("/api/checklist", { tripId: trip.id, label: "Pack passports" })).json()) as { id: string };
+      await shareWithViewer(trip.id);
       const viewerApp = appAs({ ...identity, role: "viewer" });
       const res = await request(viewerApp, `/api/checklist/${created.id}/done`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
       expect(res.status).toBe(403);

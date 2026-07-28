@@ -16,6 +16,12 @@ import { mapError } from "./routes/errors.js";
 import { createAnthropicClient } from "./ingest/providers.js";
 import type { AnthropicClientFactory } from "./ingest/providers.js";
 import { WorkersAiModelCatalog } from "./ingest/model-catalog.js";
+import {
+  authorizeBooking,
+  authorizeChecklistItem,
+  authorizeTrip,
+  requireHouseholdWriter,
+} from "./trip-authorization.js";
 
 export type AppBindings = {
   DB: D1Database;
@@ -105,6 +111,35 @@ export function createApp(overrides: AppOverrides = {}) {
   // Resolved by the middleware from the Access token + confirmed membership;
   // this route invents nothing.
   app.get("/api/me", (c) => c.json(c.get("identity")));
+
+  // Shared-trip accounts stay household viewers globally. These narrow
+  // middlewares grant their per-trip role only after resolving and checking
+  // the resource being addressed.
+  app.use("/api/trips/:tripId", (c, next) =>
+    authorizeTrip(c, next, c.req.param("tripId")),
+  );
+  app.use("/api/trips/:tripId/*", (c, next) =>
+    authorizeTrip(c, next, c.req.param("tripId")),
+  );
+  app.use("/api/bookings/:bookingId", (c, next) =>
+    authorizeBooking(c, next, c.req.param("bookingId")),
+  );
+  app.use("/api/bookings/:bookingId/*", (c, next) =>
+    authorizeBooking(c, next, c.req.param("bookingId")),
+  );
+  app.use("/api/checklist/:itemId/*", (c, next) =>
+    authorizeChecklistItem(c, next, c.req.param("itemId")),
+  );
+
+  // Household-wide operational data is not part of a trip invitation.
+  app.use("/api/cards/*", requireHouseholdWriter);
+  app.use("/api/cards", requireHouseholdWriter);
+  app.use("/api/settings/*", requireHouseholdWriter);
+  app.use("/api/settings", requireHouseholdWriter);
+  app.use("/api/inbound-emails/*", requireHouseholdWriter);
+  app.use("/api/inbound-emails", requireHouseholdWriter);
+  app.use("/api/imports/*", requireHouseholdWriter);
+  app.use("/api/imports", requireHouseholdWriter);
 
   app.route("/api/people", people);
   app.route("/api/trips", trips);

@@ -4,6 +4,7 @@ import { api as defaultApi } from "./client.js";
 import type { Identity } from "./types.js";
 
 const IdentityContext = createContext<Identity | null>(null);
+const TripRoleContext = createContext<"viewer" | "editor" | "owner" | null>(null);
 
 export function useIdentity(): Identity | null {
   return useContext(IdentityContext);
@@ -20,6 +21,8 @@ export function useIdentity(): Identity | null {
  * from an owner for as long as the request is in flight.
  */
 export function useCanReveal(): boolean {
+  const tripRole = useContext(TripRoleContext);
+  if (tripRole) return tripRole !== "viewer";
   return useIdentity()?.role !== "viewer";
 }
 
@@ -35,7 +38,19 @@ export function useCanReveal(): boolean {
  * in flight.
  */
 export function useCanWrite(): boolean {
+  const tripRole = useContext(TripRoleContext);
+  if (tripRole) return tripRole !== "viewer";
   return useIdentity()?.role !== "viewer";
+}
+
+export function TripRoleBoundary({
+  role,
+  children,
+}: {
+  role: "viewer" | "editor" | "owner";
+  children: ReactNode;
+}) {
+  return <TripRoleContext.Provider value={role}>{children}</TripRoleContext.Provider>;
 }
 
 export function IdentityProvider({
