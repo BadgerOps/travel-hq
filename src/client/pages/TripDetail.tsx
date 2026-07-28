@@ -14,6 +14,7 @@ import { TripForm } from "../components/TripForm.js";
 import { OverviewTab } from "../trip/OverviewTab.js";
 import { TravelersTab } from "../trip/TravelersTab.js";
 import { TripWarnings } from "../trip/TripWarnings.js";
+import { DuplicatesCard } from "../trip/DuplicatesCard.js";
 import { ChecklistTab } from "../trip/ChecklistTab.js";
 import { DayView } from "../dayview/DayView.js";
 import { BookingDialog } from "../trip/BookingDialog.js";
@@ -266,6 +267,17 @@ export function TripDetail({
       </header>
 
       <TripWarnings people={travelers} arrivalOn={trip.startsOn} today={today} />
+
+      {/* Duplicate imports are trip-level news for the same reason an expiring
+          passport is: a doubled flight is wrong in the day view, the cost
+          rollup, and the checklist alike, so it cannot live inside one tab. */}
+      <DuplicatesCard
+        tripId={trip.id}
+        people={people}
+        api={api}
+        reloadKey={reloadKey}
+        onResolved={() => setReloadKey((n) => n + 1)}
+      />
 
       {/*
         A native radio group, not an ARIA tablist — see this task's Interfaces

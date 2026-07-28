@@ -16,6 +16,14 @@ export function errorMessage(err: unknown): string {
       return "This is no longer here — it may have been deleted.";
     case 400:
       return "The app sent something the server could not accept. This is a bug.";
+    case 409:
+      // The one status whose body IS written for this screen: a conflict is
+      // the server telling a human something they did not know (see
+      // ConflictError in repos/base.ts), and the caller is expected to offer
+      // them a way to proceed. Falls back if the body carried no message.
+      return err instanceof ApiError && err.detail
+        ? err.detail
+        : "Some of this is already here. Check before importing again.";
     default:
       return "Something went wrong reaching Travel HQ. Try again in a moment.";
   }

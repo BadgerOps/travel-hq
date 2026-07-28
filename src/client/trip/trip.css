@@ -150,3 +150,42 @@ button.checklist-row:hover { background: color-mix(in srgb, var(--color-text) 5%
 /* The low-confidence amber outline from the design bundle (2b draft card);
    the row text itself uses the .warning amber. */
 .trip-warnings { border: 1px solid #8a6d3b; margin-bottom: 20px; }
+
+/* ── Duplicate imports ───────────────────────────────────────────────────── */
+
+/* Same amber outline as the warnings banner above: a duplicated booking is
+   the same class of "this trip is telling you something is off" as a passport
+   that expires too soon, and the two stack directly on top of each other. */
+.dup-card-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+}
+.dup-card-row .card-meta { flex: 1 1 240px; margin: 0; }
+
+.dup-groups { display: grid; gap: 18px; }
+
+.dup-group + .dup-group { border-top: 1px solid var(--color-divider); padding-top: 16px; }
+.dup-group .section-kicker {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.dup-tag { text-transform: none; letter-spacing: 0; }
+
+.dup-options { display: grid; gap: 8px; }
+
+/* The whole row is the radio's label, so the hit target is the booking rather
+   than a 13px dot — this dialog is used on a phone as often as a laptop. */
+.dup-option {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; cursor: pointer;
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+}
+.dup-option:has(input:checked) { box-shadow: inset 0 0 0 1px var(--color-accent); }
+.dup-option:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.dup-option input { margin-top: 3px; flex: none; }
+.dup-option-body { display: grid; gap: 3px; min-width: 0; }
+.dup-option-title { font-size: 14px; font-weight: 500; }
+.dup-option-sub { font-size: 12px; color: var(--color-neutral-400); }
+
+.dup-actions {
+  display: flex; flex-wrap: wrap; justify-content: flex-end;
+  gap: 8px; margin-top: 12px;
+}

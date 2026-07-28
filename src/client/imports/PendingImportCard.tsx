@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { Plus, Tray } from "@phosphor-icons/react";
 import { Link } from "wouter";
-import { api as defaultApi } from "../api/client.js";
+import { api as defaultApi, ApiError } from "../api/client.js";
 import { useCanWrite } from "../api/identity.js";
 import type {
   ImportReviewResult,
@@ -11,6 +11,7 @@ import type {
 } from "../api/types.js";
 import { errorMessage } from "../lib/errors.js";
 import { CreateImportedTripDialog } from "./CreateImportedTripDialog.js";
+import { DuplicateNotice } from "./DuplicateNotice.js";
 
 export function PendingImportCard({
   api = defaultApi,
@@ -36,6 +37,8 @@ export function PendingImportCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  /** Set by a 409, so "Import anyway" can repeat the same selection. */
+  const [conflicted, setConflicted] = useState(false);
 
   async function load(signal?: AbortSignal) {
     setError(null);
@@ -106,18 +109,23 @@ export function PendingImportCard({
     onTripCreated?.(result.trip);
   }
 
-  async function addToTrip() {
+  async function addToTrip(allowDuplicates = false) {
     if (selected.length === 0 || tripId === "") return;
     setBusy(true);
     setError(null);
+    setConflicted(false);
     try {
-      const result = await api.imports.accept(selected, tripId);
+      const result = await api.imports.accept(selected, tripId, allowDuplicates);
       setDrafts((current) =>
         current?.filter((draft) => !result.acceptedDraftIds.includes(draft.id)) ?? [],
       );
       setSelected([]);
     } catch (err) {
       setError(errorMessage(err));
+      // 409: the server is asking whether to import a copy of something the
+      // household already has. The selection is untouched, so repeating it
+      // with the override is one click.
+      if (err instanceof ApiError && err.status === 409) setConflicted(true);
     } finally {
       setBusy(false);
     }
@@ -174,6 +182,7 @@ export function PendingImportCard({
                   {draft.source.subject || draft.source.from}
                   {draft.localStartsOn ? ` · ${formatRange(draft)}` : ""}
                 </span>
+                <DuplicateNotice duplicates={draft.duplicates ?? []} />
               </span>
               <span className={`tag ${draft.suggestedTrip ? "tag-accent" : "tag-neutral"}`}>
                 {draft.suggestedTrip ? `Matches ${draft.suggestedTrip.title}` : "Needs trip"}
@@ -186,6 +195,17 @@ export function PendingImportCard({
           {error && (
             <p className="warning" role="alert" style={{ flexBasis: "100%", margin: 0 }}>
               {error}
+              {conflicted && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ marginLeft: 8 }}
+                  disabled={busy}
+                  onClick={() => void addToTrip(true)}
+                >
+                  Import anyway
+                </button>
+              )}
             </p>
           )}
           <button

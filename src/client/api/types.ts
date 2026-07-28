@@ -7,6 +7,8 @@ export type { Person, DocumentField } from "../../server/repos/person.js";
 export type { Trip, TripStatus } from "../../server/repos/trip.js";
 export type { Booking, BookingStatus } from "../../server/repos/booking.js";
 export type { ItineraryDay } from "../../server/repos/itinerary.js";
+export type { TripDuplicateGroup } from "../../server/repos/duplicates.js";
+export type { DuplicateReason } from "../../server/dedupe.js";
 export type { Role } from "../../server/repos/base.js";
 export type { Identity } from "../../server/auth.js";
 export type { ChecklistItem } from "../../server/repos/checklist.js";
@@ -39,6 +41,7 @@ export type { CatalogModel } from "../../server/ingest/model-catalog.js";
 export type { FileImportResult } from "../../server/routes/imports.js";
 export type {
   PendingImportDraft,
+  PendingImportDuplicate,
   CreateTripFromDraftsInput,
   ImportReviewResult,
 } from "../../server/repos/import-review.js";

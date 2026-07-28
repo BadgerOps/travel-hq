@@ -50,6 +50,17 @@ bookings.get("/:bookingId/artifact", async (c) => {
   return c.json({ artifact });
 });
 
+bookings.delete("/:bookingId", async (c) => {
+  // Permanent, and deliberately not the same control as "cancel": the trip
+  // page offers this only for a booking a human has identified as a duplicate
+  // import. Unknown/cross-household ids (NotFoundError, 404) and a viewer role
+  // (ForbiddenError, 403) reach app.onError.
+  await new BookingRepo(c.get("db"), c.get("identity"), c.get("ring")).delete(
+    c.req.param("bookingId"),
+  );
+  return c.body(null, 204);
+});
+
 bookings.put("/:bookingId/status", async (c) => {
   let body: unknown;
   try {

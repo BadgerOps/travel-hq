@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api as defaultApi } from "../api/client.js";
+import { api as defaultApi, ApiError } from "../api/client.js";
 import type {
   CreateTripFromDraftsInput,
   ImportReviewResult,
@@ -26,6 +26,12 @@ export function CreateImportedTripDialog({
   const [endsOn, setEndsOn] = useState(dates.endsOn);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Armed by a 409: the selection repeats itself, and the second submit is the
+   * reviewer answering that. Never set without them having seen the message —
+   * the whole point of the refusal is that it is a question, not a hurdle.
+   */
+  const [allowDuplicates, setAllowDuplicates] = useState(false);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -46,10 +52,12 @@ export function CreateImportedTripDialog({
         ...(destination.trim() ? { destination: destination.trim() } : {}),
         ...(startsOn ? { startsOn } : {}),
         ...(endsOn ? { endsOn } : {}),
+        ...(allowDuplicates ? { allowDuplicates: true } : {}),
       } satisfies CreateTripFromDraftsInput;
       onCreated(await api.imports.createTrip(input));
     } catch (err) {
       setError(errorMessage(err));
+      if (err instanceof ApiError && err.status === 409) setAllowDuplicates(true);
       setBusy(false);
     }
   }
@@ -109,7 +117,11 @@ export function CreateImportedTripDialog({
             Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={busy || drafts.length === 0}>
-            {busy ? "Creating…" : "Create trip and add bookings"}
+            {busy
+              ? "Creating…"
+              : allowDuplicates
+                ? "Create anyway"
+                : "Create trip and add bookings"}
           </button>
         </div>
       </form>
