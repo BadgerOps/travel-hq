@@ -31,9 +31,13 @@ export type FileImportResult = {
 export const imports = new Hono<AppEnv>();
 
 const draftIdsSchema = z.array(z.string().min(1)).min(1).max(100);
+// `allowDuplicates` must be sent deliberately on the retry, never defaulted:
+// the 409 it answers exists because silently importing a second copy is what
+// filled the trip with duplicates to begin with.
 const acceptSchema = z.object({
   draftIds: draftIdsSchema,
   tripId: z.string().min(1),
+  allowDuplicates: z.boolean().optional(),
 }).strict();
 const dismissSchema = z.object({ draftIds: draftIdsSchema }).strict();
 const createTripFromDraftsSchema = z.object({
@@ -42,6 +46,7 @@ const createTripFromDraftsSchema = z.object({
   destination: z.string().trim().optional(),
   startsOn: z.string().refine(isValidCalendarDate).optional(),
   endsOn: z.string().refine(isValidCalendarDate).optional(),
+  allowDuplicates: z.boolean().optional(),
 }).strict().refine(
   (value) => !value.startsOn || !value.endsOn || value.startsOn <= value.endsOn,
   { message: "startsOn must be on or before endsOn", path: ["endsOn"] },
@@ -62,9 +67,16 @@ imports.post("/accept", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid import acceptance", details: parsed.error.issues }, 400);
   }
+  // A draft that repeats a booking already on the trip throws ConflictError
+  // (409) here, which app.onError surfaces with its message so the reviewer
+  // can retry with allowDuplicates.
   return c.json(
     await new ImportReviewRepo(c.get("db"), c.get("identity"), c.get("ring"))
-      .acceptIntoTrip(parsed.data.draftIds, parsed.data.tripId),
+      .acceptIntoTrip(
+        parsed.data.draftIds,
+        parsed.data.tripId,
+        parsed.data.allowDuplicates ?? false,
+      ),
   );
 });
 

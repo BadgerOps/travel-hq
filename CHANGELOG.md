@@ -10,6 +10,15 @@
   "not duplicates" so the group is never reported again. Adds
   `GET/POST /api/trips/:tripId/duplicates*`, `DELETE /api/bookings/:bookingId`,
   and a D1 migration.
+- Added the same detection to the import review queue, so a re-forwarded
+  confirmation is caught before it becomes a booking: a pending import that
+  repeats an existing booking (or another import still in the queue) says so
+  and names the trip, and accepting a confident match answers 409 until the
+  reviewer chooses "Import anyway".
+- Fixed duplicate detection treating the legs of one connecting itinerary as
+  duplicates of each other — every leg of a ticket shares its record locator,
+  so a shared confirmation number now has to be corroborated by the same name
+  or the same departure minute.
 - Fixed dialogs running off the bottom of the screen on mobile: the panel is
   now capped to the visible viewport, its body scrolls with the title and
   close control pinned above it, it clears the notch and home-indicator safe

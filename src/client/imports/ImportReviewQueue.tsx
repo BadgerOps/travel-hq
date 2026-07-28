@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowClockwise, Check, EnvelopeOpen, Plus, Trash } from "@phosphor-icons/react";
 import { Link } from "wouter";
-import { api as defaultApi } from "../api/client.js";
+import { api as defaultApi, ApiError } from "../api/client.js";
 import type {
   ExtractedBooking,
   ImportReviewResult,
@@ -11,6 +11,7 @@ import type {
 import { DraftBookingCard } from "../components/DraftBookingCard.js";
 import { errorMessage } from "../lib/errors.js";
 import { CreateImportedTripDialog } from "./CreateImportedTripDialog.js";
+import { DuplicateNotice } from "./DuplicateNotice.js";
 // Queue styles ship with the Import page sheet (2b anatomy).
 import "../pages/import.css";
 
@@ -38,6 +39,8 @@ export function ImportReviewQueue({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<ImportReviewResult | null>(null);
   const [creating, setCreating] = useState(false);
+  /** The accept a 409 refused, kept so "Import anyway" can repeat it. */
+  const [conflict, setConflict] = useState<{ draftIds: string[]; tripId: string } | null>(null);
 
   async function load(signal?: AbortSignal) {
     setLoading(true);
@@ -90,16 +93,23 @@ export function ImportReviewQueue({
     setSelected((current) => current.filter((id) => !ids.includes(id)));
   }
 
-  async function accept(draftIds: string[], tripId: string) {
+  async function accept(draftIds: string[], tripId: string, allowDuplicates = false) {
     setBusy(true);
     setError(null);
     setNotice(null);
+    setConflict(null);
     try {
-      const result = await api.imports.accept(draftIds, tripId);
+      const result = await api.imports.accept(draftIds, tripId, allowDuplicates);
       removeResolved(result.acceptedDraftIds);
       setNotice(result);
     } catch (err) {
       setError(errorMessage(err));
+      // A 409 is not a failure to report and forget: the server is asking a
+      // question only the reviewer can answer, so keep what was attempted and
+      // offer to send it again with the override.
+      if (err instanceof ApiError && err.status === 409) {
+        setConflict({ draftIds, tripId });
+      }
     } finally {
       setBusy(false);
     }
@@ -153,6 +163,17 @@ export function ImportReviewQueue({
       {error && (
         <p className="warning" role="alert">
           {error}
+          {conflict && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ marginLeft: 8 }}
+              disabled={busy}
+              onClick={() => void accept(conflict.draftIds, conflict.tripId, true)}
+            >
+              Import anyway
+            </button>
+          )}
         </p>
       )}
       {notice && (
@@ -335,6 +356,7 @@ export function ImportReviewQueue({
                                 : ""}
                             </span>
                           )}
+                          <DuplicateNotice duplicates={draft.duplicates ?? []} />
                         </div>
                       </div>
                     </div>

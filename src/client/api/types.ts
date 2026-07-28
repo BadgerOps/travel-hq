@@ -41,6 +41,7 @@ export type { CatalogModel } from "../../server/ingest/model-catalog.js";
 export type { FileImportResult } from "../../server/routes/imports.js";
 export type {
   PendingImportDraft,
+  PendingImportDuplicate,
   CreateTripFromDraftsInput,
   ImportReviewResult,
 } from "../../server/repos/import-review.js";

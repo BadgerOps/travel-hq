@@ -17,12 +17,27 @@ describe("findDuplicates", () => {
   it("pairs two imports of the same confirmation number however differently spelled", () => {
     const groups = findDuplicates([
       candidate({ id: "a", confirmation: "HX7T2Q" }),
-      candidate({ id: "b", confirmation: "hx7t-2q", title: "DL1423", startsAt: null }),
+      // Same departure minute corroborates the locator; the title spelling
+      // and the punctuation in the locator are both normalized away.
+      candidate({ id: "b", confirmation: "hx7t-2q", title: "DL1423" }),
     ]);
     expect(groups).toHaveLength(1);
     expect(groups[0]?.reason).toBe("confirmation");
     expect(groups[0]?.confidence).toBe("high");
     expect(groups[0]?.bookingIds.sort()).toEqual(["a", "b"]);
+  });
+
+  it("does not pair a shared locator that nothing else corroborates", () => {
+    // Same reservation, different name, and one side has no time at all —
+    // indistinguishable from a second segment whose times went unextracted.
+    // Missing a duplicate here costs one merge on the trip page; guessing
+    // wrong costs every multi-leg itinerary.
+    expect(
+      findDuplicates([
+        candidate({ id: "a", confirmation: "HX7T2Q" }),
+        candidate({ id: "b", confirmation: "hx7t-2q", title: "DL1423", startsAt: null }),
+      ]),
+    ).toEqual([]);
   });
 
   it("keeps a hotel modification with the same confirmation but new dates together", () => {
@@ -43,6 +58,47 @@ describe("findDuplicates", () => {
       }),
     ]);
     expect(groups.map((g) => g.reason)).toEqual(["confirmation"]);
+  });
+
+  it("leaves the legs of one connecting itinerary alone despite their shared PNR", () => {
+    // A record locator identifies a reservation, not a segment: BOI→MSP→AMS
+    // is one ticket, three flights. Pairing on the locator alone reported
+    // every multi-leg trip as duplicates.
+    const groups = findDuplicates([
+      candidate({
+        id: "leg1",
+        title: "DL 2586: Boise to Minneapolis",
+        location: "Boise Airport to Minneapolis-St Paul International Airport",
+        startsAt: "2026-10-21T20:33:00.000Z",
+        confirmation: "TRIP90",
+      }),
+      candidate({
+        id: "leg2",
+        title: "DL 162: Minneapolis to Amsterdam",
+        location: "Minneapolis-St Paul International Airport to Amsterdam Airport Schiphol",
+        startsAt: "2026-10-22T00:55:00.000Z",
+        confirmation: "TRIP90",
+      }),
+      candidate({
+        id: "leg3",
+        title: "DL 9674: Amsterdam to Stuttgart",
+        location: "Amsterdam Airport Schiphol to Stuttgart Airport",
+        startsAt: "2026-10-22T10:30:00.000Z",
+        confirmation: "TRIP90",
+      }),
+    ]);
+    expect(groups).toEqual([]);
+  });
+
+  it("still catches the same leg of that itinerary forwarded twice", () => {
+    const groups = findDuplicates([
+      candidate({ id: "leg1", title: "DL 2586: Boise to Minneapolis", startsAt: "2026-10-21T20:33:00.000Z", confirmation: "TRIP90" }),
+      candidate({ id: "leg2", title: "DL 162: Minneapolis to Amsterdam", startsAt: "2026-10-22T00:55:00.000Z", confirmation: "TRIP90" }),
+      // The second forward, extracted with a different title for leg 1.
+      candidate({ id: "leg1-again", title: "DL2586 BOI-MSP", startsAt: "2026-10-21T20:33:00.000Z", confirmation: "TRIP90" }),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.bookingIds.sort()).toEqual(["leg1", "leg1-again"]);
   });
 
   it("never pairs two different confirmation numbers, however identical the rest", () => {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ImportReviewQueue } from "../../../src/client/imports/ImportReviewQueue.js";
+import { ApiError } from "../../../src/client/api/client.js";
 import type { PendingImportDraft, Trip } from "../../../src/client/api/types.js";
 
 const trip: Trip = {
@@ -39,6 +40,7 @@ function draft(
       receivedAt: "2026-07-27T12:00:00.000Z",
     },
     suggestedTrip: null,
+    duplicates: [],
     ...options,
   };
 }
@@ -80,7 +82,9 @@ describe("ImportReviewQueue", () => {
       screen.getByRole("button", { name: "Accept all into Europe" }),
     );
 
-    expect(accept).toHaveBeenCalledWith([first.id, second.id], trip.id);
+    // The third argument is the duplicate override, always sent and always
+    // false unless the reviewer answered a 409.
+    expect(accept).toHaveBeenCalledWith([first.id, second.id], trip.id, false);
     expect(await screen.findByText("All caught up")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Added 2 bookings to Europe");
   });
@@ -175,5 +179,72 @@ describe("ImportReviewQueue", () => {
     expect(screen.getByRole("button", { name: "Create new trip" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Existing trip for selected imports"))
       .not.toBeInTheDocument();
+  });
+
+  it("warns that a pending import is already on a trip", async () => {
+    setup([
+      draft("DL2586", {
+        duplicates: [
+          {
+            reason: "confirmation",
+            confidence: "high",
+            target: "booking",
+            id: "b1",
+            title: "Delta 2586",
+            startsAt: "2026-10-21T22:00:00.000Z",
+            startsAtTz: "America/Denver",
+            tripId: trip.id,
+            tripTitle: trip.title,
+          },
+        ],
+      }),
+    ]);
+    expect(await screen.findByTestId("duplicate-notice")).toHaveTextContent(
+      /Already on Europe as “Delta 2586”/,
+    );
+  });
+
+  it("offers Import anyway after the server refuses a duplicate, and repeats the accept with the override", async () => {
+    const first = draft("DL2586", { suggestedTrip: trip });
+    const accept = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError("failed", 409, "1 of these imports looks like a booking already on Europe."),
+      )
+      .mockResolvedValueOnce({ trip, acceptedDraftIds: [first.id] });
+    const api = {
+      imports: { pending: vi.fn(async () => [first]), accept, createTrip: vi.fn(), dismiss: vi.fn() },
+      trips: { list: vi.fn(async () => [trip]) },
+    };
+    render(<ImportReviewQueue api={api as never} />);
+
+    await screen.findByText("Fwd: Delta trip information");
+    await userEvent.click(screen.getByRole("button", { name: "Accept all into Europe" }));
+
+    // The server's own sentence, not a generic failure line.
+    expect(await screen.findByRole("alert")).toHaveTextContent(/already on Europe/);
+    await userEvent.click(screen.getByRole("button", { name: "Import anyway" }));
+
+    await waitFor(() => expect(accept).toHaveBeenLastCalledWith([first.id], trip.id, true));
+    expect(await screen.findByText("All caught up")).toBeInTheDocument();
+  });
+
+  it("does not offer Import anyway for a failure that is not a conflict", async () => {
+    const first = draft("DL2586", { suggestedTrip: trip });
+    const api = {
+      imports: {
+        pending: vi.fn(async () => [first]),
+        accept: vi.fn().mockRejectedValue(new ApiError("failed", 500)),
+        createTrip: vi.fn(),
+        dismiss: vi.fn(),
+      },
+      trips: { list: vi.fn(async () => [trip]) },
+    };
+    render(<ImportReviewQueue api={api as never} />);
+
+    await screen.findByText("Fwd: Delta trip information");
+    await userEvent.click(screen.getByRole("button", { name: "Accept all into Europe" }));
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("button", { name: "Import anyway" })).not.toBeInTheDocument();
   });
 });

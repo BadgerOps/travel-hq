@@ -1,9 +1,15 @@
 import { ZodError } from "zod";
-import { ForbiddenError, NotFoundError, TenantScopeError, ValidationError } from "../repos/base.js";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  TenantScopeError,
+  ValidationError,
+} from "../repos/base.js";
 import { AuthError, HouseholdAccessError } from "../auth.js";
 
 export type MappedError = {
-  status: 400 | 401 | 403 | 404 | 500;
+  status: 400 | 401 | 403 | 404 | 409 | 500;
   body: { error: string; details?: unknown };
 };
 
@@ -40,6 +46,12 @@ export function mapError(err: unknown): MappedError {
   }
   if (err instanceof ValidationError) {
     return { status: 400, body: { error: err.message } };
+  }
+  // Like ValidationError, the message is surfaced verbatim — a conflict is the
+  // one case where the server knows something the caller does not, and the
+  // client is meant to show it and offer to proceed anyway.
+  if (err instanceof ConflictError) {
+    return { status: 409, body: { error: err.message } };
   }
   if (err instanceof TenantScopeError) {
     return { status: 500, body: { error: "Internal error" } };
