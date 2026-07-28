@@ -224,10 +224,16 @@ textarea.input { min-height: 90px; resize: vertical; }
 .seg {
   display: inline-flex; overflow: hidden;
   border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+  /* five trip-detail tabs overflow a 375px viewport; scroll inside the
+     control instead of pushing the page wide */
+  max-width: 100%; overflow-x: auto;
 }
 .seg-opt {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 12px; font-size: 13px; cursor: pointer;
+  /* Labels never wrap ("Day by day" was folding to three lines at 390px);
+     the .seg container scrolls horizontally instead. */
+  white-space: nowrap;
 }
 .seg-opt + .seg-opt { border-left: 1px solid var(--color-divider); }
 .seg-opt:has(input:checked) { color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
@@ -235,9 +241,12 @@ textarea.input { min-height: 90px; resize: vertical; }
 .seg-opt:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 
 /* — cards — */
+/* Padding runs a step above the token sheet's space-3: the shipped app read
+   cramped against the design mockups, which pad every card to space-4+ inline.
+   One global bump here instead of per-card overrides. */
 .card {
   display: flex; flex-direction: column; gap: var(--space-2);
-  padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-surface);
+  padding: var(--space-6); border-radius: var(--radius-md); background: var(--color-surface);
 }
 .card-kicker { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); }
 .card-title {
@@ -392,7 +401,8 @@ textarea.input { min-height: 90px; resize: vertical; }
 .top-nav {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: clamp(14px, 2.2vw, 28px); /* design nav breathes at 28px; the token
+     sheet's space-4 (11.2px) was the single biggest "cramped" tell */
   padding: 14px 28px;
   /* clears the status bar when the PWA runs edge-to-edge (viewport-fit=cover);
      env() is 0 in a normal browser window, so this is the plain 14px there */
@@ -474,7 +484,170 @@ textarea.input { min-height: 90px; resize: vertical; }
 .nav-user-menu a:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
 .nav-user-menu a[aria-current="page"] { color: var(--color-accent); border-bottom: none; }
 
-.page { padding: var(--space-8) 28px; max-width: 1240px; margin: 0 auto; }
+.page { padding: clamp(20px, 3.5vw, 34px) 28px 48px; max-width: 1240px; margin: 0 auto; }
+
+/* ── Redesign primitives (spec 2026-07-27) — shared across pages ─────────────
+   Page-specific styles live in per-area CSS files (home.css, trip.css, …);
+   anything two areas share belongs here. */
+
+/* Page header — replaces the header pattern previously copy-pasted across
+   six pages: title block left, actions right, wraps gracefully. */
+.page-header {
+  display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap;
+  margin-bottom: clamp(18px, 3vw, 26px);
+}
+.page-header .page-title-group { margin-right: auto; min-width: 0; }
+.page-header h3 { margin-bottom: 4px; }
+.page-header .page-subline { margin: 0; font-size: 13px; color: var(--color-neutral-400); }
+.page-header .page-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+
+/* Section label above a group of rows — the mockups' muted h6 kicker. */
+.section-kicker {
+  font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase;
+  font-weight: var(--font-heading-weight);
+  color: var(--color-neutral-500); margin: 0 0 10px;
+}
+
+/* Layout: hero row (panel + rail) and the trips grid. */
+.hero-row { display: flex; gap: 24px; align-items: stretch; flex-wrap: wrap; }
+.hero-row > .hero-main { flex: 1.5 1 480px; min-width: 0; }
+.hero-row > .hero-rail { flex: 1 1 340px; min-width: 0; }
+.grid-cards {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));
+}
+
+/* Photo cover — trip cards and anything with a 150px image header.
+   The lighten blend is Nocturne's photo treatment: real photos only, the
+   fallback art opts out by not being an <img>. */
+.photo-card { padding: 0; overflow: hidden; }
+.photo-card:hover { box-shadow: var(--shadow-sm); }
+.photo-card > .photo-card-body { padding: var(--space-6); display: grid; gap: 8px; }
+.cover { position: relative; height: 150px; background: var(--color-neutral-900); }
+.cover img, .cover .cover-img {
+  width: 100%; height: 100%; object-fit: cover;
+  mix-blend-mode: lighten;
+}
+.cover .cover-tag { position: absolute; top: 12px; right: 12px; pointer-events: none; }
+.cover-fallback { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* Day-by-day teaser rows on trip cards (44px day gutter). */
+.day-teaser { display: grid; gap: 5px; font-size: 12px; color: var(--color-neutral-400); margin-top: 2px; }
+.day-teaser-row { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.day-teaser-row > .day { width: 44px; flex: none; color: var(--color-neutral-600); }
+.day-teaser-row > .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Booking / itinerary rows — surface rows with icon, dual-tz detail, right meta. */
+.booking-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 13px 16px; border-radius: var(--radius-md);
+  background: var(--color-surface); min-width: 0;
+}
+.booking-row > svg { flex: none; }
+.booking-row .booking-main { min-width: 0; flex: 1; }
+.booking-row .booking-title { font-size: 14px; font-weight: 500; }
+.booking-row .booking-sub { font-size: 12px; color: var(--color-neutral-400); }
+.booking-row .booking-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: none; }
+.booking-row--planned {
+  background: transparent; border: 1px dashed var(--color-neutral-800);
+}
+.booking-row--planned .booking-title { color: var(--color-neutral-400); }
+.booking-row--planned .booking-sub { color: var(--color-neutral-500); }
+.booking-group { display: grid; gap: 8px; }
+
+/* Ranked next-best-action rows. */
+.action-row { display: flex; align-items: center; gap: 12px; padding: 9px 2px; min-width: 0; }
+.action-rank {
+  width: 22px; height: 22px; flex: none; border-radius: var(--radius-sm);
+  display: grid; place-items: center;
+  background: var(--color-neutral-800); color: var(--color-neutral-200);
+  font-size: 11px; font-weight: 600;
+}
+.action-rank--now { background: var(--color-accent-800); color: var(--color-accent-200); }
+.action-row .action-title { font-size: 13px; font-weight: 500; }
+.action-row .action-sub { font-size: 11px; color: var(--color-neutral-500); }
+.action-row .action-due { margin-left: auto; flex: none; font-size: 11px; color: var(--color-neutral-500); }
+
+/* Trip-detail photo banner: cover with a scrim so the title sits on the photo. */
+.detail-banner {
+  position: relative; overflow: hidden; border-radius: var(--radius-lg);
+  min-height: clamp(150px, 24vw, 220px);
+  background: var(--color-neutral-900);
+  display: flex; flex-direction: column; justify-content: flex-end;
+}
+.detail-banner img, .detail-banner .cover-img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  mix-blend-mode: lighten;
+}
+.detail-banner .cover-fallback { position: absolute; inset: 0; }
+.detail-banner .banner-scrim {
+  position: absolute; inset: 0;
+  background: linear-gradient(to top, color-mix(in srgb, var(--color-bg) 88%, transparent) 0%, transparent 65%);
+}
+.detail-banner .banner-content {
+  position: relative; padding: clamp(14px, 2.5vw, 22px) clamp(16px, 3vw, 24px);
+  display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
+}
+
+/* Day-view timeline (1c): time gutter, accent spine, dots. */
+.timeline { display: grid; grid-template-columns: 150px 1fr; position: relative; }
+.timeline-time { grid-column: 1; padding: 14px 18px 14px 0; text-align: right; }
+.timeline-time .t { font-size: 14px; font-weight: 500; }
+.timeline-time .t .tz { font-size: 10.5px; color: var(--color-neutral-500); font-weight: 400; }
+.timeline-time .t2 { font-size: 11px; color: var(--color-neutral-500); }
+.timeline-lane {
+  grid-column: 2; position: relative;
+  border-left: 1px solid var(--color-accent-800);
+  padding: 10px 0 10px 22px;
+}
+.timeline-dot {
+  position: absolute; left: -5px; top: 22px;
+  width: 9px; height: 9px; border-radius: 50%; background: var(--color-accent);
+}
+.timeline-dot--alt { background: var(--color-accent-2); }
+.timeline-dot--hollow {
+  background: var(--color-bg); border: 1.5px solid var(--color-neutral-600);
+  width: 9px; height: 9px; left: -6px;
+}
+.timeline .booking-row { max-width: 760px; }
+.timeline-inline-time { display: none; }
+@media (max-width: 760px) {
+  /* 1e phone shape: the gutter folds into the card as a leading time block. */
+  .timeline { grid-template-columns: 1fr; }
+  .timeline-time { display: none; }
+  .timeline-lane { border-left: none; padding-left: 0; }
+  .timeline-dot { display: none; }
+  .timeline-inline-time { display: block; width: 52px; flex: none; text-align: right; }
+  .timeline-inline-time .t { font-size: 13px; font-weight: 500; }
+  .timeline-inline-time .tz { font-size: 9.5px; color: var(--color-neutral-500); }
+}
+
+/* Person filter chips (day view, import traveler toggles). */
+.chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; font-size: 12px; cursor: pointer;
+  border-radius: calc(var(--radius-md) * 0.75);
+  border: 1px solid var(--color-divider); color: var(--color-neutral-400);
+  background: transparent; font-family: inherit;
+}
+.chip-toggle[aria-pressed="true"], .chip-toggle.is-on {
+  border-color: var(--color-accent); color: var(--color-accent);
+}
+.chip-toggle:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+
+/* Big stat (cost rollups). */
+.stat-big { font-size: 22px; font-weight: 500; letter-spacing: -0.02em; }
+.stat-big .stat-note { font-size: 12px; color: var(--color-neutral-500); font-weight: 400; }
+
+/* Right rail of stacked cards next to a main column. */
+.rail { display: grid; gap: 14px; align-content: start; }
+.split-main-rail {
+  display: grid; grid-template-columns: 1.6fr 1fr; gap: 24px; align-items: start;
+}
+@media (max-width: 900px) {
+  .split-main-rail { grid-template-columns: 1fr; }
+}
 
 /* ── Mobile: collapsed header + bottom tab bar (mobile/PWA handoff) ──────── */
 

@@ -57,22 +57,19 @@ export function People({
 
   return (
     <>
-      <header style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 20 }}>
-        <div>
-          <h3 style={{ marginBottom: 4 }}>People</h3>
-          <p className="text-muted" style={{ margin: 0 }}>
+      <header className="page-header">
+        <div className="page-title-group">
+          <h3>People</h3>
+          <p className="page-subline">
             Travel documents for everyone in the household. Numbers are stored encrypted and
             shown masked; revealing one is logged.
           </p>
         </div>
-        <button
-          type="button"
-          className="btn btn-primary"
-          style={{ marginLeft: "auto" }}
-          onClick={() => setAdding(true)}
-        >
-          <Plus size={14} /> Add person
-        </button>
+        <div className="page-actions">
+          <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
+            <Plus size={14} /> Add person
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -98,13 +95,7 @@ export function People({
       )}
 
       {!error && people !== null && people.length > 0 && (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))",
-            gap: 14,
-          }}
-        >
+        <div className="grid-cards">
           {people.map((p) => (
             <PersonCard
               key={p.id}

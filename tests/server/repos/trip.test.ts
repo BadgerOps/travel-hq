@@ -23,6 +23,16 @@ describe("TripRepo", () => {
     expect(trip.title).toBe("Guerneville");
   });
 
+  it("round-trips a cover photo URL and defaults it to null", async () => {
+    const repo = new TripRepo(env.DB, ctxA);
+    expect((await repo.create({ title: "No photo" })).photoUrl).toBeNull();
+    const trip = await repo.create({
+      title: "Guerneville",
+      photoUrl: "https://img.example/river.jpg",
+    });
+    expect((await repo.findById(trip.id))?.photoUrl).toBe("https://img.example/river.jpg");
+  });
+
   it("lists trips scoped to the household, nulls-last by start", async () => {
     const repo = new TripRepo(env.DB, ctxA);
     await repo.create({ title: "Later", startsOn: "2026-10-01" });

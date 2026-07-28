@@ -30,8 +30,11 @@ export function passportStatus(
   arrivalOn: string | null,
   today: string,
 ): PassportStatus {
+  // `== null` on purpose: partially-shaped Person objects (test fixtures,
+  // future optional fields) arrive with the key missing, and undefined must
+  // mean "no passport", not a NaN date downstream.
   const expiry = person.passportExpiry;
-  if (expiry === null) return { kind: "none", expiry: null };
+  if (expiry == null) return { kind: "none", expiry: null };
 
   // Two different questions, two different reference dates: "is this
   // document already dead?" is measured from today; "will it still be

@@ -1,7 +1,7 @@
 import { PencilSimple, WarningCircle } from "@phosphor-icons/react";
 import type { api as defaultApi } from "../api/client.js";
 import type { Person } from "../api/types.js";
-import { PersonChip } from "./PersonChip.js";
+import { personColor } from "./PersonChip.js";
 import { MaskedValue } from "./MaskedValue.js";
 import { passportStatus, passportWarningText } from "../lib/passport.js";
 
@@ -30,12 +30,21 @@ export function PersonCard({
 }) {
   const status = passportStatus(person, arrivalOn, today);
   const warning = passportWarningText(person, status);
+  // The identity header wants an avatar bigger than the 22px PersonChip;
+  // same palette (personColor keyed by id), page-scale geometry inline.
+  const { bg, fg } = personColor(person.id);
 
   return (
     <div className="card">
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <PersonChip person={person} />
-        <span style={{ fontSize: 15, fontWeight: 500 }}>{person.displayName}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <span
+          className="person-chip"
+          style={{ width: 44, height: 44, fontSize: 18, background: bg, color: fg }}
+          title={person.displayName}
+        >
+          {person.displayName.slice(0, 1).toUpperCase()}
+        </span>
+        <span className="card-title">{person.displayName}</span>
         {onEdit && (
           <button
             type="button"
@@ -48,6 +57,7 @@ export function PersonCard({
           </button>
         )}
       </div>
+      <hr className="hr" style={{ margin: "2px 0" }} />
 
       {(person.email || person.phone) && (
         <div className="card-meta" style={{ flexWrap: "wrap" }}>

@@ -11,12 +11,33 @@ import { NotFoundError } from "../repos/base.js";
 import type { AppEnv } from "../index.js";
 import { isJsonAction } from "./request.js";
 
+// A cover photo URL is rendered straight into an <img src> on the trip card,
+// so only web-fetchable http(s) URLs may be stored — javascript:, data:, and
+// every other scheme must fail here as a 400, not execute at render time.
+// WHATWG URL parsing (not a substring check) is what defeats scheme-smuggling
+// spellings like "jAvAsCrIpT:" or leading whitespace.
+function isHttpUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return url.protocol === "http:" || url.protocol === "https:";
+}
+
+const photoUrlSchema = z
+  .string()
+  .max(2048)
+  .refine(isHttpUrl, { message: "photoUrl must be an http(s) URL" });
+
 const createTripSchema = z.object({
   title: z.string().min(1),
   destination: z.string().optional(),
   startsOn: z.string().optional(),
   endsOn: z.string().optional(),
   notes: z.string().optional(),
+  photoUrl: photoUrlSchema.optional(),
 });
 
 /**
@@ -43,6 +64,7 @@ const updateTripSchema = z
     endsOn: z.string().nullable().optional(),
     status: z.enum(TRIP_STATUSES).optional(),
     notes: z.string().nullable().optional(),
+    photoUrl: photoUrlSchema.nullable().optional(),
   })
   .strict();
 

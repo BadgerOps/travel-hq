@@ -1,0 +1,152 @@
+/* Trip detail (design 1b + photo banner) — page-scoped styles.
+   Shared primitives (.detail-banner, .booking-row, .split-main-rail, .rail,
+   .section-kicker, .stat-big, …) live in styles.css; everything here is
+   specific to the trip hub. Imported once by pages/TripDetail.tsx. */
+
+/* ── Breadcrumb + banner ─────────────────────────────────────────────────── */
+
+.trip-breadcrumb {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--color-neutral-500);
+  margin-bottom: 12px;
+}
+.trip-breadcrumb a { color: inherit; text-decoration: none; }
+.trip-breadcrumb a:hover { color: var(--color-neutral-300); }
+
+.detail-banner { margin-bottom: 18px; }
+
+.banner-title-block {
+  margin-right: auto; min-width: 0;
+  display: grid; gap: 7px; justify-items: start;
+}
+.banner-title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.banner-title-row h2 {
+  margin: 0; font-size: clamp(22px, 3.5vw, 28px); line-height: 1.15;
+  text-wrap: balance;
+}
+.banner-sub {
+  margin: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 13.5px; color: var(--color-neutral-300);
+}
+.banner-sub svg { flex: none; }
+.banner-sub .banner-sub-sep { color: var(--color-neutral-600); }
+
+.banner-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+/* On phones the actions drop to their own full-width row at the bottom of
+   the banner instead of squeezing beside the title. */
+@media (max-width: 640px) {
+  .banner-actions { flex-basis: 100%; justify-content: flex-start; }
+}
+
+.trip-tabs { margin-bottom: 20px; }
+
+/* ── Overview: main column ───────────────────────────────────────────────── */
+
+.overview-main { display: grid; gap: 22px; align-content: start; min-width: 0; }
+
+/* Day-by-day breakdown strip — one row per trip day, jumping into the
+   Day by day tab. */
+.trip-days { gap: 2px; }
+.trip-days .section-kicker { margin-bottom: 6px; }
+.trip-day-row {
+  display: flex; gap: 12px; align-items: baseline; width: 100%; min-width: 0;
+  background: none; border: 0; padding: 6px 4px; margin: 0;
+  font: inherit; color: inherit; text-align: left;
+  border-radius: var(--radius-sm);
+}
+button.trip-day-row { cursor: pointer; }
+button.trip-day-row:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.trip-day-row .trip-day-label {
+  width: 48px; flex: none; font-size: 12px; color: var(--color-neutral-600);
+}
+.trip-day-items {
+  display: flex; flex-wrap: wrap; gap: 4px 16px; min-width: 0;
+  font-size: 12.5px; color: var(--color-neutral-300);
+}
+.trip-day-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.trip-day-item svg { flex: none; color: var(--color-neutral-500); }
+.trip-day-item.warning svg { color: inherit; }
+.trip-day-empty { font-size: 12px; color: var(--color-neutral-600); }
+
+/* Booking rows — the shared .booking-row primitive plus hub-only bits. */
+.booking-row--click { cursor: pointer; }
+.booking-row--click:hover { box-shadow: var(--shadow-sm); }
+.booking-row > svg { color: var(--color-accent); }
+.booking-row--event > svg { color: var(--color-accent-2); }
+.booking-row--planned > svg { color: var(--color-neutral-500); }
+.booking-title-btn {
+  background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.booking-row .booking-sub {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px;
+}
+.booking-cost { font-size: 12px; color: var(--color-neutral-400); white-space: nowrap; }
+.booking-row .btn-ghost { font-size: 12.5px; padding-block: 2px; }
+@media (max-width: 640px) {
+  /* The meta cluster drops under the text instead of crushing the title. */
+  .booking-row { flex-wrap: wrap; }
+  .booking-row .booking-main { flex-basis: calc(100% - 33px); }
+  .booking-row .booking-meta { margin-left: 33px; }
+}
+
+/* ── Overview: right rail cards ──────────────────────────────────────────── */
+
+.rail-person { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.rail-person + .rail-person { margin-top: 10px; }
+.rail-person .rail-person-name { font-size: 13.5px; font-weight: 500; }
+.rail-person .card-meta { margin-top: 2px; }
+
+.rail-check-row { display: flex; align-items: center; gap: 8px; font-size: 13px; min-width: 0; }
+.rail-check-row svg { flex: none; color: var(--color-neutral-500); }
+.rail-check-row--done { opacity: 0.45; text-decoration: line-through; }
+.rail-check-row--done svg { color: var(--color-accent); }
+.rail-check-row .rail-check-label {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.rail-card-link { align-self: flex-start; font-size: 12.5px; margin-top: 2px; }
+
+/* ── Checklist tab ───────────────────────────────────────────────────────── */
+
+.trip-checklist { gap: 0; }
+.trip-checklist .hr { margin: 2px 0; }
+.checklist-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0;
+  background: none; border: 0; padding: 8px 2px; margin: 0;
+  font: inherit; color: inherit; text-align: left;
+  border-radius: var(--radius-sm);
+}
+button.checklist-row { cursor: pointer; }
+button.checklist-row:hover { background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+.checklist-row .checklist-icon { flex: none; color: var(--color-neutral-500); }
+.checklist-row--done .checklist-icon { color: var(--color-accent); }
+.checklist-row .checklist-label { font-size: 13px; min-width: 0; }
+.checklist-row .checklist-right {
+  margin-left: auto; flex: none;
+  display: flex; align-items: center; gap: 8px;
+}
+.checklist-row .checklist-due { font-size: 11px; color: var(--color-neutral-500); }
+
+/* ── Travelers tab: inline remove-confirm block ──────────────────────────── */
+
+.confirm-strip {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+  padding: 12px 14px; border: 1px solid #8a6d3b; border-radius: var(--radius-md);
+}
+.confirm-strip p { margin: 0; font-size: 12.5px; flex: 1 1 260px; }
+.confirm-strip .confirm-strip-actions {
+  display: flex; align-items: center; gap: 8px; flex: none;
+}
+
+/* ── Costs tab ───────────────────────────────────────────────────────────── */
+
+/* Cards carry no border by default, so the featured metric's accent outline
+   needs an explicit 1px border rather than a border-color override. */
+.metric-featured { border: 1px solid var(--color-accent); }
+
+/* ── Warnings banner ─────────────────────────────────────────────────────── */
+
+/* The low-confidence amber outline from the design bundle (2b draft card);
+   the row text itself uses the .warning amber. */
+.trip-warnings { border: 1px solid #8a6d3b; margin-bottom: 20px; }

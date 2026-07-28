@@ -1,0 +1,96 @@
+/* Settings page — split main/rail layout, grouped form sections, and the
+   ingest-activity rows. Shared primitives (.page-header, .split-main-rail,
+   .rail, .section-kicker, .hr, .card) live in styles.css. */
+
+.settings-main {
+  display: grid;
+  gap: 24px;
+  align-content: start;
+  min-width: 0;
+}
+
+/* The two form cards lay their fields out on a single grid track; the shared
+   .card gap is too tight for labelled fields. */
+.settings-form {
+  display: grid;
+  gap: 14px;
+  align-items: start;
+}
+.settings-form > .hr {
+  width: 100%;
+  margin: var(--space-2) 0 0;
+}
+/* Kickers ride closer to the group they label than to the rule above. */
+.settings-form > .section-kicker {
+  margin: 0 0 -6px;
+}
+
+/* Field help text under inputs; the counter variant right-aligns so the
+   n/2000 count sits under the textarea's trailing edge. */
+.field-hint {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+}
+.field-hint--end {
+  text-align: right;
+}
+
+/* ── Recent ingest activity ──
+   Each row is ONE interactive element: a button styled as a surface card.
+   (Previously the article had an onClick and a nested button doing the same
+   job — two tab stops, one action.) */
+.ingest-list {
+  display: grid;
+  gap: 10px;
+}
+.ingest-item {
+  margin: 0;
+  min-width: 0;
+}
+.ingest-row {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: var(--color-surface);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  min-width: 0;
+}
+.ingest-row:hover {
+  border-color: var(--color-divider);
+  box-shadow: var(--shadow-sm);
+}
+.ingest-row:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.ingest-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+.ingest-subject {
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* The status pill keeps its natural size beside a wrapping subject. */
+.ingest-status {
+  flex: none;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.ingest-from {
+  font-size: 13px;
+  opacity: 0.8;
+}

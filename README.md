@@ -56,6 +56,9 @@ npx wrangler d1 execute travel-hq-dev --local --command \
 npm run dev                 # wrangler dev — http://localhost:8787 (API + SPA)
 ```
 
+- **Rebuilds can look like no-ops:** the served build registers a service
+  worker, so after `npm run build` the browser keeps the old bundle until you
+  unregister the SW / clear Cache Storage (or hard-reload with devtools open).
 - **`TRAVEL_HQ_ENV=development` is required** for the dev bypass. Unset means
   production, and the Worker refuses to start with `TRAVEL_HQ_DEV_EMAIL` set —
   deliberate, so a deployed Worker can never run the bypass.

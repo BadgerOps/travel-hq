@@ -85,7 +85,7 @@ export function NextBestActions({
 
   if (error) {
     return (
-      <section className="card" style={{ flex: "1 1 340px" }}>
+      <section className="card hero-rail">
         <h6 className="card-kicker">Next best actions</h6>
         <p className="warning" role="alert" style={{ margin: 0, fontSize: 12 }}>
           Couldn't load the checklist. {error}
@@ -101,7 +101,7 @@ export function NextBestActions({
   const ranked = items.slice().sort(rank).slice(0, limit);
 
   return (
-    <section className="card" style={{ flex: "1 1 340px" }}>
+    <section className="card hero-rail">
       <h6 className="card-kicker">Next best actions</h6>
 
       {writeError && (
@@ -110,91 +110,67 @@ export function NextBestActions({
         </p>
       )}
 
-      {ranked.map((item, index) => {
-        const done = item.doneAt !== null;
-        const due = urgency(item.dueOn, today);
-        const rowStyle = {
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          width: "100%",
-          padding: 0,
-          background: "none",
-          border: 0,
-          color: "inherit",
-          font: "inherit",
-          textAlign: "left" as const,
-          opacity: done ? 0.45 : 1,
-        };
-        const badge = (
-          <span
-            aria-hidden="true"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 22,
-              height: 22,
-              flex: "none",
-              borderRadius: "var(--radius-sm)",
-              fontSize: 11,
-              background:
-                done || index === 0 ? "var(--color-accent-800)" : "var(--color-neutral-800)",
-              color: done || index === 0 ? "var(--color-accent-200)" : "var(--color-neutral-200)",
-            }}
-          >
-            {done ? <Check size={12} /> : index + 1}
-          </span>
-        );
-        const label = (
-          <span
-            data-testid="action-label"
-            style={{
-              fontSize: 13,
-              fontWeight: 500,
-              textDecoration: done ? "line-through" : "none",
-            }}
-          >
-            {item.label}
-          </span>
-        );
-        return (
-          <div key={item.id}>
-            {canWrite ? (
-              <button
-                type="button"
-                data-testid={`action-row-${item.id}`}
-                data-done={String(done)}
-                onClick={() => void toggle(item)}
-                style={{ ...rowStyle, cursor: "pointer" }}
-              >
-                {badge}
-                {label}
-                {due && (
-                  <span style={{ marginLeft: "auto", fontSize: 11, color: due.tone }}>
-                    {due.text}
-                  </span>
-                )}
-              </button>
-            ) : (
-              // A viewer's write is a guaranteed 403 (ChecklistRepo.setDone
-              // goes through requireWrite()), so offering a clickable
-              // affordance here would be a control that can only fail -- same
-              // rule ChecklistTab and MaskedValue apply to their own writes.
-              <div data-testid={`action-row-${item.id}`} data-done={String(done)} style={rowStyle}>
-                {badge}
-                {label}
-                {due && (
-                  <span style={{ marginLeft: "auto", fontSize: 11, color: due.tone }}>
-                    {due.text}
-                  </span>
-                )}
+      <div style={{ display: "grid", gap: 2 }}>
+        {ranked.map((item, index) => {
+          const done = item.doneAt !== null;
+          const due = urgency(item.dueOn, today);
+          // The accent square marks "this one, now": rank 1 and anything due
+          // today. A done row keeps it as the check's backdrop.
+          const now = done || index === 0 || due?.text === "today";
+          const rankSquare = (
+            <span
+              aria-hidden="true"
+              className={`action-rank${now ? " action-rank--now" : ""}`}
+            >
+              {done ? <Check size={12} /> : index + 1}
+            </span>
+          );
+          const label = (
+            <div style={{ minWidth: 0 }}>
+              <div className="action-title" data-testid="action-label">
+                {item.label}
               </div>
-            )}
-            {index < ranked.length - 1 && <hr className="hr" style={{ margin: "10px 0" }} />}
-          </div>
-        );
-      })}
+            </div>
+          );
+          const dueTag = due && (
+            <span className="action-due" style={{ color: due.tone }}>
+              {due.text}
+            </span>
+          );
+          return (
+            <div key={item.id} style={{ display: "grid" }}>
+              {canWrite ? (
+                <button
+                  type="button"
+                  className="action-row"
+                  data-testid={`action-row-${item.id}`}
+                  data-done={String(done)}
+                  onClick={() => void toggle(item)}
+                >
+                  {rankSquare}
+                  {label}
+                  {dueTag}
+                </button>
+              ) : (
+                // A viewer's write is a guaranteed 403 (ChecklistRepo.setDone
+                // goes through requireWrite()), so offering a clickable
+                // affordance here would be a control that can only fail -- same
+                // rule ChecklistTab and MaskedValue apply to their own writes.
+                <div
+                  className="action-row"
+                  data-testid={`action-row-${item.id}`}
+                  data-done={String(done)}
+                >
+                  {rankSquare}
+                  {label}
+                  {dueTag}
+                </div>
+              )}
+              {index < ranked.length - 1 && <hr className="hr" style={{ margin: 0 }} />}
+            </div>
+          );
+        })}
+      </div>
 
       <Link href="/checklist" className="btn btn-ghost" style={{ alignSelf: "flex-start" }}>
         Full checklist →

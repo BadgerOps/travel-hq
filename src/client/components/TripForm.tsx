@@ -61,6 +61,7 @@ export function TripForm({
   const [startsOn, setStartsOn] = useState(trip?.startsOn ?? "");
   const [endsOn, setEndsOn] = useState(trip?.endsOn ?? "");
   const [notes, setNotes] = useState(trip?.notes ?? "");
+  const [photoUrl, setPhotoUrl] = useState(trip?.photoUrl ?? "");
   // A cancelled trip seeds to Auto: the control cannot express `cancelled`.
   // `status` is sent only when the operator moved the control off its SEED —
   // comparing against the stored value instead would read a cancelled trip's
@@ -99,6 +100,7 @@ export function TripForm({
           startsOn: startsOn === "" ? null : startsOn,
           endsOn: endsOn === "" ? null : endsOn,
           notes: notes === "" ? null : notes,
+          photoUrl: photoUrl === "" ? null : photoUrl,
           ...(status !== initialStatus ? { status } : {}),
         } satisfies UpdateTripInput);
         onSaved(updated);
@@ -121,6 +123,7 @@ export function TripForm({
         ...(startsOn === "" ? {} : { startsOn }),
         ...(endsOn === "" ? {} : { endsOn }),
         ...(notes === "" ? {} : { notes }),
+        ...(photoUrl === "" ? {} : { photoUrl }),
       });
     } catch (err) {
       setError(errorMessage(err));
@@ -202,6 +205,21 @@ export function TripForm({
             className="input"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
+          />
+        </div>
+
+        <div className="field">
+          <label htmlFor="tf-photo">
+            Cover photo{" "}
+            <span className="text-muted" style={{ fontSize: 11 }}>
+              · Paste an image URL — shown on the trip card
+            </span>
+          </label>
+          <input
+            id="tf-photo"
+            className="input"
+            value={photoUrl}
+            onChange={(e) => setPhotoUrl(e.target.value)}
           />
         </div>
 

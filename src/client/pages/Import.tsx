@@ -1,19 +1,66 @@
-import { useState } from "react";
-import { EnvelopeSimple, Files, UploadSimple } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
+import { Link } from "wouter";
+import {
+  Check,
+  Copy,
+  EnvelopeSimple,
+  FileArrowUp,
+  UploadSimple,
+} from "@phosphor-icons/react";
 import { api as defaultApi, ApiError } from "../api/client.js";
 import type { FileImportResult } from "../api/types.js";
 import { useCanWrite } from "../api/identity.js";
 import { DraftBookingCard } from "../components/DraftBookingCard.js";
 import { ImportReviewQueue } from "../imports/ImportReviewQueue.js";
 import { errorMessage } from "../lib/errors.js";
+import "./import.css";
 
 export function Import({ api = defaultApi }: { api?: typeof defaultApi }) {
   const canWrite = useCanWrite();
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FileImportResult | null>(null);
   const [queueRefresh, setQueueRefresh] = useState(0);
+  const [forwardAddress, setForwardAddress] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!canWrite) return;
+    let cancelled = false;
+    // The forward chip is informational. Reading settings can 403 for adults
+    // (owner-only), and test harnesses stub a partial api — fall back to the
+    // static chip in both cases.
+    api.settings
+      ?.get()
+      .then(
+        (settings) => {
+          if (!cancelled) setForwardAddress(settings.forwardAddress);
+        },
+        () => {},
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [api, canWrite]);
+
+  function pickFile(next: File | null) {
+    setFile(next);
+    setError(null);
+    setResult(null);
+  }
+
+  async function copyForwardAddress() {
+    if (!forwardAddress) return;
+    try {
+      await navigator.clipboard.writeText(forwardAddress);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable — the address is still visible to copy by hand */
+    }
+  }
 
   async function upload(event: React.FormEvent) {
     event.preventDefault();
@@ -42,98 +89,146 @@ export function Import({ api = defaultApi }: { api?: typeof defaultApi }) {
 
   return (
     <>
-      <header style={{ marginBottom: 20 }}>
-        <h3 style={{ marginBottom: 4 }}>Import bookings</h3>
-        <p className="text-muted" style={{ margin: 0 }}>
-          Upload an itinerary or forward a confirmation. Everything lands as a draft for review.
-        </p>
+      <header className="page-header">
+        <div className="page-title-group">
+          <h3>Import bookings</h3>
+          <p className="page-subline">
+            Three ways in — everything lands as a draft for review
+          </p>
+        </div>
+        <div className="page-actions import-methods">
+          <span className="tag tag-outline import-chip">
+            <FileArrowUp size={13} aria-hidden="true" />
+            Upload .eml / PDF
+          </span>
+          {forwardAddress ? (
+            <button
+              type="button"
+              className="tag import-chip import-chip--muted"
+              title="Copy the forwarding address"
+              onClick={() => void copyForwardAddress()}
+            >
+              <EnvelopeSimple size={13} aria-hidden="true" />
+              Forward to <span className="import-chip-addr">{forwardAddress}</span>
+              {copied ? (
+                <Check size={12} aria-hidden="true" />
+              ) : (
+                <Copy size={12} aria-hidden="true" />
+              )}
+            </button>
+          ) : canWrite ? (
+            <Link href="/settings" className="tag import-chip import-chip--muted">
+              <EnvelopeSimple size={13} aria-hidden="true" />
+              Forward by email · set up in Settings
+            </Link>
+          ) : (
+            <span className="tag import-chip import-chip--muted">
+              <EnvelopeSimple size={13} aria-hidden="true" />
+              Forward by email
+            </span>
+          )}
+        </div>
       </header>
 
       {!canWrite ? (
-        <div className="card" style={{ maxWidth: 560, alignItems: "flex-start", gap: 10 }}>
+        <div className="card import-viewer-card">
           <span className="card-title">Owners and adults only</span>
           <p className="card-body" style={{ margin: 0 }}>
             Viewers can see trips, but only owners and adults can import new draft bookings.
           </p>
         </div>
       ) : (
-        <form
-          className="card"
-          style={{ maxWidth: 620, alignItems: "flex-start", gap: 12 }}
-          onSubmit={upload}
-        >
-          <span className="card-title">
-            <Files size={18} style={{ marginRight: 6, verticalAlign: "-3px" }} />
-            Import an itinerary file
-          </span>
-          <p className="card-body" style={{ margin: 0 }}>
-            Choose a PDF up to 10 MiB or an EML email up to 1 MB. Travel HQ reads it with your
-            configured extraction model.
-          </p>
-          <label>
-            Itinerary file
-            <input
-              type="file"
-              accept=".pdf,.eml,application/pdf,message/rfc822"
-              disabled={busy}
-              onChange={(event) => {
-                setFile(event.currentTarget.files?.[0] ?? null);
-                setError(null);
-                setResult(null);
-              }}
-            />
-          </label>
-          <button type="submit" className="btn btn-primary" disabled={busy}>
-            <UploadSimple size={14} />
-            {busy ? "Importing…" : "Import file"}
-          </button>
-          {error && (
-            <p className="warning" role="alert" style={{ margin: 0 }}>
-              {error}
-            </p>
-          )}
-        </form>
+        <div className="import-grid">
+          <section className="import-pane">
+            <h6 className="section-kicker">Upload a confirmation</h6>
+            <form className="import-upload" onSubmit={upload}>
+              <label
+                className={`import-dropzone${dragging ? " is-dragover" : ""}${
+                  busy ? " is-busy" : ""
+                }`}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  if (!busy) setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragging(false);
+                  if (busy) return;
+                  const dropped = event.dataTransfer.files?.[0] ?? null;
+                  if (dropped) pickFile(dropped);
+                }}
+              >
+                <input
+                  type="file"
+                  accept=".pdf,.eml,application/pdf,message/rfc822"
+                  aria-label="Itinerary file"
+                  disabled={busy}
+                  onChange={(event) => pickFile(event.currentTarget.files?.[0] ?? null)}
+                />
+                <FileArrowUp size={26} aria-hidden="true" className="dz-icon" />
+                {file ? (
+                  <>
+                    <strong className="dz-title dz-file">{file.name}</strong>
+                    <span className="dz-hint">
+                      Ready to import — or choose a different file
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <strong className="dz-title">Drop a confirmation here, or browse</strong>
+                    <span className="dz-hint">PDF up to 10 MiB · EML email up to 1 MB</span>
+                  </>
+                )}
+              </label>
+              <p className="import-note">
+                Travel HQ reads the file with your configured extraction model. Nothing
+                writes silently — every booking waits below as a draft.
+              </p>
+              <button type="submit" className="btn btn-primary" disabled={busy}>
+                <UploadSimple size={14} />
+                {busy ? "Importing…" : "Import file"}
+              </button>
+              {error && (
+                <p className="warning" role="alert">
+                  {error}
+                </p>
+              )}
+            </form>
+          </section>
+
+          <section className="import-pane">
+            <h6 className="section-kicker">Parsed drafts · review before saving</h6>
+
+            {result?.status === "extracted" && (
+              <div className="import-fresh">
+                <h4>
+                  {result.bookings.length}{" "}
+                  {result.bookings.length === 1 ? "draft" : "drafts"} ready for review
+                </h4>
+                <p className="text-muted">Check each booking before adding it to a trip.</p>
+                <div className="import-draft-list">
+                  {result.bookings.map((booking, index) => (
+                    <DraftBookingCard
+                      key={`${result.inboundEmailId}-${index}`}
+                      booking={booking}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {result?.status === "received" && (
+              <p className="import-note" role="status">
+                The import was saved and is waiting for extraction. It will appear in
+                recent ingest activity while it is queued.
+              </p>
+            )}
+
+            <ImportReviewQueue api={api} refreshToken={queueRefresh} />
+          </section>
+        </div>
       )}
-
-      {result?.status === "extracted" && (
-        <section style={{ marginTop: 24 }}>
-          <h4 style={{ marginBottom: 4 }}>
-            {result.bookings.length} {result.bookings.length === 1 ? "draft" : "drafts"} ready for
-            review
-          </h4>
-          <p className="text-muted" style={{ marginTop: 0 }}>
-            Check each booking before adding it to a trip.
-          </p>
-          <div style={{ display: "grid", gap: 12 }}>
-            {result.bookings.map((booking, index) => (
-              <DraftBookingCard
-                key={`${result.inboundEmailId}-${index}`}
-                booking={booking}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {result?.status === "received" && (
-        <p className="text-muted" role="status" style={{ marginTop: 16 }}>
-          The import was saved and is waiting for extraction. It will appear in recent ingest
-          activity while it is queued.
-        </p>
-      )}
-
-      <div className="card" style={{ maxWidth: 620, alignItems: "flex-start", gap: 8, marginTop: 16 }}>
-        <span className="card-title">
-          <EnvelopeSimple size={16} style={{ marginRight: 6, verticalAlign: "-2px" }} />
-          Email import
-        </span>
-        <p className="card-body" style={{ margin: 0 }}>
-          Forward confirmations to the address configured in Settings. Authenticated messages use
-          the same extractor and appear as drafts.
-        </p>
-      </div>
-
-      {canWrite && <ImportReviewQueue api={api} refreshToken={queueRefresh} />}
     </>
   );
 }

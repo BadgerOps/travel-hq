@@ -1,0 +1,68 @@
+/* Day-by-day view (spec 2026-07-27): the 1c shared agenda, folding to the
+   1e phone shape at ≤760px. The shared primitives — .timeline, .booking-row,
+   .chip-toggle, .seg — live in styles.css; only page-specific glue belongs
+   here. */
+
+/* Header: kicker over the long day name, pager pushed right. */
+.dayview-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.dayview-title-group {
+  min-width: 0;
+}
+.dayview-kicker {
+  font-size: 12px;
+  color: var(--color-neutral-500);
+  margin-bottom: 4px;
+}
+.dayview-header h3 {
+  margin: 0;
+}
+.date-pager {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.date-pager-count {
+  font-size: 13px;
+  color: var(--color-neutral-400);
+}
+
+/* Filter chips sit between header and timeline (1c: margin 16px 0 22px). */
+.dayview > .chip-row {
+  margin: 16px 0 22px;
+}
+/* 1c draws the avatar inside a pill at 15px, down from the 22px default. */
+.chip-toggle .person-chip {
+  width: 15px;
+  height: 15px;
+  font-size: 8px;
+}
+
+/* Timeline cards are <button>s when clickable; undo the UA button chrome so
+   the two variants render identically. The dashed planned border has to be
+   restated after the reset or `border: 0` wins over .booking-row--planned. */
+button.booking-row {
+  width: 100%;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+button.booking-row.booking-row--planned {
+  border: 1px dashed var(--color-neutral-800);
+}
+button.booking-row:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+/* The mobile 52px gutter stacks its two lines ("1:15" over "PM PDT"). */
+.timeline-inline-time .t,
+.timeline-inline-time .tz {
+  display: block;
+}

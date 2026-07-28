@@ -18,6 +18,7 @@ import {
   MIN_WORKERS_AI_MAX_TOKENS,
   SUPPORTED_WORKERS_AI_MODELS,
 } from "../../shared/workers-ai-models.js";
+import "./settings.css";
 
 /* Fallback presets only — the dropdown normally lists what the account can
    actually run, pulled from /api/settings/ai-models (the server caches the
@@ -229,153 +230,161 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
       <SettingsHeader />
       {settings === null && <p className="text-muted">Loading…</p>}
       {settings !== null && (
-        <div style={{ display: "grid", gap: 24, maxWidth: 640 }}>
-          <form noValidate onSubmit={save} className="card" style={{ display: "grid", gap: 14 }}>
-            <h4>Extraction agent</h4>
-            {saveError && <p className="warning" role="alert" style={{ margin: 0 }}>{saveError}</p>}
-            {saved && <p className="text-muted" role="status" style={{ margin: 0 }}>Settings saved.</p>}
+        <div className="split-main-rail">
+          <div className="settings-main">
+            <form noValidate onSubmit={save} className="card settings-form">
+              <h4>Extraction agent</h4>
+              {saveError && <p className="warning" role="alert" style={{ margin: 0 }}>{saveError}</p>}
+              {saved && <p className="text-muted" role="status" style={{ margin: 0 }}>Settings saved.</p>}
 
-            <div className="field">
-              <label htmlFor="st-forward">Forward address</label>
-              <input id="st-forward" className="input" placeholder="trips@example.com"
-                value={forwardAddress} onChange={(e) => setForwardAddress(e.target.value)}
-                readOnly={!canWrite} />
-            </div>
-            <div className="field">
-              <label htmlFor="st-allowlist">Sender allowlist</label>
-              <textarea id="st-allowlist" className="input" rows={4}
-                placeholder={"you@example.com\nairline.com"} value={allowlistText}
-                onChange={(e) => setAllowlistText(e.target.value)} readOnly={!canWrite} />
-              <p className="text-muted" style={helpStyle}>
-                One address or domain per line. Exact addresses can use verified DKIM
-                when Cloudflare omits its authentication verdict; domain entries require
-                Cloudflare verification. An empty list disables email ingest.
-              </p>
-            </div>
-            <div className="field">
-              <label htmlFor="st-provider">AI provider</label>
-              <select id="st-provider" className="input" value={aiProvider}
-                onChange={(e) => setAiProvider(e.target.value as AiProvider)}
-                disabled={!canWrite}>
-                <option value="workers-ai">Workers AI</option>
-                <option value="anthropic">Anthropic</option>
-              </select>
-            </div>
-
-            {aiProvider === "workers-ai" ? (
-              <>
-                <div className="field">
-                  <label htmlFor="st-model-preset">Extraction model</label>
-                  <select id="st-model-preset" className="input" value={aiModel}
-                    onChange={(e) => setAiModel(e.target.value)} disabled={!canWrite}>
-                    {workersModels.map(({ name, description }) => (
-                      <option value={name} key={name} title={description || undefined}>{name}</option>
-                    ))}
-                  </select>
-                  <p className="text-muted" style={helpStyle}>
-                    Only current extraction-compatible models are listed. If strict schema mode
-                    fails, Travel HQ retries with validated JSON mode.
-                  </p>
-                </div>
-                <div className="field">
-                  <label htmlFor="st-ai-max-tokens">Maximum output tokens</label>
-                  <input
-                    id="st-ai-max-tokens"
-                    className="input"
-                    type="number"
-                    min={MIN_WORKERS_AI_MAX_TOKENS}
-                    max={MAX_WORKERS_AI_MAX_TOKENS}
-                    step={256}
-                    value={aiMaxTokens}
-                    onChange={(e) => setAiMaxTokens(e.target.value)}
-                    readOnly={!canWrite}
-                  />
-                  <p className="text-muted" style={helpStyle}>
-                    Includes reasoning and the structured result. Use 4096 for forwarded
-                    itineraries; lower values cost less but can truncate extraction.
-                  </p>
-                </div>
-              </>
-            ) : (
+              <h6 className="section-kicker">Email ingest</h6>
               <div className="field">
-                <label htmlFor="st-anthropic-model">Anthropic model</label>
-                <select id="st-anthropic-model" className="input" value={anthropicModel}
-                  onChange={(e) => setAnthropicModel(e.target.value)} disabled={!canWrite}>
-                  {ANTHROPIC_MODELS.map((model) => <option value={model} key={model}>{model}</option>)}
+                <label htmlFor="st-forward">Forward address</label>
+                <input id="st-forward" className="input" placeholder="trips@example.com"
+                  value={forwardAddress} onChange={(e) => setForwardAddress(e.target.value)}
+                  readOnly={!canWrite} />
+              </div>
+              <div className="field">
+                <label htmlFor="st-allowlist">Sender allowlist</label>
+                <textarea id="st-allowlist" className="input" rows={4}
+                  placeholder={"you@example.com\nairline.com"} value={allowlistText}
+                  onChange={(e) => setAllowlistText(e.target.value)} readOnly={!canWrite} />
+                <p className="text-muted field-hint">
+                  One address or domain per line. Exact addresses can use verified DKIM
+                  when Cloudflare omits its authentication verdict; domain entries require
+                  Cloudflare verification. An empty list disables email ingest.
+                </p>
+              </div>
+
+              <hr className="hr" />
+              <h6 className="section-kicker">Extraction model</h6>
+              <div className="field">
+                <label htmlFor="st-provider">AI provider</label>
+                <select id="st-provider" className="input" value={aiProvider}
+                  onChange={(e) => setAiProvider(e.target.value as AiProvider)}
+                  disabled={!canWrite}>
+                  <option value="workers-ai">Workers AI</option>
+                  <option value="anthropic">Anthropic</option>
                 </select>
               </div>
-            )}
 
-            <div className="field">
-              <label htmlFor="st-anthropic-key">Anthropic API key</label>
-              {anthropicKeyConfigured && keyMode === "unchanged" ? (
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <span><Key size={14} /> Configured ••••</span>
-                  {canWrite && <button type="button" className="btn btn-secondary"
-                    onClick={() => setKeyMode("replace")}>Replace</button>}
-                  {canWrite && <button type="button" className="btn btn-secondary"
-                    onClick={() => setKeyMode("remove")}><Trash size={14} /> Remove</button>}
-                </div>
-              ) : keyMode === "remove" ? (
-                <div>
-                  <span className="warning">Key will be removed when settings are saved.</span>
-                  <button type="button" className="btn btn-ghost"
-                    onClick={() => setKeyMode("unchanged")}>Keep configured key</button>
-                </div>
-              ) : (
+              {aiProvider === "workers-ai" ? (
                 <>
-                  <input id="st-anthropic-key" className="input" type="password"
-                    autoComplete="new-password" placeholder="sk-ant-…"
-                    value={anthropicApiKey} onChange={(e) => setAnthropicApiKey(e.target.value)}
-                    readOnly={!canWrite} />
-                  {anthropicKeyConfigured && <button type="button" className="btn btn-ghost"
-                    onClick={() => { setKeyMode("unchanged"); setAnthropicApiKey(""); }}>Cancel replace</button>}
+                  <div className="field">
+                    <label htmlFor="st-model-preset">Extraction model</label>
+                    <select id="st-model-preset" className="input" value={aiModel}
+                      onChange={(e) => setAiModel(e.target.value)} disabled={!canWrite}>
+                      {workersModels.map(({ name, description }) => (
+                        <option value={name} key={name} title={description || undefined}>{name}</option>
+                      ))}
+                    </select>
+                    <p className="text-muted field-hint">
+                      Only current extraction-compatible models are listed. If strict schema mode
+                      fails, Travel HQ retries with validated JSON mode.
+                    </p>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="st-ai-max-tokens">Maximum output tokens</label>
+                    <input
+                      id="st-ai-max-tokens"
+                      className="input"
+                      type="number"
+                      min={MIN_WORKERS_AI_MAX_TOKENS}
+                      max={MAX_WORKERS_AI_MAX_TOKENS}
+                      step={256}
+                      value={aiMaxTokens}
+                      onChange={(e) => setAiMaxTokens(e.target.value)}
+                      readOnly={!canWrite}
+                    />
+                    <p className="text-muted field-hint">
+                      Includes reasoning and the structured result. Use 4096 for forwarded
+                      itineraries; lower values cost less but can truncate extraction.
+                    </p>
+                  </div>
                 </>
+              ) : (
+                <div className="field">
+                  <label htmlFor="st-anthropic-model">Anthropic model</label>
+                  <select id="st-anthropic-model" className="input" value={anthropicModel}
+                    onChange={(e) => setAnthropicModel(e.target.value)} disabled={!canWrite}>
+                    {ANTHROPIC_MODELS.map((model) => <option value={model} key={model}>{model}</option>)}
+                  </select>
+                </div>
               )}
-            </div>
 
-            <div className="field">
-              <label htmlFor="st-instructions">Household extraction instructions</label>
-              <textarea id="st-instructions" className="input" rows={5}
-                maxLength={MAX_INSTRUCTIONS} value={extractionInstructions}
-                onChange={(e) => setExtractionInstructions(e.target.value)} readOnly={!canWrite} />
-              <p className="text-muted" style={counterStyle}>
-                Guidance is appended after fixed safety/schema rules. {extractionInstructions.length}/{MAX_INSTRUCTIONS}
+              <div className="field">
+                <label htmlFor="st-anthropic-key">Anthropic API key</label>
+                {anthropicKeyConfigured && keyMode === "unchanged" ? (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <span><Key size={14} /> Configured ••••</span>
+                    {canWrite && <button type="button" className="btn btn-secondary"
+                      onClick={() => setKeyMode("replace")}>Replace</button>}
+                    {canWrite && <button type="button" className="btn btn-secondary"
+                      onClick={() => setKeyMode("remove")}><Trash size={14} /> Remove</button>}
+                  </div>
+                ) : keyMode === "remove" ? (
+                  <div>
+                    <span className="warning">Key will be removed when settings are saved.</span>
+                    <button type="button" className="btn btn-ghost"
+                      onClick={() => setKeyMode("unchanged")}>Keep configured key</button>
+                  </div>
+                ) : (
+                  <>
+                    <input id="st-anthropic-key" className="input" type="password"
+                      autoComplete="new-password" placeholder="sk-ant-…"
+                      value={anthropicApiKey} onChange={(e) => setAnthropicApiKey(e.target.value)}
+                      readOnly={!canWrite} />
+                    {anthropicKeyConfigured && <button type="button" className="btn btn-ghost"
+                      onClick={() => { setKeyMode("unchanged"); setAnthropicApiKey(""); }}>Cancel replace</button>}
+                  </>
+                )}
+              </div>
+
+              <hr className="hr" />
+              <h6 className="section-kicker">Household guidance</h6>
+              <div className="field">
+                <label htmlFor="st-instructions">Household extraction instructions</label>
+                <textarea id="st-instructions" className="input" rows={5}
+                  maxLength={MAX_INSTRUCTIONS} value={extractionInstructions}
+                  onChange={(e) => setExtractionInstructions(e.target.value)} readOnly={!canWrite} />
+                <p className="text-muted field-hint field-hint--end">
+                  Guidance is appended after fixed safety/schema rules. {extractionInstructions.length}/{MAX_INSTRUCTIONS}
+                </p>
+              </div>
+              {canWrite && <div><button type="submit" className="btn btn-primary" disabled={busy}>
+                <FloppyDisk size={14} /> Save settings
+              </button></div>}
+            </form>
+
+            <form onSubmit={runTest} className="card settings-form">
+              <h4><Flask size={18} style={{ verticalAlign: "-2px" }} /> Test extraction</h4>
+              <p className="text-muted" style={{ margin: 0 }}>
+                Paste a confirmation to preview extraction. Nothing is saved.
               </p>
-            </div>
-            {canWrite && <div><button type="submit" className="btn btn-primary" disabled={busy}>
-              <FloppyDisk size={14} /> Save settings
-            </button></div>}
-          </form>
+              <div className="field">
+                <label htmlFor="test-subject">Subject</label>
+                <input id="test-subject" className="input" value={testSubject}
+                  onChange={(e) => setTestSubject(e.target.value)} />
+              </div>
+              <div className="field">
+                <label htmlFor="test-body">Email body</label>
+                <textarea id="test-body" className="input" rows={8} value={testText}
+                  onChange={(e) => setTestText(e.target.value)} />
+              </div>
+              <div><button type="submit" className="btn btn-primary"
+                disabled={testBusy || testText.length === 0}>
+                <Flask size={14} /> Run test
+              </button></div>
+              {testError && <p className="warning" role="alert">{testError}</p>}
+              {testBookings.map((booking, index) => (
+                <DraftBookingCard booking={booking} key={`${booking.title}-${index}`} />
+              ))}
+            </form>
+          </div>
 
-          <form onSubmit={runTest} className="card" style={{ display: "grid", gap: 14 }}>
-            <h4><Flask size={18} style={{ verticalAlign: "-2px" }} /> Test extraction</h4>
-            <p className="text-muted" style={{ margin: 0 }}>
-              Paste a confirmation to preview extraction. Nothing is saved.
-            </p>
-            <div className="field">
-              <label htmlFor="test-subject">Subject</label>
-              <input id="test-subject" className="input" value={testSubject}
-                onChange={(e) => setTestSubject(e.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="test-body">Email body</label>
-              <textarea id="test-body" className="input" rows={8} value={testText}
-                onChange={(e) => setTestText(e.target.value)} />
-            </div>
-            <div><button type="submit" className="btn btn-primary"
-              disabled={testBusy || testText.length === 0}>
-              <Flask size={14} /> Run test
-            </button></div>
-            {testError && <p className="warning" role="alert">{testError}</p>}
-            {testBookings.map((booking, index) => (
-              <DraftBookingCard booking={booking} key={`${booking.title}-${index}`} />
-            ))}
-          </form>
-
-          <section aria-label="Recent ingest activity">
-            <h4 style={{ marginBottom: 10 }}>Recent ingest activity</h4>
-            {activityError && <p className="warning" role="alert">{activityError}</p>}
+          <section aria-label="Recent ingest activity" className="rail">
+            <h4 className="section-kicker" style={{ margin: 0 }}>Recent ingest activity</h4>
+            {activityError && <p className="warning" role="alert" style={{ margin: 0 }}>{activityError}</p>}
             {activity.length === 0 && !activityError ? (
               <div className="card" style={{ alignItems: "flex-start", gap: 10 }}>
                 <span className="card-title"><Robot size={16} style={{ marginRight: 6 }} />Nothing ingested yet</span>
@@ -384,65 +393,46 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
                 </p>
               </div>
             ) : (
-              <div style={{ display: "grid", gap: 10 }}>
+              <div className="ingest-list">
                 {activity.map((email) => (
-                  <article className="card" key={email.id}
-                    onClick={() => setViewingEmail(email)}
-                    style={{ alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
-                    <div style={{
-                      display: "flex", width: "100%", justifyContent: "space-between",
-                      alignItems: "flex-start", gap: 12,
-                    }}>
-                      <button type="button" className="btn btn-ghost"
-                        aria-label={`View parsed data for ${email.subject || "(no subject)"}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setViewingEmail(email);
-                        }}
-                        style={{
-                          padding: 0, fontSize: 15, fontWeight: 500,
-                          textAlign: "left", justifyContent: "flex-start", whiteSpace: "normal",
-                        }}>
-                        {email.subject || "(no subject)"}
-                      </button>
-                      <StatusChip status={email.status} />
-                    </div>
-                    <span className="card-body">From {email.from}</span>
-                    {email.error && <span className="warning">{email.error}</span>}
-                    <time className="card-meta" dateTime={email.receivedAt}>
-                      {new Date(email.receivedAt).toLocaleString()}
-                    </time>
+                  // One interactive element per row: the button IS the card.
+                  <article className="ingest-item" key={email.id}>
+                    <button type="button" className="ingest-row"
+                      aria-label={`View parsed data for ${email.subject || "(no subject)"}`}
+                      onClick={() => setViewingEmail(email)}>
+                      <span className="ingest-row-top">
+                        <span className="ingest-subject">{email.subject || "(no subject)"}</span>
+                        <StatusChip status={email.status} />
+                      </span>
+                      <span className="ingest-from">From {email.from}</span>
+                      {email.error && <span className="warning">{email.error}</span>}
+                      <time className="card-meta" dateTime={email.receivedAt}>
+                        {new Date(email.receivedAt).toLocaleString()}
+                      </time>
+                    </button>
                   </article>
                 ))}
               </div>
             )}
           </section>
-          {viewingEmail && (
-            <InboundEmailDetailDialog
-              email={viewingEmail}
-              api={api}
-              onClose={() => setViewingEmail(null)}
-            />
-          )}
         </div>
+      )}
+      {viewingEmail && (
+        <InboundEmailDetailDialog
+          email={viewingEmail}
+          api={api}
+          onClose={() => setViewingEmail(null)}
+        />
       )}
     </>
   );
 }
 
 function StatusChip({ status }: { status: InboundEmailMetadata["status"] }) {
-  // flexShrink/nowrap keep the pill its natural size next to a multi-line
-  // subject; the parent row pins it to the top with align-items: flex-start.
+  // .ingest-status keeps the pill its natural size next to a multi-line
+  // subject; the row's top line pins it with align-items: flex-start.
   return (
-    <span
-      className={`tag ${status === "extracted" ? "tag-accent" : "tag-neutral"}`}
-      style={{
-        flexShrink: 0,
-        whiteSpace: "nowrap",
-        textTransform: "uppercase",
-        letterSpacing: "0.06em",
-      }}
-    >
+    <span className={`tag ingest-status ${status === "extracted" ? "tag-accent" : "tag-neutral"}`}>
       {status}
     </span>
   );
@@ -450,12 +440,11 @@ function StatusChip({ status }: { status: InboundEmailMetadata["status"] }) {
 
 function SettingsHeader() {
   return (
-    <header style={{ marginBottom: 20 }}>
-      <h3 style={{ marginBottom: 4 }}>Settings</h3>
-      <p className="text-muted" style={{ margin: 0 }}>How the email ingest agent works for this household.</p>
+    <header className="page-header">
+      <div className="page-title-group">
+        <h3>Settings</h3>
+        <p className="page-subline">How the email ingest agent works for this household.</p>
+      </div>
     </header>
   );
 }
-
-const helpStyle = { margin: "4px 0 0", fontSize: 12.5 } as const;
-const counterStyle = { ...helpStyle, textAlign: "right" } as const;

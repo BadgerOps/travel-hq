@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { MapPin, PencilSimple, Plus } from "@phosphor-icons/react";
+import { CalendarBlank, MapPin, PencilSimple, Plus } from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
 import { useCanWrite } from "../api/identity.js";
 import type { Booking, Person, Trip, TripRollup } from "../api/types.js";
-import { resolveTripState, tripStateBadge } from "../lib/dates.js";
+import { formatDateRange, resolveTripState, tripStateBadge } from "../lib/dates.js";
+import { TripCoverPhoto } from "../components/TripCoverPhoto.js";
+import "../trip/trip.css";
 import { errorMessage } from "../lib/errors.js";
 import { Dialog } from "../components/Dialog.js";
 import { PersonChips } from "../components/PersonChip.js";
@@ -112,7 +114,8 @@ export function TripDetail({
   }, [api, id, reloadKey]);
 
   useEffect(() => {
-    if (tab !== "costs" || rollup !== null) return;
+    // Overview's rail cost card shares this rollup; other tabs stay lazy.
+    if ((tab !== "costs" && tab !== "overview") || rollup !== null) return;
     let cancelled = false;
     setRollupLoading(true);
     setRollupFailed(false);
@@ -201,44 +204,65 @@ export function TripDetail({
         with `findByText(trip.title)` — a query that requires a unique match,
         which a repeated crumb would break.
       */}
-      <div className="card-meta" style={{ marginBottom: 8 }}>
-        <Link href="/trips" style={{ color: "inherit" }}>
-          Trips
-        </Link>
+      <div className="trip-breadcrumb">
+        <Link href="/trips">Trips</Link>
       </div>
 
-      <header style={{ marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          <h3 style={{ margin: 0 }}>{trip.title}</h3>
-          {canWrite && (
+      {/* Photo banner (spec: photo headers everywhere trips appear). The
+          cover art sits behind a bottom scrim so the title stays legible on
+          any photo; without a photo the deterministic fallback art renders. */}
+      <header className="detail-banner">
+        <TripCoverPhoto photoUrl={trip.photoUrl} tripId={trip.id} />
+        <div className="banner-scrim" />
+        <div className="banner-content">
+          <div className="banner-title-block">
+            <div className="banner-title-row">
+              <h2>{trip.title}</h2>
+              <span className={state === "cancelled" ? "tag tag-neutral" : "tag tag-accent"}>
+                {tripStateBadge(trip, today)}
+              </span>
+            </div>
+            {(trip.startsOn || trip.destination) && (
+              <p className="banner-sub">
+                {trip.startsOn && (
+                  <>
+                    <CalendarBlank size={13} />
+                    <span>{formatDateRange(trip.startsOn, trip.endsOn, today)}</span>
+                  </>
+                )}
+                {trip.startsOn && trip.destination && (
+                  <span className="banner-sub-sep">·</span>
+                )}
+                {trip.destination && (
+                  <>
+                    <MapPin size={13} />
+                    <span>{trip.destination}</span>
+                  </>
+                )}
+              </p>
+            )}
+            <PersonChips people={travelers} />
+          </div>
+          <div className="banner-actions">
+            {canWrite && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-icon"
+                aria-label={`Edit ${trip.title}`}
+                onClick={() => setEditing(true)}
+              >
+                <PencilSimple size={14} />
+              </button>
+            )}
             <button
               type="button"
-              className="btn btn-secondary btn-icon"
-              aria-label={`Edit ${trip.title}`}
-              onClick={() => setEditing(true)}
+              className="btn btn-primary"
+              onClick={() => setAddingBooking(true)}
             >
-              <PencilSimple size={14} />
+              <Plus size={14} /> Add booking
             </button>
-          )}
-          <span className={state === "cancelled" ? "tag tag-neutral" : "tag tag-accent"}>
-            {tripStateBadge(trip, today)}
-          </span>
-          <PersonChips people={travelers} />
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ marginLeft: "auto" }}
-            onClick={() => setAddingBooking(true)}
-          >
-            <Plus size={14} /> Add booking
-          </button>
-        </div>
-        {trip.destination && (
-          <div className="card-meta">
-            <MapPin size={12} />
-            <span>{trip.destination}</span>
           </div>
-        )}
+        </div>
       </header>
 
       <TripWarnings people={travelers} arrivalOn={trip.startsOn} today={today} />
@@ -278,11 +302,16 @@ export function TripDetail({
           api={api}
           onStatusChanged={() => setReloadKey((n) => n + 1)}
           onBookingClick={setSelectedBooking}
+          travelers={travelers}
+          rollup={rollup}
+          onOpenTab={selectTab}
+          today={today}
         />
       )}
       {tab === "days" && (
         <DayView
           tripId={trip.id}
+          tripTitle={trip.title}
           people={travelers}
           api={api}
           onBookingClick={setSelectedBooking}

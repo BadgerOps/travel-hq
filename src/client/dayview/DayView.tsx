@@ -4,6 +4,7 @@ import type { Booking, ItineraryDay, Person } from "../api/types.js";
 import { PersonFilter } from "./PersonFilter.js";
 import { DatePager } from "./DatePager.js";
 import { SharedAgenda } from "./SharedAgenda.js";
+import "./dayview.css";
 
 /**
  * The day-view boundary.
@@ -18,11 +19,21 @@ export function DayView({
   people,
   api,
   onBookingClick,
+  tripTitle,
+  today = new Intl.DateTimeFormat("en-CA").format(new Date()),
 }: {
   tripId: string;
   people: Person[];
   api: typeof defaultApi;
   onBookingClick?: (booking: Booking) => void;
+  /** Names the header kicker ("Wedding · day by day"). Optional so callers
+   * that only have an id still render — the kicker falls back to plain
+   * "Day by day". */
+  tripTitle?: string;
+  /** YYYY-MM-DD; injectable so the first-load day is deterministic under
+   * test. Mid-trip, "Open day view" must land on the current day, not the
+   * trip's first day with entries. */
+  today?: string;
 }) {
   const [days, setDays] = useState<ItineraryDay[] | null>(null);
   const [personId, setPersonId] = useState<string | null>(null);
@@ -56,6 +67,11 @@ export function DayView({
           // available day rather than always snapping to the first. YYYY-MM-DD
           // strings sort chronologically, so plain string comparison works.
           if (current) return nearestDate(d, current);
+          // First load: prefer the actual current day — mid-trip, "Open day
+          // view" means "what's happening today", not the trip's first
+          // scheduled day. For a future/past trip today isn't in the set and
+          // this falls through to the first day as before.
+          if (d.some((day) => day.date === today)) return today;
           return d[0]?.date ?? null;
         });
       })
@@ -70,6 +86,8 @@ export function DayView({
     };
   }, [api, tripId, personId]);
 
+  // Failed load ≠ empty state: an itinerary that errored must say so
+  // (role="alert"), never masquerade as "nothing scheduled".
   if (failed) {
     return (
       <p className="text-muted" role="alert">
@@ -83,17 +101,24 @@ export function DayView({
   const current = days[index];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+    <div className="dayview">
+      <div className="dayview-header">
+        <div className="dayview-title-group">
+          <div className="dayview-kicker">
+            {tripTitle ? `${tripTitle} · day by day` : "Day by day"}
+          </div>
+          {current && <h3>{longDayLabel(current.date)}</h3>}
+        </div>
         <DatePager
           dates={days.map((d) => d.date)}
           index={index}
           onChange={(i) => setDate(days[i]?.date ?? null)}
         />
-        <div style={{ marginLeft: "auto" }}>
-          <PersonFilter people={people} selected={personId} onSelect={setPersonId} />
-        </div>
       </div>
+
+      {/* Rendered even when the filtered view has no days: the selected chip
+          is the only way back to the whole-family view. */}
+      <PersonFilter people={people} selected={personId} onSelect={setPersonId} />
 
       {current ? (
         <SharedAgenda
@@ -108,6 +133,17 @@ export function DayView({
       )}
     </div>
   );
+}
+
+/** "Friday, October 9" — the header's h3. UTC for the same plain-calendar-date
+ * reason as everywhere else in this folder. */
+function longDayLabel(date: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00Z`));
 }
 
 /** The available day closest to `target` (a YYYY-MM-DD string), by calendar

@@ -64,16 +64,17 @@ describe("TripDetail — add booking", () => {
     expect(screen.queryByRole("button", { name: /edit trip/i })).not.toBeInTheDocument();
   });
 
-  it("reloads bookings without eagerly loading the unopened cost tab", async () => {
+  it("reloads bookings and refreshes the rail cost rollup after a save", async () => {
     const api = renderDetail();
     await userEvent.click(await screen.findByRole("button", { name: /add booking/i }));
     await userEvent.click(screen.getByRole("radio", { name: "Activity" }));
     await userEvent.type(screen.getByLabelText("Title"), "Rehearsal dinner");
     await userEvent.click(screen.getByRole("button", { name: /save booking/i }));
-    // Once on mount, once after the save. The cost rollup remains deferred
-    // until its tab is opened.
+    // Bookings: once on mount, once after the save. Rollup: same — Overview's
+    // rail cost card loads it with the tab and must not go stale after the
+    // save adds a cost.
     await vi.waitFor(() => expect(api.trips.bookings).toHaveBeenCalledTimes(2));
-    expect(api.trips.rollup).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(api.trips.rollup).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

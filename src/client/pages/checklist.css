@@ -1,0 +1,54 @@
+/* Checklist page (spec 2026-07-27): per-trip .card sections whose rows are
+   separated by fading rules — the 1b right-rail "Checklist · 3 of 7 done"
+   card at page size, instead of a grid of tiny per-item cards.
+
+   Shared primitives (.page-header, .grid-cards, .card, .hr, .person-chip)
+   live in styles.css; only the row anatomy is page-specific. */
+
+.checklist-rows {
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+/* One task row. Rendered as a <button> for writers and a <div> for viewers;
+   the reset below makes the two indistinguishable except for the cursor. */
+.checklist-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 2px;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+}
+button.checklist-row { cursor: pointer; }
+button.checklist-row:hover {
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+}
+/* Done rows read muted (1b strikes the label and dims the whole row). */
+.checklist-row.is-done { color: var(--color-neutral-600); }
+.checklist-row > svg { flex: none; }
+.checklist-row .row-label { min-width: 0; }
+
+/* Right-aligned meta: due date, then assignee chip (or "Everyone"). */
+.checklist-row .row-side {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.checklist-row .row-due {
+  font-size: 11px;
+  color: var(--color-neutral-500);
+}
+/* Overdue keeps the warning amber even though .row-due above is more
+   specific than the bare .warning utility in styles.css. */
+.checklist-row .row-due.warning { color: #d9b98a; }
