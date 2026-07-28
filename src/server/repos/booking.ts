@@ -353,6 +353,27 @@ export class BookingRepo extends BookingAwareRepo {
     );
   }
 
+  /**
+   * Hard delete, the counterpart of trips.delete for a single row: the
+   * schema's cascades take `booking_person` and any duplicate dismissal with
+   * it, and `draft_booking.booking_id` (ON DELETE SET NULL) keeps the accepted
+   * draft rather than resurrecting it in the review queue.
+   *
+   * Cancelling is the softer option and stays the default in the UI — this
+   * exists because a duplicate is not a cancelled booking. A cancelled row is
+   * a real event that stopped happening, and leaving one behind per bad import
+   * turns "cancelled" into a junk drawer nobody can read.
+   */
+  async delete(bookingId: string): Promise<void> {
+    this.requireWrite();
+    const booking = await this.get<{ id: string }>(
+      "SELECT id FROM booking WHERE {scope} AND id = ?2",
+      bookingId,
+    );
+    if (!booking) throw new NotFoundError("Booking not found in this household");
+    await this.run("DELETE FROM booking WHERE {scope} AND id = ?2", bookingId);
+  }
+
   async setStatus(bookingId: string, status: BookingStatus): Promise<void> {
     // Redundant with base.ts's own requireWrite() inside run() -- kept as
     // explicit intent at the top of every mutating method, matching

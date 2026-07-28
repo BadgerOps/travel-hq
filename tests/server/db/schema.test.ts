@@ -18,6 +18,7 @@ describe("migrated schema", () => {
   it("creates every core table, including extraction drafts", async () => {
     expect(await tableNames()).toEqual([
       "booking",
+      "booking_duplicate_dismissal",
       "booking_person",
       "card",
       "card_perk",
@@ -96,6 +97,35 @@ describe("migrated schema", () => {
     expect(trip).toBeNull();
     expect(booking).toBeNull();
     expect(email).toBeNull();
+  });
+
+  it("stores a duplicate dismissal as one sorted pair that dies with its bookings", async () => {
+    const now = new Date().toISOString();
+    await env.DB.prepare("INSERT INTO household (id, name, created_at) VALUES (?, ?, ?)")
+      .bind("hh-a", "A", now).run();
+    await env.DB.prepare("INSERT INTO trip (id, household_id, title, created_at) VALUES (?, ?, ?, ?)")
+      .bind("t1", "hh-a", "Mine", now).run();
+    for (const id of ["b1", "b2"]) {
+      await env.DB.prepare(
+        "INSERT INTO booking (id, household_id, trip_id, kind, title, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ).bind(id, "hh-a", "t1", "other", "Hotel", now).run();
+    }
+
+    // The sorted-pair invariant is the schema's job: an unsorted insert would
+    // be a second row for a pair that already has one.
+    await expect(env.DB.prepare(
+      "INSERT INTO booking_duplicate_dismissal (household_id, booking_id_lo, booking_id_hi, dismissed_at) VALUES (?,?,?,?)",
+    ).bind("hh-a", "b2", "b1", now).run()).rejects.toThrow(/CHECK/i);
+
+    await env.DB.prepare(
+      "INSERT INTO booking_duplicate_dismissal (household_id, booking_id_lo, booking_id_hi, dismissed_at) VALUES (?,?,?,?)",
+    ).bind("hh-a", "b1", "b2", now).run();
+
+    // Deleting (or merging away) either booking retires the decision with it,
+    // so a later booking cannot inherit a judgement made about something else.
+    await env.DB.prepare("DELETE FROM booking WHERE id = ?").bind("b2").run();
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM booking_duplicate_dismissal").first<{ n: number }>())
+      .toMatchObject({ n: 0 });
   });
 
   it("cascades a household delete down to cards, and a card delete down to its perks", async () => {

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added duplicate detection to trips, for the bookings a re-forwarded (or
+  restated) confirmation email leaves behind: matching bookings are grouped on
+  the trip page with the reason they matched, and can be merged into one — the
+  survivor keeps its own values and fills its blanks from the others, inherits
+  their travelers, the strongest status, and their source emails — or marked
+  "not duplicates" so the group is never reported again. Adds
+  `GET/POST /api/trips/:tripId/duplicates*`, `DELETE /api/bookings/:bookingId`,
+  and a D1 migration.
 - Fixed dialogs running off the bottom of the screen on mobile: the panel is
   now capped to the visible viewport, its body scrolls with the title and
   close control pinned above it, it clears the notch and home-indicator safe

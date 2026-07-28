@@ -31,6 +31,7 @@ import type {
   CreateTripFromDraftsInput,
   ImportReviewResult,
   BookingSourceArtifact,
+  TripDuplicateGroup,
 } from "./types.js";
 
 export class ApiError extends Error {
@@ -130,6 +131,18 @@ export function createApi(config: ApiConfig = {}) {
         request<void>(`/api/trips/${seg(tripId)}/people/${seg(personId)}`, { method: "DELETE" }),
       createBooking: (tripId: string, input: Omit<CreateBookingInput, "tripId">) =>
         request<Booking>(`/api/trips/${seg(tripId)}/bookings`, jsonBody("POST", input)),
+      duplicates: (tripId: string) =>
+        request<{ groups: TripDuplicateGroup[] }>(`/api/trips/${seg(tripId)}/duplicates`),
+      mergeDuplicates: (tripId: string, keepId: string, mergeIds: string[]) =>
+        request<Booking>(
+          `/api/trips/${seg(tripId)}/duplicates/merge`,
+          jsonBody("POST", { keepId, mergeIds }),
+        ),
+      dismissDuplicates: (tripId: string, bookingIds: string[]) =>
+        request<void>(
+          `/api/trips/${seg(tripId)}/duplicates/dismiss`,
+          jsonBody("POST", { bookingIds }),
+        ),
     },
     bookings: {
       artifact: (bookingId: string) =>
@@ -148,6 +161,10 @@ export function createApi(config: ApiConfig = {}) {
         ),
       setStatus: (bookingId: string, status: BookingStatus) =>
         request<void>(`/api/bookings/${seg(bookingId)}/status`, jsonBody("PUT", { status })),
+      remove: (bookingId: string) =>
+        // No body: the route reads the id from the path and never calls
+        // c.req.json(). Sending a content-type here would be a lie.
+        request<void>(`/api/bookings/${seg(bookingId)}`, { method: "DELETE" }),
     },
     cards: {
       list: () => request<CardWithPerks[]>("/api/cards"),
