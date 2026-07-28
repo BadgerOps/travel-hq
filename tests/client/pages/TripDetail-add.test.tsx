@@ -59,7 +59,10 @@ describe("TripDetail — add booking", () => {
   it("offers trip management from the header menu", async () => {
     renderDetail();
     await screen.findByRole("button", { name: /add booking/i });
-    expect(screen.getByLabelText(/trip menu/i)).toBeInTheDocument();
+    // The management actions are behind the ⋯ disclosure, so they are absent
+    // until it is opened — and present once it is.
+    expect(screen.queryByRole("button", { name: /check duplicates/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText(/trip menu/i));
     expect(screen.getByRole("button", { name: /check duplicates/i })).toBeInTheDocument();
   });
 

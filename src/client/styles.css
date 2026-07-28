@@ -533,6 +533,36 @@ textarea.input { min-height: 90px; resize: vertical; }
 .nav-user-menu a:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
 .nav-user-menu a[aria-current="page"] { color: var(--color-accent); border-bottom: none; }
 
+/* Popover menu — the account menu's shape for the disclosures that hang off an
+   icon trigger elsewhere (the trip banner's ⋯). Separate rule because those
+   host buttons rather than links, and because they open over page content
+   rather than over the nav: z-index 30 puts them above the page but below the
+   fixed bottom tab bar (40) and any dialog (100).
+
+   The popup escapes its anchor's box, so no ancestor between .menu-wrap and
+   the page may set `overflow: hidden` — a clipping ancestor swallows the popup
+   whole and no z-index can win it back. */
+.menu-wrap { position: relative; display: inline-flex; }
+.menu-pop {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+  min-width: 200px;
+  /* Never wider than the viewport it has to fit inside — the min-width alone
+     would push a popup off a narrow screen. */
+  max-width: calc(100vw - 32px);
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+.menu-pop > .btn {
+  justify-content: flex-start;
+  min-height: 40px; padding: 0 10px;
+  color: inherit; font-size: 13.5px;
+}
+.menu-pop > .btn:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.menu-pop > .btn svg { color: var(--color-neutral-400); }
+
 .page { padding: clamp(20px, 3.5vw, 34px) 28px 48px; max-width: 1240px; margin: 0 auto; }
 
 /* ── Redesign primitives (spec 2026-07-27) — shared across pages ─────────────
@@ -619,10 +649,20 @@ textarea.input { min-height: 90px; resize: vertical; }
 
 /* Trip-detail photo banner: cover with a scrim so the title sits on the photo. */
 .detail-banner {
-  position: relative; overflow: hidden; border-radius: var(--radius-lg);
+  position: relative; border-radius: var(--radius-lg);
   min-height: clamp(150px, 24vw, 220px);
   background: var(--color-neutral-900);
   display: flex; flex-direction: column; justify-content: flex-end;
+}
+/* The cover art and its scrim are clipped by this wrapper rather than by the
+   banner itself. `overflow: hidden` on .detail-banner would round the photo
+   just as well, but it also clipped the ⋯ menu's popup — which is anchored to
+   a button near the banner's bottom edge and opens past it — leaving the menu
+   invisible on a phone and cut off on desktop. Clipping only the media keeps
+   the rounded corners and lets the popup out. */
+.detail-banner .banner-media {
+  position: absolute; inset: 0;
+  overflow: hidden; border-radius: inherit;
 }
 .detail-banner img, .detail-banner .cover-img {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
@@ -712,6 +752,7 @@ textarea.input { min-height: 90px; resize: vertical; }
   }
   .nav-user { width: 32px; height: 32px; font-size: 13px; }
   .nav-user-menu a { min-height: 44px; }
+  .menu-pop > .btn { min-height: 44px; }
 
   /* room for the tab bar */
   .page { padding: clamp(16px, 4vw, 26px) clamp(14px, 3.5vw, 28px) 124px; }

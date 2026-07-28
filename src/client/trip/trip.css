@@ -36,6 +36,10 @@
    the banner instead of squeezing beside the title. */
 @media (max-width: 640px) {
   .banner-actions { flex-basis: 100%; justify-content: flex-start; }
+  /* The row is left-aligned here, which puts the ⋯ at the page's left edge —
+     and a right-anchored popup hangs 130-odd px off the left of the screen.
+     Anchor it to the trigger's left instead, the side it has room on. */
+  .banner-actions .menu-pop { right: auto; left: 0; }
 }
 
 .trip-tabs { margin-bottom: 20px; }

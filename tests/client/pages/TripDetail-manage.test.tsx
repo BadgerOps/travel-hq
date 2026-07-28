@@ -58,10 +58,18 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/trips/t1");
 });
 
+/** Edit/Share/Check duplicates live behind the banner's ⋯ disclosure. */
+async function openTripMenu(title = TRIP.title) {
+  await userEvent.click(
+    await screen.findByRole("button", { name: `Trip menu for ${title}` }),
+  );
+  return within(screen.getByTestId("trip-menu"));
+}
+
 describe("TripDetail management", () => {
   it("opens the edit form from the header pencil, seeded from the trip", async () => {
     renderDetail();
-    await userEvent.click(await screen.findByRole("button", { name: "Edit trip" }));
+    await userEvent.click((await openTripMenu()).getByRole("button", { name: "Edit trip" }));
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByLabelText("Title")).toHaveValue(TRIP.title);
     expect(within(dialog).getByRole("radio", { name: "Auto (planning)" })).toBeChecked();
@@ -71,12 +79,43 @@ describe("TripDetail management", () => {
     const api = makeApi();
     api.trips.update = vi.fn(async () => ({ ...TRIP, title: "Wedding weekend" }));
     renderDetail(api);
-    await userEvent.click(await screen.findByRole("button", { name: "Edit trip" }));
+    await userEvent.click((await openTripMenu()).getByRole("button", { name: "Edit trip" }));
     const getCalls = api.trips.get.mock.calls.length;
     await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
     expect(api.trips.update).toHaveBeenCalledWith("t1", expect.objectContaining({ title: TRIP.title }));
     // The page reloads rather than hand-patching state.
     await waitFor(() => expect(api.trips.get.mock.calls.length).toBeGreaterThan(getCalls));
+  });
+
+  it("closes the trip menu once an item has run, on Escape, and on an outside click", async () => {
+    renderDetail();
+    // Choosing an item dismisses the popup rather than leaving it stacked
+    // behind the dialog it just opened.
+    await userEvent.click((await openTripMenu()).getByRole("button", { name: "Edit trip" }));
+    expect(screen.queryByTestId("trip-menu")).not.toBeInTheDocument();
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+
+    const trigger = screen.getByRole("button", { name: `Trip menu for ${TRIP.title}` });
+    await openTripMenu();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByTestId("trip-menu")).not.toBeInTheDocument();
+    // Escape hands focus back to the trigger, not to the top of the document.
+    expect(trigger).toHaveFocus();
+
+    await openTripMenu();
+    await userEvent.click(screen.getByText(TRIP.title));
+    expect(screen.queryByTestId("trip-menu")).not.toBeInTheDocument();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("runs a duplicate check from the trip menu", async () => {
+    const api = makeApi();
+    renderDetail(api);
+    await userEvent.click(
+      (await openTripMenu()).getByRole("button", { name: "Check duplicates" }),
+    );
+    expect(screen.queryByTestId("trip-menu")).not.toBeInTheDocument();
   });
 
   it("cancels the trip behind a confirm", async () => {
@@ -162,7 +201,9 @@ describe("TripDetail management", () => {
     // useCanWrite fails open while /api/me is in flight, so wait for the
     // resolved viewer identity to strip the controls.
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: `Edit ${TRIP.title}` })).not.toBeInTheDocument(),
+      expect(
+        screen.queryByRole("button", { name: `Trip menu for ${TRIP.title}` }),
+      ).not.toBeInTheDocument(),
     );
     expect(screen.queryByRole("button", { name: "Cancel trip" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete trip" })).not.toBeInTheDocument();
@@ -176,14 +217,16 @@ describe("TripDetail management", () => {
 
   it("uses the trip role so an invited editor can edit without household-wide write access", async () => {
     renderDetail(makeApi({ ...TRIP, accessRole: "editor" }), "viewer");
-    expect(await screen.findByRole("button", { name: "Edit trip" })).toBeInTheDocument();
+    const menu = await openTripMenu();
+    expect(menu.getByRole("button", { name: "Edit trip" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add booking" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Share trip" })).not.toBeInTheDocument();
+    // Sharing is the owner's alone — an editor is not offered it at all.
+    expect(menu.queryByRole("button", { name: "Share trip" })).not.toBeInTheDocument();
   });
 
   it("opens trip sharing for an owner and shows a non-authorizing invite link", async () => {
     renderDetail(makeApi({ ...TRIP, accessRole: "owner" }), "owner");
-    await userEvent.click(await screen.findByRole("button", { name: "Share trip" }));
+    await userEvent.click((await openTripMenu()).getByRole("button", { name: "Share trip" }));
     const dialog = screen.getByRole("dialog", { name: `Share ${TRIP.title}` });
     expect(within(dialog).getByLabelText("Trip link")).toHaveValue(
       `${window.location.origin}/trips/t1`,
