@@ -314,3 +314,41 @@ export function zonedToUtc(localDateTime: string, timeZone: string): string {
   instant = naive - offsetAt(instant, timeZone);
   return new Date(instant).toISOString();
 }
+
+/**
+ * The inverse of `zonedToUtc`: a stored UTC instant back to the
+ * `"2026-10-09T09:40"` wall-clock string an `<input type="datetime-local">`
+ * expects, in a named IANA zone.
+ *
+ * Needed to seed the edit form. Slicing `new Date(instant).toISOString()`
+ * would show the departure in UTC, and `toLocaleString` would show it in the
+ * browser's zone — both put a 1:30 PM Montana pickup on screen as some other
+ * time, and saving that back would move the booking.
+ *
+ * Returns `""` for an instant or zone the platform cannot render, so a bad
+ * stored value leaves the field blank instead of writing "Invalid Date" into
+ * it (and then back to the server).
+ */
+export function utcToZonedLocal(utcInstant: string, timeZone: string): string {
+  const date = new Date(utcInstant);
+  if (Number.isNaN(date.valueOf())) return "";
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).formatToParts(date);
+  } catch {
+    return "";
+  }
+  const read = (type: string): string => parts.find((p) => p.type === type)?.value ?? "";
+  // Some engines render midnight as hour 24 under hour12:false, the same
+  // quirk offsetAt() above compensates for.
+  const hour = String(Number(read("hour")) % 24).padStart(2, "0");
+  return `${read("year")}-${read("month")}-${read("day")}T${hour}:${read("minute")}`;
+}

@@ -3,7 +3,7 @@ import type { HouseholdContext } from "./base.js";
 import { Keyring, mask, assertNotMasked } from "../crypto/envelope.js";
 import { openConfirmation } from "./confirmation.js";
 import { newId } from "../ids.js";
-import { parseDetails } from "../schemas/booking-kinds.js";
+import { BOOKING_KINDS, parseDetails } from "../schemas/booking-kinds.js";
 import { isValidTimestamp, isValidTimezone } from "../time.js";
 
 /**
@@ -53,6 +53,64 @@ export type CreateBookingInput = {
   status?: BookingStatus;
   details: unknown;
 };
+
+/**
+ * Every field is optional, and the nullable ones are TRI-STATE, exactly as
+ * UpdateTripInput and UpdatePersonInput established:
+ *
+ *   absent / undefined -> leave the stored value exactly as it is
+ *   null               -> clear the stored value
+ *   value              -> store this new value
+ *
+ * `title`, `kind` and `status` are non-nullable: a booking must keep a title
+ * and a kind, and "no status" is spelled `planned`, never NULL.
+ *
+ * `details` is NOT tri-state — it is the whole per-kind record, replaced
+ * wholesale when supplied, because a deep merge would make it impossible to
+ * remove a key that the extractor got wrong.
+ *
+ * `confirmationNumber` accepts plaintext only. A caller echoing back the
+ * masked value it was shown is rejected (see assertNotMasked in create), and
+ * `null` clears the stored ciphertext.
+ */
+export type UpdateBookingInput = {
+  kind?: string;
+  title?: string;
+  location?: string | null;
+  startsAt?: string | null;
+  startsAtTz?: string | null;
+  endsAt?: string | null;
+  endsAtTz?: string | null;
+  confirmationNumber?: string | null;
+  costCents?: number | null;
+  pointsUsed?: number | null;
+  pointsProgram?: string | null;
+  status?: BookingStatus;
+  details?: unknown;
+};
+
+/**
+ * Input key -> column, for the SET clause. The column names come from this
+ * fixed map and never from caller-supplied keys, so no request body can reach
+ * run() with an identifier of its own choosing — the TripRepo.update pattern.
+ *
+ * `confirmationNumber` and `details` are deliberately absent: both need a
+ * transformation (encryption, per-kind validation) before they can be bound,
+ * so they are appended by hand in update().
+ */
+const UPDATE_COLUMNS = {
+  kind: "kind",
+  title: "title",
+  location: "location",
+  startsAt: "starts_at",
+  startsAtTz: "starts_at_tz",
+  endsAt: "ends_at",
+  endsAtTz: "ends_at_tz",
+  costCents: "cost_cents",
+  pointsUsed: "points_used",
+  pointsProgram: "points_program",
+  status: "status",
+} as const;
 
 /**
  * The raw shape of a `booking` row. Exported so ItineraryRepo can share it
@@ -234,6 +292,134 @@ export class BookingRepo extends BookingAwareRepo {
     const created = await this.findById(id);
     if (!created) throw new Error("Booking disappeared immediately after creation");
     return created;
+  }
+
+  /**
+   * Partial update — the counterpart of TripRepo.update, and the reason the
+   * "there is no PATCH/DELETE booking endpoint to fix it through the API"
+   * warning in routes/trips.ts no longer holds.
+   *
+   * The SET clause is built from the provided keys only, so an absent key
+   * never touches its column and the tri-state stays honest.
+   *
+   * Three things need the STORED row to validate and so cannot be checked at
+   * the HTTP boundary:
+   *
+   *  - the timestamp/zone pairing, which must hold for the EFFECTIVE
+   *    post-patch pair. Clearing `startsAtTz` while a stored `startsAt`
+   *    remains is exactly as broken as posting a timestamp with no zone, and
+   *    is what would put an unzoned instant in front of
+   *    `ItineraryRepo.localDateOf()`;
+   *  - `details` against the effective `kind`, including the case where the
+   *    kind changes and the details do not;
+   *  - nothing else may change while those are being decided, which is why
+   *    every check runs before the single UPDATE.
+   */
+  async update(id: string, patch: UpdateBookingInput): Promise<Booking> {
+    // Redundant with base.ts's own requireWrite() check inside run() — kept as
+    // explicit, belt-and-braces intent at the top of every mutating method.
+    this.requireWrite();
+
+    const existing = await this.findById(id);
+    if (!existing) throw new NotFoundError("Booking not found in this household");
+
+    // Validated here as well as in the route's Zod enum, for the same reason
+    // assertTimezonePaired is: a non-HTTP caller must not be able to move a
+    // booking to a kind `parseDetails` will silently treat as freeform.
+    const kind = patch.kind ?? existing.kind;
+    if (patch.kind !== undefined && !(BOOKING_KINDS as readonly string[]).includes(patch.kind)) {
+      throw new ValidationError(`kind must be one of ${BOOKING_KINDS.join(", ")}`);
+    }
+
+    assertTimezonePaired({
+      startsAt: patch.startsAt === undefined ? existing.startsAt : patch.startsAt,
+      startsAtTz: patch.startsAtTz === undefined ? existing.startsAtTz : patch.startsAtTz,
+      endsAt: patch.endsAt === undefined ? existing.endsAt : patch.endsAt,
+      endsAtTz: patch.endsAtTz === undefined ? existing.endsAtTz : patch.endsAtTz,
+    });
+
+    let details: unknown;
+    if (patch.details !== undefined) {
+      details = parseDetails(kind, patch.details);
+    } else if (patch.kind !== undefined && patch.kind !== existing.kind) {
+      // The kind moved but the details did not. A flight's details are not a
+      // valid lodging's, so re-validate rather than storing a record the new
+      // kind's schema would reject on the next write.
+      try {
+        details = parseDetails(kind, existing.details);
+      } catch {
+        throw new ValidationError(
+          `Changing this booking to ${kind} needs details that match that kind`,
+        );
+      }
+    }
+
+    let confirmation: string | null | undefined;
+    if (patch.confirmationNumber !== undefined) {
+      if (patch.confirmationNumber === null) {
+        confirmation = null;
+      } else {
+        // `toBooking()` hands out a masked confirmation number; an edit form
+        // that PUTs back what it was shown would otherwise encrypt "••••WN88"
+        // over the real code. Same guard, same 400, as create().
+        try {
+          assertNotMasked("confirmationNumber", patch.confirmationNumber);
+        } catch (err) {
+          throw new ValidationError(err instanceof Error ? err.message : String(err));
+        }
+        confirmation = await this.ring.encrypt(patch.confirmationNumber);
+      }
+    }
+
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    // Caller param k (1-based) binds to ?(k+1); the household id owns ?1.
+    let next = 2;
+
+    for (const [key, column] of Object.entries(UPDATE_COLUMNS)) {
+      const value = patch[key as keyof typeof UPDATE_COLUMNS];
+      // `undefined` is "not supplied", which is the tri-state's whole point.
+      // Reaching for `key in patch` instead would treat an explicitly-passed
+      // `undefined` as a request to write NULL.
+      if (value === undefined) continue;
+      if (key === "title" && (typeof value !== "string" || value.trim() === "")) {
+        throw new ValidationError("title must be a non-empty string");
+      }
+      if (key === "status" && !(BOOKING_STATUSES as readonly string[]).includes(value as string)) {
+        throw new ValidationError(`status must be one of ${BOOKING_STATUSES.join(", ")}`);
+      }
+      if (
+        (key === "costCents" || key === "pointsUsed") &&
+        value !== null &&
+        !Number.isInteger(value)
+      ) {
+        throw new ValidationError(`${key} must be a whole number`);
+      }
+      sets.push(`${column} = ?${next++}`);
+      params.push(value ?? null);
+    }
+
+    if (details !== undefined) {
+      sets.push(`details = ?${next++}`);
+      params.push(JSON.stringify(details));
+    }
+    if (confirmation !== undefined) {
+      sets.push(`confirmation_number = ?${next++}`);
+      params.push(confirmation);
+    }
+
+    if (sets.length > 0) {
+      // The id is the last caller param, so it takes the next index.
+      await this.run(
+        `UPDATE booking SET ${sets.join(", ")} WHERE {scope} AND id = ?${next}`,
+        ...params,
+        id,
+      );
+    }
+
+    const updated = await this.findById(id);
+    if (!updated) throw new Error("Booking disappeared immediately after update");
+    return updated;
   }
 
   async findById(id: string): Promise<Booking | undefined> {
@@ -424,8 +610,21 @@ export class BookingRepo extends BookingAwareRepo {
  * client — an unparseable timestamp must never reach `localDateOf()` in
  * ItineraryRepo, where it would throw on every future read of that trip's
  * day view.
+ *
+ * Structurally typed rather than taking `CreateBookingInput`, so `update()`
+ * can hand it the EFFECTIVE post-patch pair (stored value where the patch is
+ * silent, patched value where it is not) and get the identical guarantee.
+ * `null` and `undefined` both mean "not set" here — the tri-state distinction
+ * matters to the SET clause, not to this check.
  */
-function assertTimezonePaired(input: CreateBookingInput): void {
+type BookingTiming = {
+  startsAt?: string | null;
+  startsAtTz?: string | null;
+  endsAt?: string | null;
+  endsAtTz?: string | null;
+};
+
+function assertTimezonePaired(input: BookingTiming): void {
   if (input.startsAt) {
     if (!input.startsAtTz) {
       throw new ValidationError("startsAt requires startsAtTz (an IANA timezone)");

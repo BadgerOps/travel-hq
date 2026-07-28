@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Added booking editing. Every field a booking has — kind, title, location,
+  both timestamps and their timezones, cost, confirmation number, status,
+  travellers, and the per-kind details — can now be changed from an Edit
+  button in the booking detail dialog, which reuses the same form as Add
+  booking rather than a second one that could disagree with it. Adds
+  `PUT /api/bookings/:bookingId`.
+- Added excursion logistics to activities: pickup time, pickup location, how
+  early to arrive, return time and return location are now first-class,
+  editable fields, shown as their own block at the top of the booking detail
+  dialog instead of a row in a JSON-shaped grid. Car bookings gained pickup
+  and drop-off times alongside their existing locations.
+- Taught the email parser to find those facts. A tour confirmation's "Pickup:
+  1:30pm at Quarter Circle/West Side Parking Lot […] arrive 15 minutes before
+  departure […] Approximate return time: 5:00" is now read out of the prose —
+  and out of a calendar attachment's description — and used as the booking's
+  location when the extractor found none. The model is asked for the same
+  fields first and always wins; the scanner only fills gaps, and stands down
+  entirely when one message describes more than one excursion.
+
 - Added duplicate detection to trips, for the bookings a re-forwarded (or
   restated) confirmation email leaves behind: matching bookings are grouped on
   the trip page with the reason they matched, and can be merged into one — the

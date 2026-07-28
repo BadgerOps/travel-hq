@@ -73,8 +73,9 @@ const updateTripSchema = z
 // timezone must be something `Intl.DateTimeFormat` recognizes as an IANA
 // zone identifier -- otherwise it passes validation as a bare non-empty
 // string, gets stored as-is, and bricks `ItineraryRepo`'s day view (via
-// `localDateOf()`) on every future read of that trip, permanently, since
-// there is no PATCH/DELETE booking endpoint to fix it through the API.
+// `localDateOf()`) on every future read of that trip. `PUT /api/bookings/:id`
+// can now repair such a row, but it enforces the same two checks, so the only
+// way in remains a write that bypasses both -- keep them here.
 // `isValidTimestamp`/`isValidTimezone` live in `../time.js`, shared with
 // `repos/booking.ts` and `ingest/extracted.ts` -- see that module's doc
 // comment for why the three must never drift apart.

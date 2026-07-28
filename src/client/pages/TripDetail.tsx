@@ -507,6 +507,14 @@ export function TripDetail({
           people={people}
           api={api}
           onPeopleChanged={() => setReloadKey((n) => n + 1)}
+          onSaved={() => {
+            // The dialog holds a snapshot of the booking as it was when the
+            // row was clicked. After an edit that snapshot is wrong, and
+            // re-rendering the detail view from it would show the operator
+            // their old values back. Close and reload instead.
+            setSelectedBooking(null);
+            setReloadKey((n) => n + 1);
+          }}
           onClose={() => setSelectedBooking(null)}
         />
       )}

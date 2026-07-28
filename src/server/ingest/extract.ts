@@ -4,6 +4,7 @@ import { parseIcs } from "./ics.js";
 import type { IcsEvent } from "./ics.js";
 import { ExtractionError, normalizeExtractedBooking } from "./extracted.js";
 import type { ExtractedBooking } from "./extracted.js";
+import { enrichActivityDetails, parseActivityDetails } from "./activity-details.js";
 import { WorkersAiProvider } from "./providers.js";
 import type { ExtractionAi, ExtractionProvider } from "./providers.js";
 import { InboundEmailRepo } from "../repos/inbound-email.js";
@@ -129,20 +130,25 @@ async function markExtractedBestEffort(emails: InboundEmailRepo, id: string): Pr
 }
 
 function bookingsFromIcs(events: IcsEvent[]): ExtractedBooking[] {
-  return events.map((event) =>
-    normalizeExtractedBooking({
+  return events.map((event) => {
+    // An operator's DESCRIPTION is where the pickup, the call time and the
+    // return live; the VEVENT's own fields carry none of them. Scanned per
+    // event rather than over the whole message, so a calendar with two tours
+    // in it cannot attribute one's car park to the other.
+    const logistics = parseActivityDetails(event.description);
+    return normalizeExtractedBooking({
       kind: "other",
       title: event.summary?.trim() || "Calendar event",
-      location: event.location,
+      location: event.location ?? logistics.pickupLocation ?? null,
       startsAt: event.startsAt,
       startsAtTz: event.startsAtTz,
       endsAt: event.endsAt,
       endsAtTz: event.endsAtTz,
       confirmationNumber: confirmationFrom(event.description),
       costCents: null,
-      details: {},
-    }),
-  );
+      details: logistics,
+    });
+  });
 }
 
 function confirmationFrom(description: string | null): string | null {
@@ -158,7 +164,36 @@ export async function extractBookings(
   email: ParsedEmail,
   extractionInstructions = "",
 ): Promise<ExtractedBooking[]> {
-  return provider.extract(buildExtractionPrompt(email, extractionInstructions));
+  const bookings = await provider.extract(buildExtractionPrompt(email, extractionInstructions));
+  return withExcursionLogistics(bookings, email.textBody);
+}
+
+/**
+ * Backfills the pickup/return facts a model is free to paraphrase away, from
+ * the same text it was given. Model-first: nothing it produced is overwritten
+ * (see `enrichActivityDetails`).
+ *
+ * Applied only when the message describes exactly ONE excursion. Two tours in
+ * one email share one body, and there is no reliable way to tell whose car
+ * park is whose from a flat regex scan — attributing the first pickup to both
+ * would be worse than attributing it to neither. Flights, stays and cars are
+ * skipped outright: they have their own detail schemas and their own fields.
+ */
+function withExcursionLogistics(
+  bookings: ExtractedBooking[],
+  textBody: string | null,
+): ExtractedBooking[] {
+  if (!textBody) return bookings;
+  const excursions = bookings.filter((b) => b.kind === "activity" || b.kind === "other");
+  if (excursions.length !== 1) return bookings;
+  const only = excursions[0]!;
+  const details = enrichActivityDetails(only.details, textBody);
+  const location =
+    only.location ??
+    (typeof details.pickupLocation === "string" ? details.pickupLocation : null);
+  return bookings.map((booking) =>
+    booking === only ? { ...booking, location, details } : booking,
+  );
 }
 
 export function buildExtractionPrompt(
@@ -173,6 +208,10 @@ export function buildExtractionPrompt(
     "If a timestamp or zone is uncertain, set both to null.",
     "Copy confirmation numbers exactly and never invent values.",
     "costCents is the total cost in cents.",
+    "Put kind-specific facts in details. flight: carrier, flightNumber, originIata, destinationIata, cabin, seat. lodging: propertyName, address, roomType, nights. car: vendor, pickupLocation, pickupTime, dropoffLocation, dropoffTime, vehicleClass. activity: venue, address, operator, partySize, pickupTime, pickupLocation, arriveMinutesBefore, returnTime, dropoffLocation, duration, description.",
+    "For a tour, excursion, or any activity, the pickup time and the pickup location are the two most important facts in the email — always copy them into details.pickupTime and details.pickupLocation when they appear, even if they are buried in a paragraph.",
+    'details.pickupTime and details.returnTime are local wall-clock times copied as written ("1:30 PM", "5:00"), not timestamps. details.arriveMinutesBefore is a whole number of minutes ("arrive 15 minutes before departure" is 15).',
+    "details.description is a short summary of what the activity is, in the operator's own words.",
     "For travelerEmails, include only addresses explicitly associated with a traveler, passenger, guest, or reservation holder for that booking.",
     "Do not include a forwarding sender or recipient merely because they forwarded or received the message.",
   ];

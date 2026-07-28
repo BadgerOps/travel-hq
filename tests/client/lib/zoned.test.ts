@@ -40,3 +40,26 @@ describe("zonedToUtc", () => {
     expect(() => zonedToUtc("2026-10-09T09:40", "Mars/Olympus")).toThrow(RangeError);
   });
 });
+
+describe("utcToZonedLocal", () => {
+  it("renders a stored instant as the wall clock its own zone shows", async () => {
+    const { utcToZonedLocal } = await import("../../../src/client/lib/dates.js");
+    // 19:30 UTC on 2026-10-09 is 1:30 PM in Denver (MDT) — the pickup time a
+    // Red Bus tour is booked for, and what the edit form must show.
+    expect(utcToZonedLocal("2026-10-09T19:30:00.000Z", "America/Denver")).toBe(
+      "2026-10-09T13:30",
+    );
+  });
+
+  it("round-trips through zonedToUtc", async () => {
+    const { utcToZonedLocal } = await import("../../../src/client/lib/dates.js");
+    const local = "2026-01-09T09:40";
+    expect(utcToZonedLocal(zonedToUtc(local, "America/Boise"), "America/Boise")).toBe(local);
+  });
+
+  it("blanks an unusable instant or zone rather than writing Invalid Date into a form", async () => {
+    const { utcToZonedLocal } = await import("../../../src/client/lib/dates.js");
+    expect(utcToZonedLocal("not a date", "America/Boise")).toBe("");
+    expect(utcToZonedLocal("2026-10-09T19:30:00.000Z", "Mars/Olympus")).toBe("");
+  });
+});

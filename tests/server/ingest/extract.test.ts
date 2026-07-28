@@ -272,3 +272,96 @@ describe("buildExtractionPrompt", () => {
     expect(prompt.user.length).toBeLessThan(MAX_AI_TEXT_CHARS + 200);
   });
 });
+
+/**
+ * The excursion case: an operator's confirmation whose only real content is a
+ * pickup time, a car park, a call time and a rough return — all in prose the
+ * model is free to paraphrase away.
+ */
+const RED_BUS_BODY = [
+  "Pickup: 1:30pm at Quarter Circle/West Side Parking Lot. Please arrive at your",
+  "pickup location 15 minutes before departure time. This tour begins in the great",
+  "cedar and hemlock forests that lie within the Lake McDonald Valley.",
+  "Approximate return time: 5:00",
+].join("\r\n");
+
+const RED_BUS_MESSAGE = [
+  "Content-Type: text/plain",
+  "Subject: Your Red Bus tour",
+  "",
+  RED_BUS_BODY,
+].join("\r\n");
+
+/** What a model that read the prose but skipped the logistics returns. */
+const MODEL_TOUR = {
+  kind: "activity",
+  title: "Going-to-the-Sun Road Red Bus tour",
+  location: null,
+  startsAt: null,
+  startsAtTz: null,
+  endsAt: null,
+  endsAtTz: null,
+  confirmationNumber: null,
+  costCents: null,
+  details: { venue: "Glacier Red Bus Tours" },
+};
+
+describe("excursion logistics", () => {
+  it("backfills the pickup the model left out, and uses it as the location", async () => {
+    const email = await store(RED_BUS_MESSAGE);
+    await run(email, fakeAi({ response: { bookings: [MODEL_TOUR] } }));
+
+    const [draft] = await drafts(email.id);
+    expect(draft?.location).toBe("Quarter Circle/West Side Parking Lot");
+    expect((draft?.extracted as { details: Record<string, unknown> }).details).toMatchObject({
+      venue: "Glacier Red Bus Tours",
+      pickupTime: "1:30 PM",
+      pickupLocation: "Quarter Circle/West Side Parking Lot",
+      arriveMinutesBefore: 15,
+      returnTime: "5:00 PM",
+    });
+  });
+
+  it("leaves a message with two excursions alone", async () => {
+    // One body, two tours: there is no honest way to say whose car park the
+    // single pickup line belongs to, so neither gets it.
+    const email = await store(RED_BUS_MESSAGE);
+    await run(
+      email,
+      fakeAi({
+        response: {
+          bookings: [MODEL_TOUR, { ...MODEL_TOUR, title: "Two Medicine Red Bus tour" }],
+        },
+      }),
+    );
+
+    for (const draft of await drafts(email.id)) {
+      expect(draft.location).toBeNull();
+      expect((draft.extracted as { details: Record<string, unknown> }).details).toEqual({
+        venue: "Glacier Red Bus Tours",
+      });
+    }
+  });
+
+  it("reads a calendar attachment's DESCRIPTION for the same facts", async () => {
+    const email = await store([
+      "Content-Type: text/calendar",
+      "",
+      "BEGIN:VCALENDAR",
+      "BEGIN:VEVENT",
+      "SUMMARY:Red Bus tour",
+      "DESCRIPTION:Pickup: 1:30pm at Quarter Circle/West Side Parking Lot.",
+      "DTSTART;TZID=America/Denver:20261009T133000",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n"));
+    await run(email);
+
+    const [draft] = await drafts(email.id);
+    expect(draft?.location).toBe("Quarter Circle/West Side Parking Lot");
+    expect((draft?.extracted as { details: Record<string, unknown> }).details).toMatchObject({
+      pickupTime: "1:30 PM",
+      pickupLocation: "Quarter Circle/West Side Parking Lot",
+    });
+  });
+});
