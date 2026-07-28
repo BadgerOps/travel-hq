@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Fixed dialogs running off the bottom of the screen on mobile: the panel is
+  now capped to the visible viewport, its body scrolls with the title and
+  close control pinned above it, it clears the notch and home-indicator safe
+  areas, it paints over the bottom tab bar, and the page behind it no longer
+  scrolls while it is open.
+
 ## 0.7.0 - 2026-07-27
 
 - Made Recent ingest activity entries clickable, opening a detail dialog with

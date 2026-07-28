@@ -75,6 +75,27 @@ describe("Dialog", () => {
     expect([first, last, close]).toContain(document.activeElement);
   });
 
+  it("puts the body in its own scroll container so a tall dialog stays reachable", () => {
+    // The panel is capped at the viewport height; if the body were not its own
+    // scroll container, everything past the fold would be unreachable on a phone.
+    renderDialog();
+    const body = screen.getByText("body content").parentElement;
+    expect(body).toHaveClass("dialog-content");
+    expect(screen.getByRole("dialog")).toContainElement(body);
+  });
+
+  it("locks page scroll while open and restores it on close", () => {
+    document.body.style.overflow = "auto";
+    const { unmount } = render(
+      <Dialog title="t" onClose={vi.fn()}>
+        <p>body content</p>
+      </Dialog>,
+    );
+    expect(document.body.style.overflow).toBe("hidden");
+    unmount();
+    expect(document.body.style.overflow).toBe("auto");
+  });
+
   it("restores focus to the trigger when it closes", async () => {
     const { rerender } = render(<TriggerHarness open />);
     const trigger = screen.getByRole("button", { name: "open" });

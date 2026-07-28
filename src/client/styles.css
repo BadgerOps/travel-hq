@@ -320,14 +320,44 @@ textarea.input { min-height: 90px; resize: vertical; }
 
 /* — dialog — */
 .dialog-backdrop {
-  position: fixed; inset: 0; display: grid; place-items: center;
+  position: fixed; inset: 0; z-index: 100;
+  /* Flex, not `grid`/`place-items`: an auto-sized grid row grows to fit its
+     item, so the panel's `max-height: 100%` resolved against the overflowing
+     row and capped nothing. A flex item's percentage max-height resolves
+     against the backdrop's own content box, which is what we want to cap to. */
+  display: flex; align-items: center; justify-content: center;
+  /* `inset: 0` alone resolves against the *large* viewport on mobile Safari and
+     Chrome, so the bottom of the backdrop hides behind the URL bar. Pinning the
+     height to the dynamic viewport keeps the panel inside what is actually
+     visible; the vh line is the fallback for browsers without dvh. */
+  height: 100vh;
+  height: 100dvh;
   padding: var(--space-4);
+  padding-top: calc(var(--space-4) + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
   background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent);
 }
 .dialog {
-  width: min(440px, 100%); display: flex; flex-direction: column; gap: var(--space-3);
+  width: min(440px, 100%);
+  /* Never taller than the backdrop's content box, so a long dialog scrolls its
+     own body instead of running off the bottom of the screen. */
+  max-height: 100%;
+  display: flex; flex-direction: column; gap: var(--space-3);
   padding: var(--space-4); border-radius: var(--radius-lg);
   background: var(--color-surface); box-shadow: var(--shadow-lg);
+}
+/* Header stays put so the close control is always reachable, however long the
+   body gets. */
+.dialog-header { display: flex; align-items: baseline; gap: 10px; flex: 0 0 auto; }
+.dialog-content {
+  flex: 1 1 auto;
+  /* `min-height: 0` is what lets a flex item shrink below its content size —
+     without it the body pushes the panel past max-height and nothing scrolls. */
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Keep a flick at the end of the list from scrolling the page behind. */
+  overscroll-behavior: contain;
 }
 .dialog-title {
   font-family: var(--font-heading); font-weight: var(--font-heading-weight);

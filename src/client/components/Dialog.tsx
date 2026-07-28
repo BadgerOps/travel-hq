@@ -64,6 +64,18 @@ export function Dialog({
   }, [onClose]);
 
   useEffect(() => {
+    // Freeze the page behind the modal. Without this a touch drag that starts
+    // on the backdrop scrolls the list underneath, which on a phone reads as
+    // "the popup moved" — and leaves the page somewhere else on close. Saving
+    // the previous value rather than clearing keeps nested dialogs honest.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
     // Remember whatever had focus when the dialog opened, so it can be
     // restored on close. Prefer an explicit trigger ref if given.
     const previouslyFocused = (restoreFocusTo?.current ??
@@ -97,7 +109,7 @@ export function Dialog({
         aria-labelledby={titleId}
         tabIndex={-1}
       >
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+        <div className="dialog-header">
           <h4 id={titleId} className="dialog-title" style={{ margin: 0 }}>
             {title}
           </h4>
@@ -112,7 +124,10 @@ export function Dialog({
             <X size={16} />
           </button>
         </div>
-        {children}
+        {/* The body scrolls, not the panel: a booking with a long source email
+            has to stay reachable on a phone, where the panel is already as tall
+            as the viewport allows. */}
+        <div className="dialog-content">{children}</div>
       </div>
     </div>
   );
