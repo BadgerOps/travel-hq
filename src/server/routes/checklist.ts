@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { ChecklistRepo } from "../repos/checklist.js";
 import type { AppEnv } from "../index.js";
+import { authorizeTrip } from "../trip-authorization.js";
 
 const createSchema = z.object({
   tripId: z.string().min(1),
@@ -34,6 +35,9 @@ checklist.post("/", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid checklist item", details: parsed.error.issues }, 400);
   }
+  // This trip id lives in JSON rather than the URL, so the app-wide
+  // trip-scoped middleware cannot resolve it.
+  await authorizeTrip(c, async () => {}, parsed.data.tripId);
   // No try/catch. An unknown trip/person (NotFoundError, 404) or a viewer
   // role (ForbiddenError, 403) throws here and createApp's app.onError maps
   // it through mapError() -- the single status-mapping decision in the

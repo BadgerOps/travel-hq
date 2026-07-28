@@ -13,9 +13,9 @@ const NAV = [
   { href: "/", label: "Today" },
   { href: "/trips", label: "Trips" },
   { href: "/checklist", label: "Checklist" },
-  { href: "/people", label: "People" },
-  { href: "/cards", label: "Cards" },
-  { href: "/settings", label: "Settings" },
+  { href: "/people", label: "People", householdWide: true },
+  { href: "/cards", label: "Cards", householdWide: true },
+  { href: "/settings", label: "Settings", householdWide: true },
 ];
 
 export function Shell({
@@ -31,6 +31,7 @@ export function Shell({
   identity?: { email: string; role: string } | null;
 }) {
   const [location] = useLocation();
+  const sharedOnly = identity?.role === "viewer";
 
   return (
     <>
@@ -48,7 +49,7 @@ export function Shell({
             styles.css owns them, and an inline `color` would outrank the
             `[aria-current='page']` accent rule, leaving the active page
             announced to screen readers but invisible to everyone else. */}
-        {NAV.map(({ href, label }) => (
+        {NAV.filter((item) => !sharedOnly || !item.householdWide).map(({ href, label }) => (
           <Link
             key={href}
             href={href}
@@ -58,20 +59,22 @@ export function Shell({
           </Link>
         ))}
 
-        <Link
-          href="/import"
-          className="btn btn-secondary"
-          aria-current={location === "/import" ? "page" : undefined}
-        >
-          <TrayArrowDown size={16} />
-          Import
-        </Link>
+        {!sharedOnly && (
+          <Link
+            href="/import"
+            className="btn btn-secondary"
+            aria-current={location === "/import" ? "page" : undefined}
+          >
+            <TrayArrowDown size={16} />
+            Import
+          </Link>
+        )}
 
-        {identity && <AccountMenu email={identity.email} />}
+        {identity && <AccountMenu email={identity.email} sharedOnly={sharedOnly} />}
       </nav>
 
       <main className="page">{children}</main>
-      <BottomTabs />
+      <BottomTabs sharedOnly={sharedOnly} />
     </>
   );
 }
@@ -80,7 +83,7 @@ export function Shell({
    leaves Settings and Cards with no home in the tab bar, so they live here
    (the handoff's "behind the avatar" note). Disclosure pattern, not
    role="menu" — two links don't warrant arrow-key management. */
-function AccountMenu({ email }: { email: string }) {
+function AccountMenu({ email, sharedOnly }: { email: string; sharedOnly: boolean }) {
   const [open, setOpen] = useState(false);
   const [location] = useLocation();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -127,12 +130,16 @@ function AccountMenu({ email }: { email: string }) {
       {open && (
         <div className="nav-user-menu" id="nav-user-menu" data-testid="nav-user-menu">
           <span className="nav-user-email">{email}</span>
-          <Link href="/settings" aria-current={location === "/settings" ? "page" : undefined}>
-            Settings
-          </Link>
-          <Link href="/cards" aria-current={location === "/cards" ? "page" : undefined}>
-            Cards
-          </Link>
+          {!sharedOnly && (
+            <>
+              <Link href="/settings" aria-current={location === "/settings" ? "page" : undefined}>
+                Settings
+              </Link>
+              <Link href="/cards" aria-current={location === "/cards" ? "page" : undefined}>
+                Cards
+              </Link>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -149,11 +156,11 @@ const TABS = [
   { href: "/people", label: "People", Icon: Users },
 ];
 
-export function BottomTabs() {
+export function BottomTabs({ sharedOnly = false }: { sharedOnly?: boolean }) {
   const [location] = useLocation();
   return (
     <nav className="bottom-tabs" aria-label="Tabs">
-      {TABS.map(({ href, label, Icon }) => {
+      {TABS.filter(({ href }) => !sharedOnly || !["/import", "/people"].includes(href)).map(({ href, label, Icon }) => {
         /* startsWith, unlike the top nav's exact match, so /trips/:id keeps
            the Trips tab lit. */
         const active = href === "/" ? location === "/" : location.startsWith(href);

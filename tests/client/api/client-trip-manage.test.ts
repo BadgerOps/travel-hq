@@ -63,4 +63,35 @@ describe("trip management api", () => {
       expect.anything(),
     );
   });
+
+  it("creates and removes a trip invitation with encoded identifiers", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          userId: "u1",
+          email: "guest@example.com",
+          role: "viewer",
+          createdAt: "2026-07-28T00:00:00Z",
+        }), { status: 201, headers: { "content-type": "application/json" } }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+
+    await api.trips.invite("t/1", "guest@example.com", "viewer");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/trips/t%2F1/members",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ email: "guest@example.com", role: "viewer" }),
+      }),
+    );
+    await api.trips.removeMember("t/1", "u 1");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/trips/t%2F1/members/u%201",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
 });

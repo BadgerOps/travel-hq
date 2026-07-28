@@ -102,6 +102,23 @@ describe("Shell", () => {
     expect(menu.getByRole("link", { name: "Cards" })).toBeInTheDocument();
   });
 
+  it("hides household-wide navigation from an invite-only account", async () => {
+    renderAt("/", { email: "guest@example.com", role: "viewer" });
+    const nav = within(screen.getByRole("navigation", { name: "Primary" }));
+    expect(nav.getByRole("link", { name: "Trips" })).toBeInTheDocument();
+    for (const label of ["People", "Cards", "Settings", "Import"]) {
+      expect(nav.queryByRole("link", { name: label })).not.toBeInTheDocument();
+    }
+    const tabs = within(screen.getByRole("navigation", { name: "Tabs" }));
+    expect(tabs.queryByRole("link", { name: "People" })).not.toBeInTheDocument();
+    expect(tabs.queryByRole("link", { name: "Import" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Account menu" }));
+    const menu = within(screen.getByTestId("nav-user-menu"));
+    expect(menu.getByText("guest@example.com")).toBeInTheDocument();
+    expect(menu.queryByRole("link")).not.toBeInTheDocument();
+  });
+
   it("closes the avatar menu on Escape and returns focus to the button", async () => {
     const user = userEvent.setup();
     renderAt("/", { email: "badger@example.com", role: "owner" });

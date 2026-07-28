@@ -167,9 +167,9 @@ describe("PUT /api/bookings/:bookingId", () => {
     expect((await send(other, `/api/bookings/${booking.id}`, "PUT", { title: "x" })).status).toBe(404);
   });
 
-  it("answers 403 for a viewer", async () => {
+  it("hides a booking on an unshared trip from a viewer", async () => {
     const booking = await excursion();
     const viewer = appAs({ ...owner, role: "viewer" });
-    expect((await send(viewer, `/api/bookings/${booking.id}`, "PUT", { title: "x" })).status).toBe(403);
+    expect((await send(viewer, `/api/bookings/${booking.id}`, "PUT", { title: "x" })).status).toBe(404);
   });
 });

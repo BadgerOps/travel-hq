@@ -1,6 +1,7 @@
 import { TenantRepo, NotFoundError, ValidationError } from "./base.js";
 import { newId } from "../ids.js";
 import { isValidCalendarDate } from "../time.js";
+import type { TripAccessRole, TripMemberRole } from "./trip-access.js";
 
 /**
  * Exported as a value, not only a type: the update route's Zod enum and the
@@ -24,6 +25,8 @@ export type Trip = {
   status: TripStatus;
   notes: string | null;
   photoUrl: string | null;
+  /** Permission for the signed-in account on this trip. */
+  accessRole?: TripAccessRole;
 };
 
 export type CreateTripInput = {
@@ -82,6 +85,7 @@ type TripRow = {
   status: TripStatus;
   notes: string | null;
   photo_url: string | null;
+  access_role?: TripAccessRole;
 };
 
 export class TripRepo extends TenantRepo {
@@ -205,6 +209,7 @@ export class TripRepo extends TenantRepo {
     // Redundant with base.ts's own requireWrite() check inside
     // unscopedBatchRun() — explicit intent, matching addTraveler.
     this.requireWrite();
+    await this.requireVisiblePerson(personId);
     if (!(await this.findById(tripId))) {
       throw new NotFoundError("Trip not found in this household");
     }
@@ -238,15 +243,42 @@ export class TripRepo extends TenantRepo {
   }
 
   async list(): Promise<Trip[]> {
+    if (this.ctx.role === "viewer") {
+      const rows = await this.all<TripRow & { access_role: TripMemberRole }>(
+        `SELECT t.*, tm.role AS access_role
+           FROM trip t
+           JOIN trip_member tm ON tm.trip_id = t.id
+          WHERE {scope} AND tm.user_id = ?2
+          ORDER BY t.starts_on IS NULL, t.starts_on`,
+        this.ctx.userId,
+      );
+      return rows.map(toTrip);
+    }
     const rows = await this.all<TripRow>(
-      "SELECT * FROM trip WHERE {scope} ORDER BY starts_on IS NULL, starts_on",
+      `SELECT * FROM trip
+        WHERE {scope}
+        ORDER BY starts_on IS NULL, starts_on`,
     );
-    return rows.map(toTrip);
+    const accessRole = this.ctx.role === "owner" ? "owner" : "editor";
+    return rows.map((row) => toTrip({ ...row, access_role: accessRole }));
   }
 
   async findById(id: string): Promise<Trip | undefined> {
-    const row = await this.get<TripRow>("SELECT * FROM trip WHERE {scope} AND id = ?2", id);
-    return row ? toTrip(row) : undefined;
+    const row = await this.get<TripRow>(
+      "SELECT * FROM trip WHERE {scope} AND id = ?2",
+      id,
+    );
+    if (!row) return undefined;
+    return toTrip({
+      ...row,
+      access_role:
+        this.ctx.tripRole ??
+        (this.ctx.role === "viewer"
+          ? "viewer"
+          : this.ctx.role === "owner"
+            ? "owner"
+            : "editor"),
+    });
   }
 
   async addTraveler(tripId: string, personId: string): Promise<void> {
@@ -254,6 +286,7 @@ export class TripRepo extends TenantRepo {
     // kept as explicit, belt-and-braces intent at the top of every mutating
     // method, not as the sole enforcement.
     this.requireWrite();
+    await this.requireVisiblePerson(personId);
     if (!(await this.findById(tripId))) {
       throw new NotFoundError("Trip not found in this household");
     }
@@ -299,5 +332,6 @@ function toTrip(r: TripRow): Trip {
     status: r.status,
     notes: r.notes,
     photoUrl: r.photo_url,
+    accessRole: r.access_role ?? "owner",
   };
 }

@@ -4,6 +4,12 @@ export type HouseholdContext = {
   householdId: string;
   userId: string;
   role: Role;
+  /**
+   * Set only after a trip-scoped request has passed TripAccessRepo. It lets
+   * an invited editor use ordinary repositories without turning that account
+   * into a household-wide adult.
+   */
+  tripRole?: "viewer" | "editor";
 };
 
 const ROLES: readonly Role[] = ["owner", "adult", "viewer"];
@@ -307,6 +313,35 @@ export abstract class TenantRepo {
     if (this.ctx.role === "viewer") {
       throw new ForbiddenError("Viewers may not modify data");
     }
+  }
+
+  /**
+   * Trip editors remain household viewers. A trip-scoped write may only use
+   * a person already visible through one of that account's shared trips;
+   * otherwise a guessed household person id could be pulled into the shared
+   * trip and disclosed.
+   */
+  protected async requireVisiblePerson(personId: string): Promise<void> {
+    if (!this.ctx.tripRole) return;
+    const person = await this.get<{ id: string }>(
+      `SELECT id FROM person
+        WHERE {scope} AND id = ?2
+          AND id IN (
+            SELECT tp.person_id
+              FROM trip_person tp
+              JOIN trip_member tm ON tm.trip_id = tp.trip_id
+             WHERE tm.user_id = ?3
+            UNION
+            SELECT bp.person_id
+              FROM booking_person bp
+              JOIN booking b ON b.id = bp.booking_id
+              JOIN trip_member tm ON tm.trip_id = b.trip_id
+             WHERE tm.user_id = ?3
+          )`,
+      personId,
+      this.ctx.userId,
+    );
+    if (!person) throw new NotFoundError("Person not found in an accessible trip");
   }
 
   private requireReason(reason: string): void {

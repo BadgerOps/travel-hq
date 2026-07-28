@@ -33,6 +33,8 @@ import type {
   ImportReviewResult,
   BookingSourceArtifact,
   TripDuplicateGroup,
+  TripMember,
+  TripMemberRole,
 } from "./types.js";
 
 export class ApiError extends Error {
@@ -156,6 +158,18 @@ export function createApi(config: ApiConfig = {}) {
         request<void>(
           `/api/trips/${seg(tripId)}/duplicates/dismiss`,
           jsonBody("POST", { bookingIds }),
+        ),
+      members: (tripId: string) =>
+        request<TripMember[]>(`/api/trips/${seg(tripId)}/members`),
+      invite: (tripId: string, email: string, role: TripMemberRole) =>
+        request<TripMember>(
+          `/api/trips/${seg(tripId)}/members`,
+          jsonBody("POST", { email, role }),
+        ),
+      removeMember: (tripId: string, userId: string) =>
+        request<void>(
+          `/api/trips/${seg(tripId)}/members/${seg(userId)}`,
+          { method: "DELETE" },
         ),
     },
     bookings: {

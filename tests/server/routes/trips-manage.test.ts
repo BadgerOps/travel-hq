@@ -113,7 +113,7 @@ describe("PUT /api/trips/:tripId", () => {
     expect((await jsonRequest("/api/trips/t-nope", "PUT", { title: "X" })).status).toBe(404);
   });
 
-  it("answers 403 for a viewer and leaves the trip unchanged", async () => {
+  it("hides an unshared trip from a viewer and leaves it unchanged", async () => {
     const id = await createTrip();
     const viewerApp = appAs({ ...owner, role: "viewer" });
     const res = await request(viewerApp, `/api/trips/${id}`, {
@@ -121,7 +121,7 @@ describe("PUT /api/trips/:tripId", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: "Nope" }),
     });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     const list = (await (await request(app, "/api/trips")).json()) as Trip[];
     expect(list[0]!.title).toBe("Guerneville");
   });
@@ -187,10 +187,10 @@ describe("DELETE /api/trips/:tripId", () => {
     expect((await request(app, "/api/trips/t-nope", { method: "DELETE" })).status).toBe(404);
   });
 
-  it("answers 403 for a viewer and keeps the trip", async () => {
+  it("hides an unshared trip from a viewer and keeps it", async () => {
     const id = await createTrip();
     const viewerApp = appAs({ ...owner, role: "viewer" });
-    expect((await request(viewerApp, `/api/trips/${id}`, { method: "DELETE" })).status).toBe(403);
+    expect((await request(viewerApp, `/api/trips/${id}`, { method: "DELETE" })).status).toBe(404);
     expect(((await (await request(app, "/api/trips")).json()) as Trip[]).length).toBe(1);
   });
 });
@@ -216,10 +216,10 @@ describe("DELETE /api/trips/:tripId/people/:personId", () => {
     expect((await request(app, `/api/trips/${id}/people/p-nope`, { method: "DELETE" })).status).toBe(404);
   });
 
-  it("answers 403 for a viewer", async () => {
+  it("hides an unshared trip from a viewer", async () => {
     const id = await createTrip();
     await request(app, `/api/trips/${id}/people/p-ava`, { method: "PUT" });
     const viewerApp = appAs({ ...owner, role: "viewer" });
-    expect((await request(viewerApp, `/api/trips/${id}/people/p-ava`, { method: "DELETE" })).status).toBe(403);
+    expect((await request(viewerApp, `/api/trips/${id}/people/p-ava`, { method: "DELETE" })).status).toBe(404);
   });
 });
