@@ -150,7 +150,7 @@ describe("import review routes", () => {
     expect(bookings.every((booking) =>
       booking.trip_id === trip.id &&
       booking.source_inbound_email_id === drafts[0]!.inboundEmailId &&
-      booking.status === "planned" &&
+      booking.status === "booked" &&
       booking.confirmation_number !== "TRIP90"
     )).toBe(true);
     expect(
