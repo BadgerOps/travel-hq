@@ -43,6 +43,17 @@
   close control pinned above it, it clears the notch and home-indicator safe
   areas, it paints over the bottom tab bar, and the page behind it no longer
   scrolls while it is open.
+- Fixed dates and amounts being validated differently depending on which write
+  path you used. Creating a trip accepted "next tuesday", February 30th, or a
+  range that ended before it began — all of which updating the same trip had
+  always refused — and checklist due dates, dates of birth and passport
+  expiries were never checked at all. A booking could be saved with a
+  timestamp carrying no timezone, or one landing before it took off, and both
+  a cost and a points total could be negative, which quietly subtracted from
+  the trip's spend and points rollups. All of these are now the same 400 on
+  every path, enforced in the repositories so the email-import path is covered
+  too, and an imported booking whose extracted times or price cannot be
+  trusted now arrives without them rather than not at all.
 
 ## 0.7.0 - 2026-07-27
 

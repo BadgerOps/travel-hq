@@ -2,17 +2,30 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { PersonRepo, DOCUMENT_FIELDS } from "../repos/person.js";
 import type { DocumentField, UpdatePersonInput } from "../repos/person.js";
+import { isValidCalendarDate } from "../time.js";
 import type { AppEnv } from "../index.js";
 import { isJsonAction } from "./request.js";
 
+/**
+ * Mirrors `assertCalendarDate` in repos/validation.ts, which is the actual
+ * enforcement point for both of this route's date fields. Worth stating twice:
+ * `passportExpiry` is compared against a trip's `starts_on` to raise the
+ * "passport expires before this trip" warning, and that comparison is silently
+ * meaningless — not loud, meaningless — unless both sides are exact
+ * YYYY-MM-DD.
+ */
+const calendarDateSchema = z
+  .string()
+  .refine(isValidCalendarDate, { message: "must be a well-formed YYYY-MM-DD date" });
+
 const createPersonSchema = z.object({
   displayName: z.string().min(1),
-  dob: z.string().optional(),
+  dob: calendarDateSchema.optional(),
   email: z.string().trim().email().optional(),
   phone: z.string().trim().min(1).max(40).optional(),
   notes: z.string().optional(),
   passportNumber: z.string().optional(),
-  passportExpiry: z.string().optional(),
+  passportExpiry: calendarDateSchema.optional(),
   passportCountry: z.string().optional(),
   knownTravelerNumber: z.string().optional(),
   redressNumber: z.string().optional(),
@@ -34,11 +47,11 @@ const createPersonSchema = z.object({
 const updatePersonSchema = z
   .object({
     displayName: z.string().min(1).optional(),
-    dob: z.string().nullable().optional(),
+    dob: calendarDateSchema.nullable().optional(),
     email: z.string().trim().email().nullable().optional(),
     phone: z.string().trim().min(1).max(40).nullable().optional(),
     notes: z.string().nullable().optional(),
-    passportExpiry: z.string().nullable().optional(),
+    passportExpiry: calendarDateSchema.nullable().optional(),
     passportCountry: z.string().nullable().optional(),
     passportNumber: z.string().min(1).nullable().optional(),
     knownTravelerNumber: z.string().min(1).nullable().optional(),

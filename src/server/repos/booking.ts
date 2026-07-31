@@ -4,7 +4,12 @@ import { Keyring, mask, assertNotMasked } from "../crypto/envelope.js";
 import { openConfirmation } from "./confirmation.js";
 import { newId } from "../ids.js";
 import { BOOKING_KINDS, parseDetails } from "../schemas/booking-kinds.js";
-import { isValidTimestamp, isValidTimezone } from "../time.js";
+import { isValidTimezone } from "../time.js";
+import {
+  assertInstant,
+  assertInstantOrder,
+  assertNonNegativeAmount,
+} from "./validation.js";
 
 /**
  * Exported as a value, not only a type: the status route's Zod enum and the
@@ -237,7 +242,13 @@ export class BookingRepo extends BookingAwareRepo {
     // kept as explicit, belt-and-braces intent at the top of every mutating
     // method, not as the sole enforcement.
     this.requireWrite();
-    assertTimezonePaired(input);
+    assertBookingTiming(input);
+    // create() previously checked neither of these, while update() checked
+    // that they were whole numbers — so the API accepted on POST exactly the
+    // rows it refused on PUT. See assertNonNegativeAmount for why a negative
+    // amount is a 400 rather than an adjustment.
+    assertNonNegativeAmount("costCents", input.costCents);
+    assertNonNegativeAmount("pointsUsed", input.pointsUsed);
 
     const trip = await this.get<{ id: string }>(
       "SELECT id FROM trip WHERE {scope} AND id = ?2",
@@ -333,7 +344,7 @@ export class BookingRepo extends BookingAwareRepo {
       throw new ValidationError(`kind must be one of ${BOOKING_KINDS.join(", ")}`);
     }
 
-    assertTimezonePaired({
+    assertBookingTiming({
       startsAt: patch.startsAt === undefined ? existing.startsAt : patch.startsAt,
       startsAtTz: patch.startsAtTz === undefined ? existing.startsAtTz : patch.startsAtTz,
       endsAt: patch.endsAt === undefined ? existing.endsAt : patch.endsAt,
@@ -390,12 +401,8 @@ export class BookingRepo extends BookingAwareRepo {
       if (key === "status" && !(BOOKING_STATUSES as readonly string[]).includes(value as string)) {
         throw new ValidationError(`status must be one of ${BOOKING_STATUSES.join(", ")}`);
       }
-      if (
-        (key === "costCents" || key === "pointsUsed") &&
-        value !== null &&
-        !Number.isInteger(value)
-      ) {
-        throw new ValidationError(`${key} must be a whole number`);
+      if (key === "costCents" || key === "pointsUsed") {
+        assertNonNegativeAmount(key, value as number | null);
       }
       sets.push(`${column} = ?${next++}`);
       params.push(value ?? null);
@@ -633,9 +640,7 @@ function assertTimezonePaired(input: BookingTiming): void {
     if (!input.startsAtTz) {
       throw new ValidationError("startsAt requires startsAtTz (an IANA timezone)");
     }
-    if (!isValidTimestamp(input.startsAt)) {
-      throw new ValidationError("startsAt must be a parseable timestamp");
-    }
+    assertInstant("startsAt", input.startsAt);
     if (!isValidTimezone(input.startsAtTz)) {
       throw new ValidationError("startsAtTz must be a valid IANA timezone");
     }
@@ -644,15 +649,34 @@ function assertTimezonePaired(input: BookingTiming): void {
     if (!input.endsAtTz) {
       throw new ValidationError("endsAt requires endsAtTz (an IANA timezone)");
     }
-    if (!isValidTimestamp(input.endsAt)) {
-      throw new ValidationError("endsAt must be a parseable timestamp");
-    }
+    assertInstant("endsAt", input.endsAt);
     if (!isValidTimezone(input.endsAtTz)) {
       throw new ValidationError("endsAtTz must be a valid IANA timezone");
     }
   }
 }
 
-// isValidTimestamp/isValidTimezone live in ../time.js, shared with
-// routes/trips.ts and ingest/extracted.ts -- see that module's doc comment
-// for why the three must never drift apart.
+/**
+ * Everything a booking's two instants must satisfy, in the order the checks
+ * make sense: each one has to BE an instant with a zone before asking whether
+ * one precedes the other.
+ *
+ * The ordering check is the half that was missing. `assertTimezonePaired`
+ * has always guaranteed each timestamp is individually usable, so a flight
+ * landing before it took off passed every write path — and then rendered as a
+ * negative duration, sorted its trip's day view against itself, and gave
+ * `ItineraryRepo.group()` a booking whose "ongoing" days run backwards. Like
+ * the pairing check it must see the EFFECTIVE post-patch pair, which is why it
+ * lives here at the repository rather than in `updateBookingSchema`: moving
+ * only `endsAt` to before a stored `startsAt` this request never mentions is
+ * exactly as inverted as sending both.
+ */
+function assertBookingTiming(input: BookingTiming): void {
+  assertTimezonePaired(input);
+  assertInstantOrder("startsAt", "endsAt", input.startsAt, input.endsAt);
+}
+
+// isValidInstant/isValidTimezone live in ../time.js (reached here through the
+// assertion wrappers in ./validation.js), shared with routes/trips.ts and
+// ingest/extracted.ts -- see that module's doc comment for why the copies must
+// never drift apart.
