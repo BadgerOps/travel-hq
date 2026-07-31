@@ -83,9 +83,13 @@ export function InboundEmailDetailDialog({
               </details>
             ) : (
               <p className="text-muted" style={{ margin: 0 }}>
-                No readable message body was stored.
+                {/* The server distinguishes "purged on schedule" from "never
+                    stored" and from "cannot be decrypted"; say which, because
+                    only one of the three is a problem. */}
+                {detail.rawUnavailableReason ?? "No readable message body was stored."}
               </p>
             )}
+            <RetentionNote detail={detail} />
             {detail.calendars.map((calendar, index) => (
               <details key={index}>
                 <summary>
@@ -98,6 +102,35 @@ export function InboundEmailDetailDialog({
         )}
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * The retention promise, stated on the one screen where the forwarded message
+ * itself is on display. A user who forwards a confirmation is entitled to
+ * know how long the copy sticks around, and the honest place to say so is
+ * next to the copy — not only buried in Settings.
+ *
+ * Rendered whether or not the message survives: when it does, this is the
+ * deletion date; when it does not, the reason was already printed above and
+ * repeating it here would be noise, so only the surviving-data reassurance is
+ * left.
+ */
+function RetentionNote({ detail }: { detail: InboundEmailDetail }) {
+  if (detail.rawState !== "retained") {
+    return (
+      <p className="text-muted" style={{ margin: 0, fontSize: 12 }}>
+        The extracted bookings, the sender and the subject above are kept; only the message
+        text is affected.
+      </p>
+    );
+  }
+  return (
+    <p className="text-muted" style={{ margin: 0, fontSize: 12 }}>
+      {detail.rawExpiresAt
+        ? `This copy of the message is kept until ${formatWhen(detail.rawExpiresAt)}, then deleted automatically. The bookings extracted from it are kept.`
+        : "This copy of the message is deleted automatically once its retention window passes. The bookings extracted from it are kept."}
+    </p>
   );
 }
 

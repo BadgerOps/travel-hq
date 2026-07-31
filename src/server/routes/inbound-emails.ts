@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../index.js";
-import { InboundEmailRepo } from "../repos/inbound-email.js";
-import type { InboundEmailMetadata } from "../repos/inbound-email.js";
+import { InboundEmailRepo, rawUnavailableReason } from "../repos/inbound-email.js";
+import type { InboundEmailMetadata, RawRetentionState } from "../repos/inbound-email.js";
 import { DraftBookingRepo } from "../repos/draft-booking.js";
 import type { DraftBooking } from "../repos/draft-booking.js";
 import { ForbiddenError, NotFoundError } from "../repos/base.js";
@@ -16,12 +16,22 @@ export type InboundEmailDetail = InboundEmailMetadata & {
   textBody: string | null;
   calendars: string[];
   drafts: DraftBooking[];
+  /**
+   * Whether the stored message is still there, and if not, why. Sent even
+   * when everything is fine so the dialog can state the retention promise
+   * ("kept until …") rather than only apologising after the fact.
+   */
+  rawState: RawRetentionState;
+  /** When the message text is due to be purged (ISO 8601); null once it is gone. */
+  rawExpiresAt: string | null;
+  /** One sentence for the reader when there is no message text; null when there is. */
+  rawUnavailableReason: string | null;
 };
 
 export const inboundEmails = new Hono<AppEnv>();
 
 inboundEmails.get("/", async (c) => {
-  const repo = new InboundEmailRepo(c.get("db"), c.get("identity"));
+  const repo = new InboundEmailRepo(c.get("db"), c.get("identity"), c.get("ring"));
   return c.json(await repo.listMetadata());
 });
 
@@ -32,7 +42,8 @@ inboundEmails.get("/:id", async (c) => {
   if (identity.role === "viewer") {
     throw new ForbiddenError("Viewers may not access inbound email activity");
   }
-  const email = await new InboundEmailRepo(c.get("db"), identity).findById(c.req.param("id"));
+  const email = await new InboundEmailRepo(c.get("db"), identity, c.get("ring"))
+    .findById(c.req.param("id"));
   if (!email) throw new NotFoundError("Inbound email not found in this household");
   const drafts = await new DraftBookingRepo(c.get("db"), identity).listByEmail(email.id);
 
@@ -60,6 +71,13 @@ inboundEmails.get("/:id", async (c) => {
     textBody,
     calendars,
     drafts,
+    rawState: email.rawState,
+    rawExpiresAt: email.rawExpiresAt,
+    // A purged message and a message that was never stored both arrive here
+    // as an empty body. Saying which is the difference between "we deleted it
+    // on schedule" and "something went wrong", and the reader deserves to
+    // know which one they are looking at.
+    rawUnavailableReason: rawUnavailableReason(email),
   };
   return c.json(detail);
 });

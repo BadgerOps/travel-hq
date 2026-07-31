@@ -1,16 +1,19 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../index.js";
 import { normalizeExtractedBooking } from "../ingest/extracted.js";
 import type { ExtractedBooking } from "../ingest/extracted.js";
 import { extractInboundEmail } from "../ingest/extract.js";
 import { resolveExtractionProvider } from "../ingest/providers.js";
+import type { ExtractionProvider } from "../ingest/providers.js";
 import { parseMime } from "../ingest/mime.js";
 import { MAX_RAW_BYTES } from "../ingest.js";
+import { ForbiddenError, NotFoundError } from "../repos/base.js";
 import { DraftBookingRepo } from "../repos/draft-booking.js";
 import { HouseholdSettingsRepo } from "../repos/household-settings.js";
-import { InboundEmailRepo } from "../repos/inbound-email.js";
-import type { InboundEmailStatus } from "../repos/inbound-email.js";
+import { InboundEmailRepo, rawUnavailableReason } from "../repos/inbound-email.js";
+import type { InboundEmail, InboundEmailStatus } from "../repos/inbound-email.js";
 import { ImportReviewRepo } from "../repos/import-review.js";
 import type { CreateTripFromDraftsInput } from "../repos/import-review.js";
 import { isValidCalendarDate } from "../time.js";
@@ -29,6 +32,28 @@ export type FileImportResult = {
 };
 
 export const imports = new Hono<AppEnv>();
+
+/**
+ * Age out this household's expired raw mail, best-effort.
+ *
+ * This Worker has no cron trigger, so the purge has to ride along on paths
+ * that already run. Import review is the natural second host after ingest:
+ * accepting or dismissing a draft is precisely the moment the reviewer is
+ * finished with the message it came from, and it is already a write by a
+ * household member. Failures are logged and swallowed — a sweep that could
+ * fail the accept it is attached to would trade a real user action for a
+ * housekeeping chore.
+ */
+async function sweepExpiredRaw(emails: InboundEmailRepo): Promise<void> {
+  try {
+    const purged = await emails.purgeExpiredRaw();
+    if (purged.length > 0) {
+      console.info(`[import] purged raw from ${purged.length} expired inbound email(s)`);
+    }
+  } catch (err) {
+    console.error("[import] retention sweep failed", err);
+  }
+}
 
 const draftIdsSchema = z.array(z.string().min(1)).min(1).max(100);
 // `allowDuplicates` must be sent deliberately on the retry, never defaulted:
@@ -70,14 +95,16 @@ imports.post("/accept", async (c) => {
   // A draft that repeats a booking already on the trip throws ConflictError
   // (409) here, which app.onError surfaces with its message so the reviewer
   // can retry with allowDuplicates.
-  return c.json(
-    await new ImportReviewRepo(c.get("db"), c.get("identity"), c.get("ring"))
-      .acceptIntoTrip(
-        parsed.data.draftIds,
-        parsed.data.tripId,
-        parsed.data.allowDuplicates ?? false,
-      ),
-  );
+  const result = await new ImportReviewRepo(c.get("db"), c.get("identity"), c.get("ring"))
+    .acceptIntoTrip(
+      parsed.data.draftIds,
+      parsed.data.tripId,
+      parsed.data.allowDuplicates ?? false,
+    );
+  // After the accept, never before: the sweep must not be able to delete the
+  // message a failing accept would want re-read.
+  await sweepExpiredRaw(new InboundEmailRepo(c.get("db"), c.get("identity"), c.get("ring")));
+  return c.json(result);
 });
 
 imports.post("/create-trip", async (c) => {
@@ -85,11 +112,10 @@ imports.post("/create-trip", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid imported trip", details: parsed.error.issues }, 400);
   }
-  return c.json(
-    await new ImportReviewRepo(c.get("db"), c.get("identity"), c.get("ring"))
-      .createTripFromDrafts(parsed.data satisfies CreateTripFromDraftsInput),
-    201,
-  );
+  const created = await new ImportReviewRepo(c.get("db"), c.get("identity"), c.get("ring"))
+    .createTripFromDrafts(parsed.data satisfies CreateTripFromDraftsInput);
+  await sweepExpiredRaw(new InboundEmailRepo(c.get("db"), c.get("identity"), c.get("ring")));
+  return c.json(created, 201);
 });
 
 imports.post("/dismiss", async (c) => {
@@ -97,13 +123,13 @@ imports.post("/dismiss", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid import dismissal", details: parsed.error.issues }, 400);
   }
-  return c.json({
-    dismissedDraftIds: await new ImportReviewRepo(
-      c.get("db"),
-      c.get("identity"),
-      c.get("ring"),
-    ).dismiss(parsed.data.draftIds),
-  });
+  const dismissedDraftIds = await new ImportReviewRepo(
+    c.get("db"),
+    c.get("identity"),
+    c.get("ring"),
+  ).dismiss(parsed.data.draftIds);
+  await sweepExpiredRaw(new InboundEmailRepo(c.get("db"), c.get("identity"), c.get("ring")));
+  return c.json({ dismissedDraftIds });
 });
 
 imports.post("/file", async (c) => {
@@ -156,19 +182,94 @@ imports.post("/file", async (c) => {
       : await prepareEml(file, identity.householdId);
   if ("error" in prepared) return c.json({ error: prepared.error }, prepared.status);
 
-  const emails = new InboundEmailRepo(c.get("db"), identity);
+  // With the ring: an uploaded PDF or .eml is the same class of document as a
+  // forwarded confirmation and is sealed at rest identically.
+  const emails = new InboundEmailRepo(c.get("db"), identity, c.get("ring"));
   const email = await emails.create({
     from: prepared.value.from,
     to,
     subject: prepared.value.subject,
     raw: prepared.value.raw,
   });
+  const result = await runExtraction(c, emails, email, provider, configured.extractionInstructions);
+  // The other opportunistic host for the sweep: importing a file is a write
+  // by a household member, on the same table the retention policy governs.
+  await sweepExpiredRaw(emails);
+  return c.json(result);
+});
+
+/**
+ * Re-run extraction over a message this household has already stored.
+ *
+ * This is the endpoint the retention window exists to serve: an extraction
+ * that produced nothing useful is worth another attempt (with a different
+ * model, or after a parser fix), and that attempt needs the original message.
+ * Once the window has passed, raw is gone and no amount of retrying will
+ * bring it back — so this answers 410 Gone with the reason in plain words
+ * rather than quietly re-extracting an empty string and reporting "no
+ * bookings found", which would look like a model failure and invite the user
+ * to keep pressing the button.
+ *
+ * Idempotent by construction: extractInboundEmail() short-circuits when the
+ * email already has drafts, so a second call returns the same drafts instead
+ * of a second copy of them.
+ */
+imports.post("/:inboundEmailId/reextract", async (c) => {
+  const identity = c.get("identity");
+  if (identity.role === "viewer") {
+    throw new ForbiddenError("Viewers may not re-run extraction");
+  }
+  const emails = new InboundEmailRepo(c.get("db"), identity, c.get("ring"));
+  const email = await emails.findById(c.req.param("inboundEmailId"));
+  if (!email) throw new NotFoundError("Inbound email not found in this household");
+
+  const unavailable = rawUnavailableReason(email);
+  if (unavailable) {
+    // 410, not 404: the row is right here, and the client asked for something
+    // that used to exist and deliberately does not any more.
+    return c.json({ error: `${unavailable} Extraction cannot be re-run.` }, 410);
+  }
+
+  const configured = await new HouseholdSettingsRepo(
+    c.get("db"),
+    identity,
+    c.get("ring"),
+  ).getIngestSettings();
+  const provider = await resolveExtractionProvider({
+    settings: configured,
+    ai: c.env.AI,
+    ring: c.get("ring"),
+    anthropicClientFactory: c.get("anthropicClientFactory"),
+    logContext: `re-extraction of inbound email ${email.id}`,
+  });
+  if (!provider) {
+    return c.json({ error: "The configured extraction provider is unavailable" }, 503);
+  }
+
+  return c.json(
+    await runExtraction(c, emails, email, provider, configured.extractionInstructions),
+  );
+});
+
+/**
+ * Extract one stored email and report what came of it. Shared by the file
+ * import and the re-extraction endpoint so the two cannot disagree about how
+ * a `rejected` row is reported or which drafts count as the answer.
+ */
+async function runExtraction(
+  c: Context<AppEnv>,
+  emails: InboundEmailRepo,
+  email: InboundEmail,
+  provider: ExtractionProvider,
+  extractionInstructions: string,
+): Promise<FileImportResult> {
+  const identity = c.get("identity");
   await extractInboundEmail(
     {
       db: c.get("db"),
       householdId: identity.householdId,
       provider,
-      extractionInstructions: configured.extractionInstructions,
+      extractionInstructions,
     },
     email,
   );
@@ -176,7 +277,7 @@ imports.post("/file", async (c) => {
   const finished = await emails.findById(email.id);
   if (!finished) throw new Error("Imported file disappeared immediately after extraction");
   const drafts = await new DraftBookingRepo(c.get("db"), identity).listByEmail(email.id);
-  const result: FileImportResult = {
+  return {
     inboundEmailId: email.id,
     status:
       finished.status === "rejected"
@@ -185,8 +286,7 @@ imports.post("/file", async (c) => {
     error: finished.error,
     bookings: drafts.map((draft) => normalizeExtractedBooking(draft.extracted)),
   };
-  return c.json(result);
-});
+}
 
 function safeHeader(value: string): string {
   return value.replace(/[\r\n]+/g, " ").trim().slice(0, 180);

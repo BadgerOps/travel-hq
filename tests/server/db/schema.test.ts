@@ -47,6 +47,31 @@ describe("migrated schema", () => {
     );
   });
 
+  it("gives stored raw email an encryption label and a purge stamp", async () => {
+    const columns = await env.DB.prepare("PRAGMA table_info(inbound_email)")
+      .all<{ name: string; dflt_value: string | null; notnull: number }>();
+    const byName = new Map(columns.results.map((column) => [column.name, column]));
+
+    // 'plaintext' is the default because every row that predates migration
+    // 0015 holds a readable message; anything else would mislabel history and
+    // make legacy mail unreadable.
+    expect(byName.get("raw_encryption")?.dflt_value).toContain("plaintext");
+    expect(byName.get("raw_encryption")?.notnull).toBe(1);
+    // Nullable on purpose: NULL means "never purged", which is distinct from
+    // a rejected row that was born with raw = ''.
+    expect(byName.get("raw_purged_at")?.notnull).toBe(0);
+
+    const now = new Date().toISOString();
+    await env.DB.prepare("INSERT INTO household (id,name,created_at) VALUES (?,?,?)")
+      .bind("hh-raw", "Raw", now).run();
+    await expect(env.DB.prepare(
+      `INSERT INTO inbound_email
+       (id, household_id, from_address, to_address, raw, raw_encryption, status, received_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+    ).bind("ie-bad", "hh-raw", "a@b.com", "t@b.foo", "raw", "rot13", "received", now).run())
+      .rejects.toThrow(/CHECK/i);
+  });
+
   it("adds constrained extraction-agent settings with safe defaults", async () => {
     const columns = await env.DB.prepare("PRAGMA table_info(household_settings)")
       .all<{ name: string; dflt_value: string | null }>();

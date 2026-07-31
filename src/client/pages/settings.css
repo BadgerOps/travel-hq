@@ -35,6 +35,21 @@
   text-align: right;
 }
 
+/* The raw-email retention policy, stated inside the Email ingest group. Set
+   apart from the fields above it with a rule and a tinted panel because it is
+   a promise about the user's data rather than another control: it should read
+   as the section's terms, not as something else to fill in. */
+.settings-retention {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
 /* ── Recent ingest activity ──
    Each row is ONE interactive element: a button styled as a surface card.
    (Previously the article had an onClick and a nested button doing the same

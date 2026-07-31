@@ -18,6 +18,10 @@ import {
   MIN_WORKERS_AI_MAX_TOKENS,
   SUPPORTED_WORKERS_AI_MODELS,
 } from "../../shared/workers-ai-models.js";
+import {
+  RAW_RETENTION_EXTRACTED_DAYS,
+  RAW_RETENTION_UNRESOLVED_DAYS,
+} from "../../shared/email-retention.js";
 import "./settings.css";
 
 /* Fallback presets only — the dropdown normally lists what the account can
@@ -253,6 +257,29 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
                   One address or domain per line. Exact addresses can use verified DKIM
                   when Cloudflare omits its authentication verdict; domain entries require
                   Cloudflare verification. An empty list disables email ingest.
+                </p>
+              </div>
+
+              {/* The retention promise, in the place the forwarding address is
+                  configured — the moment someone decides to send their mail
+                  here is the moment they should learn how long it stays. The
+                  day counts come from the same constants the purge enforces,
+                  so this paragraph cannot drift away from the behaviour. */}
+              <div className="settings-retention">
+                <h6 className="section-kicker" style={{ margin: 0 }}>What is kept, and for how long</h6>
+                <p className="text-muted" style={{ margin: 0 }}>
+                  Forwarded mail is stored encrypted, with the same key ring that protects
+                  passport and confirmation numbers. The full message is kept for{" "}
+                  <strong>{RAW_RETENTION_EXTRACTED_DAYS} days</strong> after it is extracted
+                  successfully, and for up to{" "}
+                  <strong>{RAW_RETENTION_UNRESOLVED_DAYS} days</strong> while it is still
+                  queued or after extraction failed — long enough to retry a bad extraction
+                  or diagnose it.
+                </p>
+                <p className="text-muted" style={{ margin: 0 }}>
+                  After that the message text is deleted automatically. The sender, subject,
+                  status and the bookings extracted from it are kept, so your trips are
+                  unaffected; the original message simply stops being readable here.
                 </p>
               </div>
 
