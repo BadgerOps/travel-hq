@@ -490,30 +490,33 @@ export class BookingRepo extends BookingAwareRepo {
     );
     if (!person) throw new NotFoundError("Person not found in this household");
 
-    // Unscoped by design: booking_person carries no household_id of its own,
-    // but both ids above were already confirmed to be in this household by
-    // the scoped get() calls immediately above — that's what makes this
-    // write safe despite bypassing {scope}.
-    await this.unscopedRun(
-      "join-table write; both bookingId and personId already confirmed in-household by get() above",
-      "INSERT OR IGNORE INTO booking_person (booking_id, person_id) VALUES (?, ?)",
-      bookingId,
-      personId,
-    );
-
-    // Being on a booking for a trip means being on that trip — the data
-    // model must not allow the two to diverge. Without this, a person can be
-    // assigned to a booking without ever being added via PUT
-    // /api/trips/:tripId/people/:personId, which leaves them visible in
-    // Overview (which reads bookings.personIds) but invisible in the day
-    // view and Travelers tab (which both read trip_person via
-    // TripRepo.travelers()) — see TripRepo.addTraveler for the identical
-    // idempotent-insert pattern this mirrors.
-    await this.unscopedRun(
-      "join-table write; both tripId (from the scoped booking row above) and personId already confirmed in-household",
-      "INSERT OR IGNORE INTO trip_person (trip_id, person_id) VALUES (?, ?)",
-      booking.trip_id,
-      personId,
+    // Both rows in ONE batch, not two sequential writes. Being on a booking
+    // for a trip means being on that trip — the data model must not allow the
+    // two to diverge. Without the trip_person row a person is visible in
+    // Overview (which reads bookings.personIds) but invisible in the day view
+    // and Travelers tab (which both read trip_person via TripRepo.travelers()),
+    // and two separate calls leave exactly that split behind whenever the
+    // second one fails: a request that returned an error having still half
+    // happened. D1's batch is a single implicit transaction, so the pair now
+    // either both land or neither does. See TripRepo.addTraveler for the
+    // idempotent-insert pattern each statement mirrors.
+    //
+    // Unscoped by design: neither join table carries a household_id of its
+    // own, but the booking (and therefore its trip_id) and the person were
+    // both confirmed in-household by the scoped get() calls above — that is
+    // what makes these writes safe despite bypassing {scope}.
+    await this.unscopedBatchRun(
+      "join-table writes that must not diverge; bookingId, its trip_id, and personId all confirmed in-household by the get() calls above",
+      [
+        {
+          sql: "INSERT OR IGNORE INTO booking_person (booking_id, person_id) VALUES (?, ?)",
+          params: [bookingId, personId],
+        },
+        {
+          sql: "INSERT OR IGNORE INTO trip_person (trip_id, person_id) VALUES (?, ?)",
+          params: [booking.trip_id, personId],
+        },
+      ],
     );
   }
 
