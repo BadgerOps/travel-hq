@@ -1,4 +1,5 @@
 import type {
+  AuditEntry,
   Booking,
   BookingStatus,
   Card,
@@ -268,6 +269,14 @@ export function createApi(config: ApiConfig = {}) {
     inboundEmails: {
       list: () => request<InboundEmailMetadata[]>("/api/inbound-emails"),
       get: (id: string) => request<InboundEmailDetail>(`/api/inbound-emails/${seg(id)}`),
+    },
+    audit: {
+      /**
+       * Owner-only; 403 for everyone else, which Settings treats as "this
+       * panel isn't for you" rather than an error. Returns the identifiers of
+       * what was revealed — never the revealed values.
+       */
+      reveals: () => request<AuditEntry[]>("/api/audit/reveals"),
     },
     imports: {
       pending: () => request<PendingImportDraft[]>("/api/imports/pending"),
