@@ -1,3 +1,5 @@
+import { log } from "../logging.js";
+
 export type Role = "owner" | "adult" | "viewer";
 
 export type HouseholdContext = {
@@ -45,12 +47,21 @@ export class ValidationError extends RepoError {}
 export class ConflictError extends RepoError {}
 
 function logScopeBug(reason: string, detail: string): void {
-  // Never silent outside production so tests/dev/CI see the offending SQL.
-  const nodeEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-    ?.NODE_ENV;
-  if (nodeEnv !== "production") {
-    console.error(`[TenantScopeError] ${reason}\n${detail}`);
-  }
+  // ALWAYS logged, production included (issue #8). This used to be silenced
+  // when NODE_ENV === "production", which had it exactly backwards: a tenancy
+  // scope bug is the single failure this codebase most needs a trace of in
+  // production, and the client only ever sees a generic 500 (mapError's
+  // TenantScopeError branch), so the log line is the ONLY evidence it happened.
+  //
+  // The process-wide logger rather than a request-scoped child: scopeBug() is
+  // called from deep inside statement preparation, which has no Hono context
+  // to reach. The line is still correlatable -- the `request` line for the
+  // same invocation carries the same timestamp window and the resulting 500.
+  //
+  // `reason` and `sql` are safe to log by construction: both are written from
+  // the query TEXT and identifier names, never from bound parameter VALUES.
+  // The .message on the thrown TenantScopeError stays generic; see mapError.
+  log.error("tenant_scope_bug", { reason, sql: detail });
 }
 
 function scopeBug(reason: string, detail: string): never {
