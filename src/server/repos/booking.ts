@@ -497,30 +497,33 @@ export class BookingRepo extends BookingAwareRepo {
     );
     if (!person) throw new NotFoundError("Person not found in this household");
 
-    // Unscoped by design: booking_person carries no household_id of its own,
-    // but both ids above were already confirmed to be in this household by
-    // the scoped get() calls immediately above — that's what makes this
-    // write safe despite bypassing {scope}.
-    await this.unscopedRun(
-      "join-table write; both bookingId and personId already confirmed in-household by get() above",
-      "INSERT OR IGNORE INTO booking_person (booking_id, person_id) VALUES (?, ?)",
-      bookingId,
-      personId,
-    );
-
-    // Being on a booking for a trip means being on that trip — the data
-    // model must not allow the two to diverge. Without this, a person can be
-    // assigned to a booking without ever being added via PUT
-    // /api/trips/:tripId/people/:personId, which leaves them visible in
-    // Overview (which reads bookings.personIds) but invisible in the day
-    // view and Travelers tab (which both read trip_person via
-    // TripRepo.travelers()) — see TripRepo.addTraveler for the identical
-    // idempotent-insert pattern this mirrors.
-    await this.unscopedRun(
-      "join-table write; both tripId (from the scoped booking row above) and personId already confirmed in-household",
-      "INSERT OR IGNORE INTO trip_person (trip_id, person_id) VALUES (?, ?)",
-      booking.trip_id,
-      personId,
+    // Both rows in ONE batch, not two sequential writes. Being on a booking
+    // for a trip means being on that trip — the data model must not allow the
+    // two to diverge. Without the trip_person row a person is visible in
+    // Overview (which reads bookings.personIds) but invisible in the day view
+    // and Travelers tab (which both read trip_person via TripRepo.travelers()),
+    // and two separate calls leave exactly that split behind whenever the
+    // second one fails: a request that returned an error having still half
+    // happened. D1's batch is a single implicit transaction, so the pair now
+    // either both land or neither does. See TripRepo.addTraveler for the
+    // idempotent-insert pattern each statement mirrors.
+    //
+    // Unscoped by design: neither join table carries a household_id of its
+    // own, but the booking (and therefore its trip_id) and the person were
+    // both confirmed in-household by the scoped get() calls above — that is
+    // what makes these writes safe despite bypassing {scope}.
+    await this.unscopedBatchRun(
+      "join-table writes that must not diverge; bookingId, its trip_id, and personId all confirmed in-household by the get() calls above",
+      [
+        {
+          sql: "INSERT OR IGNORE INTO booking_person (booking_id, person_id) VALUES (?, ?)",
+          params: [bookingId, personId],
+        },
+        {
+          sql: "INSERT OR IGNORE INTO trip_person (trip_id, person_id) VALUES (?, ?)",
+          params: [booking.trip_id, personId],
+        },
+      ],
     );
   }
 
@@ -596,14 +599,35 @@ export class BookingRepo extends BookingAwareRepo {
    * I5: a bookingId that doesn't exist (or belongs to another household) now
    * throws NotFoundError, distinct from "this booking exists but has no
    * confirmation number", which still resolves to `null`.
+   *
+   * Issue #19: `tripId` is the PARENT the reveal is being performed under, and
+   * it is part of the lookup, not a decoration. The HTTP surface is a nested
+   * resource (POST /api/trips/:tripId/bookings/:bookingId/reveal); before this
+   * argument existed the :tripId segment was read and discarded, so any
+   * booking in the household could be revealed under any other trip's URL. The
+   * disclosure boundary was never crossed (household scoping saw to that), but
+   * the audit record that reveal now writes would have named a trip that had
+   * nothing to do with the booking -- a wrong answer to "where did this
+   * happen", which is worse than no answer.
+   *
+   * Optional so a non-nested caller (a repo-level test, a future job with no
+   * trip in hand) is not forced to invent one; passing it is what the nested
+   * route does, and a mismatch is a 404 -- the same answer as a booking that
+   * genuinely is not there, disclosing nothing about which trips exist.
    */
-  async revealConfirmation(bookingId: string): Promise<string | null> {
+  async revealConfirmation(bookingId: string, tripId?: string): Promise<string | null> {
     this.requireReveal();
-    const row = await this.get<{ value: string | null }>(
-      "SELECT confirmation_number AS value FROM booking WHERE {scope} AND id = ?2",
-      bookingId,
-    );
-    if (!row) throw new NotFoundError("Booking not found in this household");
+    const row = tripId
+      ? await this.get<{ value: string | null }>(
+          "SELECT confirmation_number AS value FROM booking WHERE {scope} AND id = ?2 AND trip_id = ?3",
+          bookingId,
+          tripId,
+        )
+      : await this.get<{ value: string | null }>(
+          "SELECT confirmation_number AS value FROM booking WHERE {scope} AND id = ?2",
+          bookingId,
+        );
+    if (!row) throw new NotFoundError("Booking not found on this trip in this household");
     return openConfirmation(this.ring, row.value);
   }
 }

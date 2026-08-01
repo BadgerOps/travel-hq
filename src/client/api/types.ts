@@ -39,6 +39,7 @@ export type {
   UpdateHouseholdSettingsInput,
 } from "../../server/repos/household-settings.js";
 export type { InboundEmailMetadata } from "../../server/repos/inbound-email.js";
+export type { AuditEntry, AuditEvent } from "../../server/repos/audit.js";
 export type { InboundEmailDetail } from "../../server/routes/inbound-emails.js";
 export type { DraftBooking } from "../../server/repos/draft-booking.js";
 export type { ExtractedBooking } from "../../server/ingest/extracted.js";

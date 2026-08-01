@@ -17,6 +17,15 @@ export const AI_PROVIDERS = ["workers-ai", "anthropic"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 export const MAX_EXTRACTION_INSTRUCTIONS_CHARS = 2_000;
 
+/**
+ * One wording for one condition. The pre-check in updateSettings and the
+ * UNIQUE constraint that backstops it are the same rejection observed before
+ * and after the write, and a caller must not be able to tell which one caught
+ * it — a different message would be the only visible trace of a race the
+ * caller can do nothing about.
+ */
+const FORWARD_ADDRESS_TAKEN = "That forward address is already in use by another household";
+
 export type HouseholdSettings = {
   /** Where mail for this household is sent; null = ingest not configured. */
   forwardAddress: string | null;
@@ -197,41 +206,57 @@ export class HouseholdSettingsRepo extends TenantRepo {
         forwardAddress,
       );
       if (claims.some((c) => c.household_id !== this.ctx.householdId)) {
-        throw new ValidationError("That forward address is already in use by another household");
+        throw new ValidationError(FORWARD_ADDRESS_TAKEN);
       }
     }
 
     const now = new Date().toISOString();
-    if (current) {
-      await this.run(
-        `UPDATE household_settings
-            SET forward_address = ?2, sender_allowlist = ?3, ai_model = ?4,
-                ai_max_tokens = ?5, ai_provider = ?6, anthropic_model = ?7,
-                anthropic_api_key = ?8, extraction_instructions = ?9, updated_at = ?10
-          WHERE {scope}`,
-        forwardAddress,
-        senderAllowlist,
-        aiModel,
-        aiMaxTokens,
-        aiProvider,
-        anthropicModel,
-        anthropicApiKey,
-        extractionInstructions,
-        now,
-      );
-    } else {
-      await this.insert("household_settings", {
-        forward_address: forwardAddress,
-        sender_allowlist: senderAllowlist,
-        ai_model: aiModel,
-        ai_max_tokens: aiMaxTokens,
-        ai_provider: aiProvider,
-        anthropic_model: anthropicModel,
-        anthropic_api_key: anthropicApiKey,
-        extraction_instructions: extractionInstructions,
-        created_at: now,
-        updated_at: now,
-      });
+    // The pre-check above and the UNIQUE constraint answer the same question
+    // at two different moments, so they must give the caller the same answer.
+    // A household that loses the race between them has made exactly the
+    // request the pre-check rejects — it just made it a few milliseconds
+    // later — and it deserves the same 400 with the same wording, not the
+    // 500 a bare D1_ERROR would map to. Scoped as tightly as possible: only
+    // a forward_address clash is translated, and only when this call was
+    // actually setting one, so a UNIQUE violation on any other column stays
+    // the unexpected server error it is.
+    try {
+      if (current) {
+        await this.run(
+          `UPDATE household_settings
+              SET forward_address = ?2, sender_allowlist = ?3, ai_model = ?4,
+                  ai_max_tokens = ?5, ai_provider = ?6, anthropic_model = ?7,
+                  anthropic_api_key = ?8, extraction_instructions = ?9, updated_at = ?10
+            WHERE {scope}`,
+          forwardAddress,
+          senderAllowlist,
+          aiModel,
+          aiMaxTokens,
+          aiProvider,
+          anthropicModel,
+          anthropicApiKey,
+          extractionInstructions,
+          now,
+        );
+      } else {
+        await this.insert("household_settings", {
+          forward_address: forwardAddress,
+          sender_allowlist: senderAllowlist,
+          ai_model: aiModel,
+          ai_max_tokens: aiMaxTokens,
+          ai_provider: aiProvider,
+          anthropic_model: anthropicModel,
+          anthropic_api_key: anthropicApiKey,
+          extraction_instructions: extractionInstructions,
+          created_at: now,
+          updated_at: now,
+        });
+      }
+    } catch (err) {
+      if (forwardAddress !== null && isForwardAddressConflict(err)) {
+        throw new ValidationError(FORWARD_ADDRESS_TAKEN);
+      }
+      throw err;
     }
 
     return this.getSettings();
@@ -432,6 +457,30 @@ function normalizeInstructions(instructions: string): string {
     );
   }
   return instructions;
+}
+
+/**
+ * True only for SQLite's UNIQUE violation on household_settings.forward_address.
+ *
+ * Matched on the message because that is all D1 gives us: it wraps the SQLite
+ * error as `D1_ERROR: UNIQUE constraint failed: household_settings.forward_address`
+ * with no structured code, and workerd may nest the original under `cause`.
+ * Naming the table AND the column keeps the match narrow — a UNIQUE violation
+ * anywhere else must not be laundered into a 400.
+ */
+const FORWARD_ADDRESS_UNIQUE_RE =
+  /UNIQUE constraint failed:\s*household_settings\.forward_address/i;
+
+function isForwardAddressConflict(err: unknown): boolean {
+  for (let cursor: unknown = err, depth = 0; cursor !== null && cursor !== undefined && depth < 5; depth++) {
+    if (cursor instanceof Error) {
+      if (FORWARD_ADDRESS_UNIQUE_RE.test(cursor.message)) return true;
+      cursor = cursor.cause;
+      continue;
+    }
+    return typeof cursor === "string" && FORWARD_ADDRESS_UNIQUE_RE.test(cursor);
+  }
+  return false;
 }
 
 function rejectMasked(field: string, value: string): void {

@@ -6,6 +6,7 @@ import { BookingRepo } from "../repos/booking.js";
 import { DuplicateRepo } from "../repos/duplicates.js";
 import { PersonRepo } from "../repos/person.js";
 import { RollupRepo } from "../repos/rollup.js";
+import { AuditRepo } from "../repos/audit.js";
 import { BOOKING_KINDS } from "../schemas/booking-kinds.js";
 import { isValidCalendarDate, isValidInstant, isValidTimezone } from "../time.js";
 import { ForbiddenError, NotFoundError } from "../repos/base.js";
@@ -408,23 +409,43 @@ trips.post("/:tripId/bookings/:bookingId/reveal", async (c) => {
     return c.json({ error: "Reveal actions require application/json" }, 415);
   }
   const identity = c.get("identity");
-  const repo = new BookingRepo(c.get("db"), identity, c.get("ring"));
-  // A viewer role (ForbiddenError, I3) or an unknown/cross-household
-  // bookingId (NotFoundError, I5) throw here and are mapped by app.onError
-  // before the log line below ever runs -- a denied or nonexistent reveal is
-  // not a reveal to log.
-  const value = await repo.revealConfirmation(c.req.param("bookingId"));
+  const db = c.get("db");
+  const tripId = c.req.param("tripId");
+  const bookingId = c.req.param("bookingId");
+  const repo = new BookingRepo(db, identity, c.get("ring"));
+  // A viewer role (ForbiddenError, I3), an unknown/cross-household bookingId,
+  // or -- since issue #19 -- a booking that exists but belongs to a DIFFERENT
+  // trip than the :tripId in the path (NotFoundError, I5) all throw here and
+  // are mapped by app.onError before anything below runs. A denied,
+  // nonexistent, or wrong-parent reveal is not a reveal to record.
+  const value = await repo.revealConfirmation(bookingId, tripId);
 
-  // The spec requires reveals to be logged.
-  console.info(
-    JSON.stringify({
-      event: "confirmation_reveal",
-      at: new Date().toISOString(),
-      user: identity.email,
-      household: identity.householdId,
-      booking: c.req.param("bookingId"),
-    }),
-  );
+  // The durable half of the audit trail (issue #8): a row an owner can read
+  // back months later from Settings, carrying WHICH booking was revealed,
+  // under WHICH trip, by WHOM, and WHEN -- never the confirmation number
+  // itself. Not wrapped in a try/catch on purpose: a reveal this household
+  // cannot account for is worse than a reveal that failed, so an audit write
+  // that fails takes the request down with it (500) rather than handing back
+  // plaintext off the record.
+  const entry = await new AuditRepo(db, identity).recordReveal({
+    event: "confirmation_reveal",
+    subjectType: "booking",
+    subjectId: bookingId,
+    field: "confirmation_number",
+    tripId,
+  });
+
+  // The ephemeral half: the same event in the structured log stream, joined to
+  // the row by auditId and to the request by the logger's own requestId. Ids
+  // only -- the actor is a user id here, while the audit ROW carries the email
+  // (a human-readable audit trail needs a name; a log stream does not).
+  c.get("logger").info("confirmation_reveal", {
+    auditId: entry.id,
+    bookingId,
+    tripId,
+    householdId: identity.householdId,
+    userId: identity.userId,
+  });
 
   return c.json({ value });
 });
@@ -509,9 +530,23 @@ trips.delete("/:tripId/people/:personId", async (c) => {
 trips.get("/:tripId/travelers", async (c) => {
   const identity = c.get("identity");
   const db = c.get("db");
-  // Both calls are household-scoped by TenantRepo, so a cross-household
-  // tripId simply yields no person ids -- it cannot leak a foreign roster.
-  const ids = new Set(await new TripRepo(db, identity).travelers(c.req.param("tripId")));
+  const tripRepo = new TripRepo(db, identity);
+  // Issue #19: existence-check the parent FIRST. Both calls below are
+  // household-scoped by TenantRepo, so an unknown or cross-household tripId
+  // could never leak a foreign roster -- but it answered `200 []`, i.e. "this
+  // trip exists and nobody is on it", while every sibling route
+  // (/bookings, /itinerary, /rollup) answers 404 for the same input. A client
+  // cannot distinguish an empty trip from an absent one, and a nested route
+  // that reports success for a parent that does not exist is a bug waiting to
+  // be built on.
+  //
+  // Belt and braces with the authorizeTrip middleware in index.ts, which
+  // resolves the same trip and 404s when it cannot: this route must not depend
+  // on a middleware REGISTRATION staying in place to keep its own contract.
+  if (!(await tripRepo.findById(c.req.param("tripId")))) {
+    throw new NotFoundError("Trip not found in this household");
+  }
+  const ids = new Set(await tripRepo.travelers(c.req.param("tripId")));
   const people = await new PersonRepo(db, identity, c.get("ring")).list();
   return c.json(people.filter((p) => ids.has(p.id)));
 });
