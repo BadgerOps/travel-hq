@@ -293,6 +293,27 @@ export abstract class TenantRepo {
   }
 
   /**
+   * run() for a compare-and-set: identical scoping, but it returns how many
+   * rows the statement actually changed instead of discarding that.
+   *
+   * A conditional write (`... AND status = 'received'`) carries its own
+   * outcome in that number. Zero means the guard did not hold — another
+   * worker moved the row between this caller's read and its write — and
+   * throwing away the count is precisely what turns a lost race into a
+   * reported success. A caller that asserts an exact count gets optimistic
+   * concurrency with no lock and no second read to race against.
+   */
+  protected async runChanges(sql: string, ...params: unknown[]): Promise<number> {
+    if (isWriteQuery(sql)) this.requireWrite();
+    const scoped = this.scopeQuery(sql);
+    const { meta } = await this.db
+      .prepare(scoped)
+      .bind(this.ctx.householdId, ...params)
+      .run();
+    return changedRows(meta);
+  }
+
+  /**
    * Inserts are the one case with no WHERE clause to scope. The household id is
    * supplied by the context, not the caller, so a caller cannot insert into
    * another tenant even if they try. Placeholders here are anonymous ? bound in
@@ -416,4 +437,22 @@ export abstract class TenantRepo {
  */
 function isWriteQuery(sql: string): boolean {
   return WRITE_KEYWORD_RE.test(scanSql(sql).stripped);
+}
+
+/**
+ * How many rows a write actually touched, from D1's run metadata.
+ *
+ * `changes` is SQLite's own count of rows modified by the statement and is
+ * what a compare-and-set needs. `rows_written` is D1's billing/accounting
+ * figure — it counts index pages as well as rows, so it can exceed the row
+ * count and must never stand in for an exact comparison. It is used only as
+ * a coarse did-anything-happen fallback for a driver that omits `changes`,
+ * which is strictly better than reading `undefined` as zero and declaring
+ * every successful write a lost race.
+ */
+function changedRows(meta: D1Meta): number {
+  const changes: unknown = meta.changes;
+  if (typeof changes === "number") return changes;
+  const rowsWritten: unknown = meta.rows_written;
+  return typeof rowsWritten === "number" && rowsWritten > 0 ? 1 : 0;
 }

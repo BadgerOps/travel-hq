@@ -63,6 +63,15 @@
   trip), and asking for the travellers of an unknown or other-household trip
   answers 404 instead of an empty list, matching the sibling bookings,
   itinerary and rollup routes.
+- Fixed three places where a failure or a second writer could leave the
+  database half-changed. Assigning a person to a booking now writes the
+  booking and the trip roster in one transaction, so the two can no longer
+  disagree about who is on a trip. Marking a forwarded email extracted or
+  failed now confirms it actually changed the row, so two overlapping
+  extractor runs can no longer both be told they won. And a forward address
+  claimed by two households at the same instant now answers the loser with
+  the same "already in use" message the ordinary check gives, instead of a
+  server error.
 
 ## 0.7.0 - 2026-07-27
 
