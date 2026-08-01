@@ -48,6 +48,12 @@
  * 0) because "no dates" is not evidence of fit, and the maximum location bonus
  * cannot lift it back over one.
  *
+ * Everything past a month ties at 0 by design, so `rankTrips` breaks ties on
+ * the actual gap, ascending. That is a presentation rule as much as a ranking
+ * one — every option is labelled with its exact day count, and a list ordered
+ * 2, 103, 67 reads as broken however defensible the arithmetic behind it is.
+ * See `rankTrips` for why the gap is a tie-break rather than part of the score.
+ *
  * MULTI-DRAFT SELECTIONS are scored against the selection's own COMBINED range
  * — earliest start to latest end across every selected draft — which is the
  * same range `ImportReviewRepo.createTripFromDrafts` would give a trip created
@@ -289,10 +295,27 @@ export function scoreTripMatch(trip: MatchableTrip, selection: ImportSelection):
 /**
  * The trips, best fit first, each with its reason.
  *
- * The sort is STABLE (Array.prototype.sort has been since ES2019), so trips
- * that fit equally well keep the order the caller supplied them in — which is
- * the API's own order, i.e. what the picker showed before this ranking
- * existed. Equal scores must not shuffle between renders.
+ * Two keys, and the second one is not decoration. The score floors at 0 past a
+ * month (see DATE_NEAR_PER_DAY), which is the honest thing for the score to do
+ * — a trip 40 days away and one 300 days away are equally "not this one" — but
+ * every option is LABELLED with its exact day count, and a list that reads
+ * "ends 2 days before / ends 103 days before / starts 67 days later" makes the
+ * whole feature look broken. It does not matter that the ranking is behaving
+ * as designed; the user is reading the numbers, and the visible order must
+ * never contradict the visible label.
+ *
+ * So the gap breaks ties, ascending, without entering the score. Scoring the
+ * gap all the way out instead would have meant claiming a precision the fit
+ * does not have — and would have let a 40-days-away trip with a matching
+ * destination outrank a 300-days-away one for a reason the label never
+ * mentions. This way the score still says "these are equally unrelated" and
+ * the order still reads in calendar order.
+ *
+ * Trips with nothing to separate them on either key keep the order the caller
+ * supplied — the API's own — because the sort is STABLE (Array.prototype.sort
+ * has been since ES2019). An unchanged queue must not reshuffle between
+ * renders. Undated trips are unaffected: they carry no gap, and their -1000
+ * puts them below everything dated whatever the tie-break says.
  */
 export function rankTrips<T extends MatchableTrip>(
   trips: readonly T[],
@@ -300,7 +323,17 @@ export function rankTrips<T extends MatchableTrip>(
 ): Array<{ trip: T; match: TripMatch }> {
   return trips
     .map((trip) => ({ trip, match: scoreTripMatch(trip, selection) }))
-    .sort((a, b) => b.match.score - a.match.score);
+    .sort((a, b) => b.match.score - a.match.score || nearness(a.match) - nearness(b.match));
+}
+
+/**
+ * How far this trip is from the selection, for the tie-break above. A fit with
+ * no gap to speak of — it contains, it overlaps, it has no dates, the selection
+ * has no dates — is 0, which leaves those trips in the caller's order rather
+ * than sorting them against a number they do not have.
+ */
+function nearness(match: TripMatch): number {
+  return match.gapDays ?? 0;
 }
 
 function matchLabel(fit: DateFit, gapDays: number | null, locationFit: LocationFit): string {

@@ -232,6 +232,33 @@ describe("ImportReviewQueue — the trip picker", () => {
     ]);
   });
 
+  it("never shows a day count out of order with the option above it", async () => {
+    // Regression, from browser QA of this branch: past a month every gap
+    // scores 0, so the far-away trips used to sit in API order and the picker
+    // read "ends 2 days before / ends 103 days before / starts 67 days
+    // later" — correct arithmetic that reads as a broken feature.
+    const july = draft({ location: "DEN → AMS", localStartsOn: "2026-07-30", localEndsOn: "2026-07-30" });
+    setup([july], [
+      trip({ id: "t-ams", title: "Amsterdam spring", startsOn: "2026-04-10", endsOn: "2026-04-18" }),
+      trip({ id: "t-someday", title: "Someday list" }),
+      trip({ id: "t-crawl", title: "Tokyo food crawl", startsOn: "2026-10-18", endsOn: "2026-10-28" }),
+      trip({ id: "t-maui", title: "Maui summer week", startsOn: "2026-07-21", endsOn: "2026-07-28" }),
+      trip({ id: "t-tokyo", title: "Tokyo in autumn", startsOn: "2026-10-05", endsOn: "2026-10-15" }),
+    ]);
+
+    await screen.findByText("Flight DL2586");
+    await userEvent.click(screen.getByLabelText("Select Flight DL2586"));
+
+    expect(optionsOf()).toEqual([
+      "Choose a trip",
+      "Maui summer week — ends 2 days before",
+      "Tokyo in autumn — starts 67 days later",
+      "Tokyo food crawl — starts 80 days later",
+      "Amsterdam spring — ends 103 days before",
+      "Someday list — no dates",
+    ]);
+  });
+
   it("scores a multi-draft selection against its combined range", async () => {
     // Neither draft names a place either trip does, so dates alone decide.
     const flight = draft({ location: "DEN → AMS" });

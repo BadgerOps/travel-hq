@@ -175,6 +175,55 @@ describe("rankTrips", () => {
     ]);
   });
 
+  it("never orders trips against the day counts their own labels print", () => {
+    // Regression: everything past a month ties at 0 (600 - 20/day, floored),
+    // so the stable sort used to leave far-away trips in API order — and the
+    // picker read "ends 2 days before / ends 103 days before / starts 67 days
+    // later", which looks broken however correct the scoring is.
+    const oneDay = { startsOn: "2026-07-30", endsOn: "2026-07-30" };
+    const ranked = rankTrips(
+      [
+        trip("Amsterdam spring", "2026-04-10", "2026-04-18"),
+        trip("Someday list", null, null),
+        trip("Tokyo food crawl", "2026-10-18", "2026-10-28"),
+        trip("Maui summer week", "2026-07-21", "2026-07-28"),
+        trip("Tokyo in autumn", "2026-10-05", "2026-10-15"),
+      ],
+      { range: oneDay, locations: [] },
+    );
+
+    expect(ranked.map((entry) => `${entry.trip.title} — ${entry.match.label}`)).toEqual([
+      "Maui summer week — ends 2 days before",
+      "Tokyo in autumn — starts 67 days later",
+      "Tokyo food crawl — starts 80 days later",
+      "Amsterdam spring — ends 103 days before",
+      "Someday list — no dates",
+    ]);
+    // The tie-break orders them; it does not pretend they differ in fit.
+    expect(ranked.slice(1, 4).map((entry) => entry.match.score)).toEqual([0, 0, 0]);
+  });
+
+  it("keeps the tie-break from disturbing trips that have no gap to compare", () => {
+    // Containment, overlap and undated all carry gapDays 0/null, so equal
+    // scores still fall back to the caller's order rather than to a number
+    // none of them has.
+    const ranked = rankTrips(
+      [
+        trip("Second contains", "2026-10-19", "2026-10-31"),
+        trip("First contains", "2026-10-20", "2026-10-30"),
+        trip("Later undated", null, null),
+        trip("Earlier undated", null, null),
+      ],
+      { range: october, locations: [] },
+    );
+    expect(ranked.map((entry) => entry.trip.title)).toEqual([
+      "Second contains",
+      "First contains",
+      "Later undated",
+      "Earlier undated",
+    ]);
+  });
+
   it("leaves the caller's order alone when the selection says nothing", () => {
     const trips = [trip("First", null, null), trip("Second", "2026-10-20", "2026-10-30")];
     const ranked = rankTrips(trips, { range: null, locations: [] });
