@@ -4,6 +4,7 @@ import { api as defaultApi } from "../api/client.js";
 import type {
   Booking,
   BookingStatus,
+  PendingImportDraft,
   Person,
   Trip,
   UpdateBookingInput,
@@ -22,6 +23,19 @@ import { TravelerToggles } from "../components/TravelerToggles.js";
  * that knows which field belongs to which kind. A second, read-only-shaped
  * "edit booking" dialog is how the add form and the edit form end up
  * disagreeing about what a car rental has.
+ *
+ * And it is the IMPORT-CORRECTION form (pass `draft`), for the same reason
+ * again: a reviewer fixing an extracted flight number before accepting it is
+ * filling in the same fields, validated by the same per-kind schemas, as
+ * someone typing that flight in by hand. A separate draft form would be a
+ * third opinion about what a flight has, and the one most likely to drift —
+ * it is edited least often and every extractor change lands on it first.
+ *
+ * The three modes stay legible because they differ in exactly three places,
+ * each marked below: what the form is SEEDED from (`seed`), which sections are
+ * drawn (a draft has no travellers of its own and no status yet), and which
+ * save runs. Everything between — the kind control, every per-kind fieldset,
+ * the schedule, the cost — is shared verbatim, which is the entire point.
  *
  * The kind list matches BOOKING_KINDS on the server, "other" included: every
  * booking parsed out of a calendar attachment lands as `other`, and an edit
@@ -62,13 +76,32 @@ const COMMON_ZONES = [
 ];
 
 /**
+ * Everything this form seeds itself from, whether that is a stored booking or
+ * a pending import. Both shapes already carry these fields under these names —
+ * `Booking` because it is the row, `PendingImportDraft` because the queue was
+ * built to be pre-fillable — so the seeding code below reads ONE object and
+ * never asks which mode it is in.
+ */
+type BookingSeed = {
+  kind: string;
+  title: string;
+  location: string | null;
+  startsAt: string | null;
+  startsAtTz: string | null;
+  endsAt: string | null;
+  endsAtTz: string | null;
+  costCents: number | null;
+  details: unknown;
+};
+
+/**
  * The viewer's zone, then the curated list, then whatever zones this booking
  * is actually stored in — an imported booking can carry a zone that is on
  * neither list, and a <select> without its own value silently reassigns it.
  */
-function zoneOptions(booking?: Booking): string[] {
+function zoneOptions(seed?: BookingSeed): string[] {
   const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const stored = [booking?.startsAtTz, booking?.endsAtTz].filter(
+  const stored = [seed?.startsAtTz, seed?.endsAtTz].filter(
     (zone): zone is string => typeof zone === "string" && zone !== "",
   );
   return [...new Set([local, ...COMMON_ZONES, ...stored])];
@@ -106,8 +139,8 @@ function detailText(details: unknown, key: string): string {
   return "";
 }
 
-function seedKind(booking: Booking | undefined): Kind {
-  const match = KINDS.find((k) => k.id === booking?.kind);
+function seedKind(seed: BookingSeed | undefined): Kind {
+  const match = KINDS.find((k) => k.id === seed?.kind);
   return match?.id ?? "flight";
 }
 
@@ -119,6 +152,7 @@ function seedLocal(at: string | null | undefined, tz: string | null | undefined)
 export function BookingDialog({
   trip,
   booking,
+  draft,
   people,
   api = defaultApi,
   onSaved,
@@ -130,6 +164,12 @@ export function BookingDialog({
    *  here: the detail dialog that launches an edit has the booking, not the
    *  trip. */
   booking?: Booking;
+  /**
+   * Present to CORRECT A PENDING IMPORT, before it becomes a booking at all.
+   * It has no trip yet — which trip it lands on is the accept's decision, made
+   * separately in the review queue — so `trip` stays absent here too.
+   */
+  draft?: PendingImportDraft;
   /** The trip's travellers, so the toggles list who is actually on this trip. */
   people: Person[];
   api?: typeof defaultApi;
@@ -137,75 +177,84 @@ export function BookingDialog({
   onClose: () => void;
 }) {
   const editing = booking !== undefined;
+  const editingDraft = draft !== undefined;
+  /** MODE DIFFERENCE 1 of 3: what the fields below are pre-filled from. */
+  const seed: BookingSeed | undefined = booking ?? draft;
 
-  const [kind, setKind] = useState<Kind>(() => seedKind(booking));
-  const [title, setTitle] = useState(booking?.title ?? "");
-  const [confirmationNumber, setConfirmationNumber] = useState("");
-  const [location, setLocation] = useState(booking?.location ?? "");
+  const [kind, setKind] = useState<Kind>(() => seedKind(seed));
+  const [title, setTitle] = useState(seed?.title ?? "");
+  // A stored booking's number is masked (see the hint under the field), so the
+  // form starts blank and blank means "leave it". A draft's is held in the
+  // clear — nothing has encrypted it yet — so it is seeded like any other
+  // field, and clearing it means clearing it.
+  const [confirmationNumber, setConfirmationNumber] = useState(
+    draft?.confirmationNumber ?? "",
+  );
+  const [location, setLocation] = useState(seed?.location ?? "");
 
   // Per-kind detail fields. Held flat and assembled per kind at submit time,
   // so switching kinds does not discard what was typed.
-  const [carrier, setCarrier] = useState(() => detailText(booking?.details, "carrier"));
+  const [carrier, setCarrier] = useState(() => detailText(seed?.details, "carrier"));
   const [flightNumber, setFlightNumber] = useState(() =>
-    detailText(booking?.details, "flightNumber"),
+    detailText(seed?.details, "flightNumber"),
   );
-  const [originIata, setOriginIata] = useState(() => detailText(booking?.details, "originIata"));
+  const [originIata, setOriginIata] = useState(() => detailText(seed?.details, "originIata"));
   const [destinationIata, setDestinationIata] = useState(() =>
-    detailText(booking?.details, "destinationIata"),
+    detailText(seed?.details, "destinationIata"),
   );
   const [propertyName, setPropertyName] = useState(() =>
-    detailText(booking?.details, "propertyName"),
+    detailText(seed?.details, "propertyName"),
   );
-  const [vendor, setVendor] = useState(() => detailText(booking?.details, "vendor"));
-  const [venue, setVenue] = useState(() => detailText(booking?.details, "venue"));
+  const [vendor, setVendor] = useState(() => detailText(seed?.details, "vendor"));
+  const [venue, setVenue] = useState(() => detailText(seed?.details, "venue"));
 
   // Excursion (and car) logistics: the pickup and the return. Wall-clock text,
   // not timestamps — see the note on `activityDetails` in the server's
   // booking-kinds schema for why an operator's "Approximate return time: 5:00"
   // must not be promoted to an instant.
-  const [pickupTime, setPickupTime] = useState(() => detailText(booking?.details, "pickupTime"));
+  const [pickupTime, setPickupTime] = useState(() => detailText(seed?.details, "pickupTime"));
   const [pickupLocation, setPickupLocation] = useState(() =>
-    detailText(booking?.details, "pickupLocation"),
+    detailText(seed?.details, "pickupLocation"),
   );
   const [arriveEarly, setArriveEarly] = useState(() =>
-    detailText(booking?.details, "arriveMinutesBefore"),
+    detailText(seed?.details, "arriveMinutesBefore"),
   );
   const [returnTime, setReturnTime] = useState(() =>
-    detailText(booking?.details, "returnTime") || detailText(booking?.details, "dropoffTime"),
+    detailText(seed?.details, "returnTime") || detailText(seed?.details, "dropoffTime"),
   );
   const [dropoffLocation, setDropoffLocation] = useState(() =>
-    detailText(booking?.details, "dropoffLocation"),
+    detailText(seed?.details, "dropoffLocation"),
   );
   const [description, setDescription] = useState(() =>
-    detailText(booking?.details, "description"),
+    detailText(seed?.details, "description"),
   );
 
-  const seededStart = seedLocal(booking?.startsAt, booking?.startsAtTz);
-  const seededEnd = seedLocal(booking?.endsAt, booking?.endsAtTz);
+  const seededStart = seedLocal(seed?.startsAt, seed?.startsAtTz);
+  const seededEnd = seedLocal(seed?.endsAt, seed?.endsAtTz);
   const [startDate, setStartDate] = useState(
-    () => detailText(booking?.details, "checkInDate") || seededStart.slice(0, 10),
+    () => detailText(seed?.details, "checkInDate") || seededStart.slice(0, 10),
   );
   const [startTime, setStartTime] = useState(() => seededStart.slice(11, 16));
-  const [startsAtTz, setStartsAtTz] = useState(booking?.startsAtTz ?? "");
+  const [startsAtTz, setStartsAtTz] = useState(seed?.startsAtTz ?? "");
   const [endDate, setEndDate] = useState(
-    () => detailText(booking?.details, "checkOutDate") || seededEnd.slice(0, 10),
+    () => detailText(seed?.details, "checkOutDate") || seededEnd.slice(0, 10),
   );
   const [endTime, setEndTime] = useState(() => seededEnd.slice(11, 16));
-  const [endsAtTz, setEndsAtTz] = useState(booking?.endsAtTz ?? "");
+  const [endsAtTz, setEndsAtTz] = useState(seed?.endsAtTz ?? "");
   const startsAt = startDate && startTime ? `${startDate}T${startTime}` : "";
   const endsAt = endDate && endTime ? `${endDate}T${endTime}` : "";
 
   const [selected, setSelected] = useState<string[]>(booking?.personIds ?? []);
   const [cost, setCost] = useState(() =>
-    booking?.costCents === null || booking?.costCents === undefined
+    seed?.costCents === null || seed?.costCents === undefined
       ? ""
-      : (booking.costCents / 100).toFixed(2),
+      : (seed.costCents / 100).toFixed(2),
   );
   const [status, setStatus] = useState<BookingStatus>(booking?.status ?? "booked");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const zones = zoneOptions(booking);
+  const zones = zoneOptions(seed);
   const showExcursion = EXCURSION_KINDS.has(kind);
   const showPickup = showExcursion || kind === "car";
 
@@ -238,7 +287,7 @@ export function BookingDialog({
    * draw still removes its key — that is the point of being able to edit.
    */
   function details(): Record<string, unknown> {
-    const next: Record<string, unknown> = { ...asRecord(booking?.details) };
+    const next: Record<string, unknown> = { ...asRecord(seed?.details) };
     const put = (key: string, value: string) => {
       const trimmed = value.trim();
       if (trimmed === "") delete next[key];
@@ -349,7 +398,10 @@ export function BookingDialog({
     setBusy(true);
     setError(null);
     try {
-      if (booking) {
+      // MODE DIFFERENCE 3 of 3: where the typed values go.
+      if (draft) {
+        await saveDraft(draft, startsUtc, endsUtc, cents);
+      } else if (booking) {
         await saveEdit(booking, startsUtc, endsUtc, cents);
       } else {
         await saveNew(startsUtc, endsUtc, cents);
@@ -386,6 +438,41 @@ export function BookingDialog({
     for (const personId of selected) {
       await api.bookings.assignPerson(created.id, personId);
     }
+  }
+
+  /**
+   * The correction path: the draft row is patched in place and stays pending,
+   * so the reviewer can fix a wrong time now and decide which trip it belongs
+   * to later. Nothing here creates a booking — the accept still does that, and
+   * it will read exactly these values.
+   *
+   * `null` where a field was emptied, including the confirmation number: a
+   * draft's is shown in the clear, so blank is an instruction rather than the
+   * "leave the masked value alone" it means for a stored booking.
+   *
+   * Travellers are absent on purpose. A draft has no `booking_person` rows to
+   * move; the accept matches the extractor's traveller NAMES against the
+   * household's people, and those names are not this form's to rewrite.
+   */
+  async function saveDraft(
+    current: PendingImportDraft,
+    startsUtc: string | undefined,
+    endsUtc: string | undefined,
+    cents: number | undefined,
+  ) {
+    await api.imports.updateDraft(current.id, {
+      kind,
+      title: title.trim(),
+      details: details(),
+      location: location.trim() === "" ? null : location.trim(),
+      startsAt: startsUtc ?? null,
+      startsAtTz: startsUtc ? startsAtTz : null,
+      endsAt: endsUtc ?? null,
+      endsAtTz: endsUtc ? endsAtTz : null,
+      costCents: cents ?? null,
+      confirmationNumber:
+        confirmationNumber.trim() === "" ? null : confirmationNumber.trim(),
+    });
   }
 
   /**
@@ -434,8 +521,8 @@ export function BookingDialog({
 
   return (
     <Dialog
-      title={editing ? "Edit booking" : "Add booking"}
-      subtitle={booking?.title ?? trip?.title}
+      title={editingDraft ? "Edit import" : editing ? "Edit booking" : "Add booking"}
+      subtitle={seed?.title ?? trip?.title}
       onClose={onClose}
     >
       <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
@@ -779,12 +866,22 @@ export function BookingDialog({
           )}
         </fieldset>
 
-        <div className="field">
-          <label htmlFor="bd-who">Who's on it</label>
-          <div id="bd-who">
-            <TravelerToggles people={people} selected={selected} onToggle={toggle} />
+        {/*
+          MODE DIFFERENCE 2 of 3: a pending import has neither of these yet.
+          Travellers are `booking_person` rows that do not exist until the
+          accept creates them (it matches the extractor's names against the
+          household's people), and a draft's status is pending/accepted/
+          dismissed — a queue, not Planned/Booked — resolved by accepting or
+          dismissing it rather than by a control in this form.
+        */}
+        {!editingDraft && (
+          <div className="field">
+            <label htmlFor="bd-who">Who's on it</label>
+            <div id="bd-who">
+              <TravelerToggles people={people} selected={selected} onToggle={toggle} />
+            </div>
           </div>
-        </div>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div className="field">
@@ -798,23 +895,25 @@ export function BookingDialog({
               onChange={(e) => setCost(e.target.value)}
             />
           </div>
-          <div className="field">
-            <label htmlFor="bd-status">Status</label>
-            <div className="seg" role="radiogroup" aria-label="Status" style={{ width: "100%" }}>
-              {statuses.map((s) => (
-                <label key={s} className="seg-opt" style={{ flex: 1, justifyContent: "center" }}>
-                  <input
-                    type="radio"
-                    name="booking-status"
-                    value={s}
-                    checked={status === s}
-                    onChange={() => setStatus(s)}
-                  />
-                  {STATUS_LABELS[s]}
-                </label>
-              ))}
+          {!editingDraft && (
+            <div className="field">
+              <label htmlFor="bd-status">Status</label>
+              <div className="seg" role="radiogroup" aria-label="Status" style={{ width: "100%" }}>
+                {statuses.map((s) => (
+                  <label key={s} className="seg-opt" style={{ flex: 1, justifyContent: "center" }}>
+                    <input
+                      type="radio"
+                      name="booking-status"
+                      value={s}
+                      checked={status === s}
+                      onChange={() => setStatus(s)}
+                    />
+                    {STATUS_LABELS[s]}
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="dialog-actions">
@@ -822,7 +921,7 @@ export function BookingDialog({
             Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={busy}>
-            {editing ? "Save changes" : "Save booking"}
+            {editingDraft ? "Save import" : editing ? "Save changes" : "Save booking"}
           </button>
         </div>
       </form>

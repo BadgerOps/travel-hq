@@ -11,6 +11,8 @@ import { parseMime } from "../ingest/mime.js";
 import { MAX_RAW_BYTES } from "../ingest.js";
 import { ForbiddenError, NotFoundError } from "../repos/base.js";
 import { DraftBookingRepo } from "../repos/draft-booking.js";
+import type { UpdateDraftBookingInput } from "../repos/draft-booking.js";
+import { BOOKING_KINDS } from "../schemas/booking-kinds.js";
 import { HouseholdSettingsRepo } from "../repos/household-settings.js";
 import { InboundEmailRepo, rawUnavailableReason } from "../repos/inbound-email.js";
 import type { InboundEmail, InboundEmailStatus } from "../repos/inbound-email.js";
@@ -77,6 +79,29 @@ const createTripFromDraftsSchema = z.object({
   { message: "startsOn must be on or before endsOn", path: ["endsOn"] },
 );
 
+/**
+ * The correction form's body. Mirrors `UpdateDraftBookingInput`'s tri-state:
+ * an absent key leaves the stored value alone, an explicit null clears it.
+ *
+ * The refinements here are deliberately the CHEAP half — enough to answer a
+ * malformed request at the boundary with a field-level message. The rules that
+ * need the stored row (the effective timestamp/zone pairing, the per-kind
+ * details, the start-before-end ordering) can only be decided in the
+ * repository, which is where they are enforced; see repos/validation.ts.
+ */
+const updateDraftSchema = z.object({
+  kind: z.enum(BOOKING_KINDS).optional(),
+  title: z.string().trim().min(1).optional(),
+  location: z.string().nullable().optional(),
+  startsAt: z.string().nullable().optional(),
+  startsAtTz: z.string().nullable().optional(),
+  endsAt: z.string().nullable().optional(),
+  endsAtTz: z.string().nullable().optional(),
+  confirmationNumber: z.string().nullable().optional(),
+  costCents: z.number().int().nullable().optional(),
+  details: z.unknown().optional(),
+}).strict();
+
 imports.get("/pending", async (c) =>
   c.json(
     await new ImportReviewRepo(
@@ -130,6 +155,38 @@ imports.post("/dismiss", async (c) => {
   ).dismiss(parsed.data.draftIds);
   await sweepExpiredRaw(new InboundEmailRepo(c.get("db"), c.get("identity"), c.get("ring")));
   return c.json({ dismissedDraftIds });
+});
+
+/**
+ * Correct a pending draft before it is accepted.
+ *
+ * PATCH rather than PUT because the body is a patch: the review form sends the
+ * fields it drew, and a draft carries more than any form does (its ordinal,
+ * its source email, the traveler names the accept matches people against).
+ *
+ * Returns the stored draft, not the queue entry. The queue entry carries a
+ * suggested trip and a duplicate list that an edit can change — correcting a
+ * confirmation number is precisely how a draft stops (or starts) looking like
+ * a booking the household already has — and recomputing those for one draft in
+ * isolation would report them against a queue that no longer exists. The
+ * client reloads the queue after saving instead, which is one request and
+ * cannot disagree with itself.
+ *
+ * `requireHouseholdWriter` (mounted on /api/imports/*) has already refused
+ * viewers; `DraftBookingRepo.update` refuses them again and is the enforcement
+ * point for everything else — 400 for a resolved draft or an invalid value,
+ * 404 for an id in another household, both through `mapError`.
+ */
+imports.patch("/drafts/:draftId", async (c) => {
+  const parsed = updateDraftSchema.safeParse(await readJson(c.req.raw));
+  if (!parsed.success) {
+    return c.json({ error: "Invalid import edit", details: parsed.error.issues }, 400);
+  }
+  const updated = await new DraftBookingRepo(c.get("db"), c.get("identity")).update(
+    c.req.param("draftId"),
+    parsed.data satisfies UpdateDraftBookingInput,
+  );
+  return c.json(updated);
 });
 
 imports.post("/file", async (c) => {

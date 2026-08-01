@@ -1,5 +1,5 @@
 import { ValidationError } from "./base.js";
-import { isValidCalendarDate, isValidInstant } from "../time.js";
+import { isValidCalendarDate, isValidInstant, isValidTimezone } from "../time.js";
 
 /**
  * The repository layer's shared temporal and numeric assertions.
@@ -120,6 +120,79 @@ export function assertInstantOrder(
   if (Date.parse(start) > Date.parse(end)) {
     throw new ValidationError(`${startField} must be at or before ${endField}`);
   }
+}
+
+/**
+ * The two instants a scheduled thing carries, and the zones without which
+ * neither is a moment in time.
+ *
+ * Structurally typed rather than tied to one input shape so that every write
+ * path can hand over its EFFECTIVE pair: `BookingRepo.update` and
+ * `DraftBookingRepo.update` both merge a patch over a stored row before
+ * checking, because clearing `startsAtTz` while a stored `startsAt` remains is
+ * exactly as broken as posting a timestamp with no zone, and only the
+ * repository can see the stored half. `null` and `undefined` both mean "not
+ * set" here — the tri-state distinction matters to the SET clause, not to this
+ * check.
+ */
+export type BookingTiming = {
+  startsAt?: string | null;
+  startsAtTz?: string | null;
+  endsAt?: string | null;
+  endsAtTz?: string | null;
+};
+
+/**
+ * A timestamp without its IANA zone renders every cross-timezone itinerary
+ * wrong, which is most flights. Reject the unpaired case at the boundary
+ * rather than discovering it in the UI.
+ *
+ * Also rejects a timestamp `Date.parse` can't understand and a timezone
+ * `Intl.DateTimeFormat` doesn't recognize. An unparseable timestamp must never
+ * reach `localDateOf()` in ItineraryRepo, where it would throw on every future
+ * read of that trip's day view.
+ */
+export function assertTimezonePaired(input: BookingTiming): void {
+  if (input.startsAt) {
+    if (!input.startsAtTz) {
+      throw new ValidationError("startsAt requires startsAtTz (an IANA timezone)");
+    }
+    assertInstant("startsAt", input.startsAt);
+    if (!isValidTimezone(input.startsAtTz)) {
+      throw new ValidationError("startsAtTz must be a valid IANA timezone");
+    }
+  }
+  if (input.endsAt) {
+    if (!input.endsAtTz) {
+      throw new ValidationError("endsAt requires endsAtTz (an IANA timezone)");
+    }
+    assertInstant("endsAt", input.endsAt);
+    if (!isValidTimezone(input.endsAtTz)) {
+      throw new ValidationError("endsAtTz must be a valid IANA timezone");
+    }
+  }
+}
+
+/**
+ * Everything a booking's two instants must satisfy, in the order the checks
+ * make sense: each one has to BE an instant with a zone before asking whether
+ * one precedes the other.
+ *
+ * A flight landing before it took off used to pass every write path — and then
+ * rendered as a negative duration, sorted its trip's day view against itself,
+ * and gave `ItineraryRepo.group()` a booking whose "ongoing" days run
+ * backwards.
+ *
+ * This lives here rather than in `repos/booking.ts` (where it was born) or in
+ * a route schema because it now has THREE callers that must not drift:
+ * `BookingRepo.create`, `BookingRepo.update`, and `DraftBookingRepo.update` —
+ * the last of which exists so a reviewer can correct an extracted time before
+ * it becomes a booking, and would be worse than useless if it let a value
+ * through that the accept would then have to silently drop.
+ */
+export function assertBookingTiming(input: BookingTiming): void {
+  assertTimezonePaired(input);
+  assertInstantOrder("startsAt", "endsAt", input.startsAt, input.endsAt);
 }
 
 /**

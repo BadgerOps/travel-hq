@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowClockwise, Check, EnvelopeOpen, Plus, Trash } from "@phosphor-icons/react";
+import {
+  ArrowClockwise,
+  Check,
+  EnvelopeOpen,
+  PencilSimple,
+  Plus,
+  Trash,
+} from "@phosphor-icons/react";
 import { Link } from "wouter";
 import { api as defaultApi, ApiError } from "../api/client.js";
+import { useCanWrite } from "../api/identity.js";
 import type {
   ExtractedBooking,
   ImportReviewResult,
@@ -10,6 +18,9 @@ import type {
 } from "../api/types.js";
 import { DraftBookingCard } from "../components/DraftBookingCard.js";
 import { errorMessage } from "../lib/errors.js";
+import { BookingDialog } from "../trip/BookingDialog.js";
+import { combineRanges, rankTrips } from "../../shared/trip-match.js";
+import type { DateRange, ImportSelection } from "../../shared/trip-match.js";
 import { CreateImportedTripDialog } from "./CreateImportedTripDialog.js";
 import { DuplicateNotice } from "./DuplicateNotice.js";
 // Queue styles ship with the Import page sheet (2b anatomy).
@@ -39,8 +50,17 @@ export function ImportReviewQueue({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<ImportReviewResult | null>(null);
   const [creating, setCreating] = useState(false);
+  /**
+   * The draft being corrected, if any. Extraction is a suggestion, not truth:
+   * a wrong time or confirmation number is fixed HERE, while it is still a
+   * draft, rather than by accepting it and repairing the booking afterwards —
+   * which would mean the wrong value really was the household's data for a
+   * while, on the day view and in the rollups and on everyone else's screen.
+   */
+  const [editing, setEditing] = useState<PendingImportDraft | null>(null);
   /** The accept a 409 refused, kept so "Import anyway" can repeat it. */
   const [conflict, setConflict] = useState<{ draftIds: string[]; tripId: string } | null>(null);
+  const canWrite = useCanWrite();
 
   async function load(signal?: AbortSignal) {
     setLoading(true);
@@ -79,6 +99,23 @@ export function ImportReviewQueue({
 
   const groups = useMemo(() => groupBySource(drafts), [drafts]);
   const selectedDrafts = drafts.filter((draft) => selected.includes(draft.id));
+
+  /**
+   * The "Existing trip" options, best fit first, each carrying the reason it
+   * sits where it does. The ranking is scored against the CURRENT SELECTION —
+   * the union of its dates and the places it names — because that is the
+   * question the control answers: "which trip do these belong on?".
+   *
+   * With nothing selected there is nothing to score against, so every trip
+   * ties and the stable sort leaves the API's own order alone. The picker is
+   * unusable in that state anyway (Add to trip is disabled until something is
+   * selected), and a list that reshuffled itself as you ticked the first
+   * checkbox would be worse than one that simply waits.
+   */
+  const rankedTrips = useMemo(
+    () => rankTrips(trips, importSelection(drafts.filter((draft) => selected.includes(draft.id)))),
+    [trips, drafts, selected],
+  );
 
   function toggle(id: string) {
     setSelected((current) =>
@@ -252,8 +289,10 @@ export function ImportReviewQueue({
                     onChange={(event) => setTripId(event.target.value)}
                   >
                     <option value="">Choose a trip</option>
-                    {trips.map((trip) => (
-                      <option key={trip.id} value={trip.id}>{trip.title}</option>
+                    {rankedTrips.map(({ trip, match }) => (
+                      <option key={trip.id} value={trip.id}>
+                        {match.label === "" ? trip.title : `${trip.title} — ${match.label}`}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -325,6 +364,18 @@ export function ImportReviewQueue({
                       <div>
                         <DraftBookingCard booking={asExtractedBooking(draft)} />
                         <div className="import-draft-row-tags">
+                          {canWrite && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              aria-label={`Edit ${draft.title}`}
+                              disabled={busy}
+                              onClick={() => setEditing(draft)}
+                            >
+                              <PencilSimple size={14} />
+                              Edit
+                            </button>
+                          )}
                           {draft.suggestedTrip ? (
                             <>
                               <span className="tag tag-accent">
@@ -376,8 +427,54 @@ export function ImportReviewQueue({
           onClose={() => setCreating(false)}
         />
       )}
+
+      {/*
+        The SAME dialog as "Add booking" and "Edit booking", in its draft mode
+        — not a second form that could disagree with it about what a car
+        rental has. `people` is empty because a draft has no travellers of its
+        own yet; the dialog hides that section in this mode.
+
+        Reloading rather than patching the row in place: an edit can change
+        which trip the server suggests and what the draft looks like a
+        duplicate of, and both are computed across the whole queue.
+      */}
+      {editing && (
+        <BookingDialog
+          api={api}
+          draft={editing}
+          people={[]}
+          onSaved={() => {
+            setEditing(null);
+            void load();
+          }}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </section>
   );
+}
+
+/** What the trip picker ranks against: the selection's dates and its places. */
+function importSelection(drafts: PendingImportDraft[]): ImportSelection {
+  return {
+    range: combineRanges(drafts.map(draftRange)),
+    locations: drafts.map((draft) => draft.location ?? ""),
+  };
+}
+
+/**
+ * A draft's LOCAL dates — the server already resolved each instant into the
+ * calendar day it falls on in its own zone, which is the only comparison a
+ * trip's `starts_on`/`ends_on` can honestly be made against. A draft dated at
+ * one end only (a hotel with a check-in and no check-out) counts as that one
+ * day rather than as undated.
+ */
+function draftRange(draft: PendingImportDraft): DateRange | null {
+  if (!draft.localStartsOn) return null;
+  return {
+    startsOn: draft.localStartsOn,
+    endsOn: draft.localEndsOn ?? draft.localStartsOn,
+  };
 }
 
 function groupBySource(drafts: PendingImportDraft[]): SourceGroup[] {

@@ -96,6 +96,17 @@
   window has passed answers 410 with the reason instead of silently finding
   nothing. Adds `POST /api/imports/:inboundEmailId/reextract` and a D1
   migration.
+- Added editing to the import review queue, so an extraction can be corrected
+  before it becomes a booking rather than after: an Edit button on every
+  pending import opens the same form as Add booking, pre-filled from the
+  draft, and every field it draws — kind, title, location, both timestamps and
+  their timezones, confirmation number, cost and the per-kind details — is
+  saved onto the draft and committed by the later accept. The queue's
+  "Existing trip" picker is now ordered by how well each trip fits the imports
+  currently selected — date containment first, then overlap, then the nearest
+  gap in days, with a conservative destination match as a tie-break — and each
+  option says why it is ranked where it is ("covers these dates · same
+  destination"). Adds `PATCH /api/imports/drafts/:draftId`.
 
 ## 0.7.0 - 2026-07-27
 

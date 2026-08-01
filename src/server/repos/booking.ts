@@ -4,12 +4,7 @@ import { Keyring, mask, assertNotMasked } from "../crypto/envelope.js";
 import { openConfirmation } from "./confirmation.js";
 import { newId } from "../ids.js";
 import { BOOKING_KINDS, parseDetails } from "../schemas/booking-kinds.js";
-import { isValidTimezone } from "../time.js";
-import {
-  assertInstant,
-  assertInstantOrder,
-  assertNonNegativeAmount,
-} from "./validation.js";
+import { assertBookingTiming, assertNonNegativeAmount } from "./validation.js";
 
 /**
  * Exported as a value, not only a type: the status route's Zod enum and the
@@ -632,75 +627,10 @@ export class BookingRepo extends BookingAwareRepo {
   }
 }
 
-/**
- * A timestamp without its IANA zone renders every cross-timezone itinerary
- * wrong, which is most flights. Reject the unpaired case at the boundary rather
- * than discovering it in the UI.
- *
- * C1: also rejects a timestamp `Date.parse` can't understand and a
- * timezone `Intl.DateTimeFormat` doesn't recognize. This mirrors
- * `createBookingSchema`'s refinements in routes/trips.ts at the repo level,
- * so a non-HTTP caller (e.g. a future email-ingestion job constructing
- * bookings directly) gets the same guarantee the HTTP boundary gives an API
- * client — an unparseable timestamp must never reach `localDateOf()` in
- * ItineraryRepo, where it would throw on every future read of that trip's
- * day view.
- *
- * Structurally typed rather than taking `CreateBookingInput`, so `update()`
- * can hand it the EFFECTIVE post-patch pair (stored value where the patch is
- * silent, patched value where it is not) and get the identical guarantee.
- * `null` and `undefined` both mean "not set" here — the tri-state distinction
- * matters to the SET clause, not to this check.
- */
-type BookingTiming = {
-  startsAt?: string | null;
-  startsAtTz?: string | null;
-  endsAt?: string | null;
-  endsAtTz?: string | null;
-};
-
-function assertTimezonePaired(input: BookingTiming): void {
-  if (input.startsAt) {
-    if (!input.startsAtTz) {
-      throw new ValidationError("startsAt requires startsAtTz (an IANA timezone)");
-    }
-    assertInstant("startsAt", input.startsAt);
-    if (!isValidTimezone(input.startsAtTz)) {
-      throw new ValidationError("startsAtTz must be a valid IANA timezone");
-    }
-  }
-  if (input.endsAt) {
-    if (!input.endsAtTz) {
-      throw new ValidationError("endsAt requires endsAtTz (an IANA timezone)");
-    }
-    assertInstant("endsAt", input.endsAt);
-    if (!isValidTimezone(input.endsAtTz)) {
-      throw new ValidationError("endsAtTz must be a valid IANA timezone");
-    }
-  }
-}
-
-/**
- * Everything a booking's two instants must satisfy, in the order the checks
- * make sense: each one has to BE an instant with a zone before asking whether
- * one precedes the other.
- *
- * The ordering check is the half that was missing. `assertTimezonePaired`
- * has always guaranteed each timestamp is individually usable, so a flight
- * landing before it took off passed every write path — and then rendered as a
- * negative duration, sorted its trip's day view against itself, and gave
- * `ItineraryRepo.group()` a booking whose "ongoing" days run backwards. Like
- * the pairing check it must see the EFFECTIVE post-patch pair, which is why it
- * lives here at the repository rather than in `updateBookingSchema`: moving
- * only `endsAt` to before a stored `startsAt` this request never mentions is
- * exactly as inverted as sending both.
- */
-function assertBookingTiming(input: BookingTiming): void {
-  assertTimezonePaired(input);
-  assertInstantOrder("startsAt", "endsAt", input.startsAt, input.endsAt);
-}
-
-// isValidInstant/isValidTimezone live in ../time.js (reached here through the
-// assertion wrappers in ./validation.js), shared with routes/trips.ts and
-// ingest/extracted.ts -- see that module's doc comment for why the copies must
-// never drift apart.
+// `assertBookingTiming` (the timestamp/zone pairing and the start-before-end
+// ordering) used to live here as two private functions. It moved to
+// ./validation.js the day `DraftBookingRepo.update` needed the identical rule:
+// a reviewer correcting an extracted time before accepting it must be held to
+// exactly what BookingRepo.create would accept, or the accept silently drops
+// the value they just typed. Same rules, same messages, one implementation —
+// see that module's doc comment, and ../time.js beneath it.
