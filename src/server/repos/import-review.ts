@@ -9,7 +9,7 @@ import type { HouseholdContext } from "./base.js";
 import { DraftBookingRepo } from "./draft-booking.js";
 import type { DraftBooking } from "./draft-booking.js";
 import { InboundEmailRepo } from "./inbound-email.js";
-import { openConfirmation } from "./confirmation.js";
+import { matchableConfirmation } from "./confirmation.js";
 import { TripRepo } from "./trip.js";
 import type { Trip } from "./trip.js";
 import type { Keyring } from "../crypto/envelope.js";
@@ -278,7 +278,7 @@ export class ImportReviewRepo extends TenantRepo {
           startsAt: row.starts_at,
           // Decrypted to compare, never returned: PendingImportDuplicate
           // carries a title and a trip, not a confirmation number.
-          confirmation: await openConfirmation(this.ring, row.confirmation_number),
+          confirmation: await matchableConfirmation(this.ring, row.confirmation_number, row.id),
         } satisfies DuplicateCandidate,
       })),
     );
@@ -370,7 +370,7 @@ export class ImportReviewRepo extends TenantRepo {
         title: row.title,
         location: row.location,
         startsAt: row.starts_at,
-        confirmation: await openConfirmation(this.ring, row.confirmation_number),
+        confirmation: await matchableConfirmation(this.ring, row.confirmation_number, row.id),
       } satisfies DuplicateCandidate)),
     );
 
