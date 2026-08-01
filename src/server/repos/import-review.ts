@@ -16,8 +16,9 @@ import type { Keyring } from "../crypto/envelope.js";
 import { findDuplicates } from "../dedupe.js";
 import type { DuplicateCandidate, DuplicateGroup } from "../dedupe.js";
 import { newId } from "../ids.js";
-import { parseDetails } from "../schemas/booking-kinds.js";
+import { importedDetails, parseDetails } from "../schemas/booking-kinds.js";
 import { isValidCalendarDate, isValidInstant } from "../time.js";
+import { combineRanges, tripDateFit } from "../../shared/trip-match.js";
 import { assertTripDateRange } from "./validation.js";
 
 /**
@@ -437,7 +438,7 @@ export class ImportReviewRepo extends TenantRepo {
       const extracted = asRecord(draft.extracted);
       const details = parseDetails(
         draft.kind,
-        importDetails(draft.kind, draft.title, extracted.details),
+        importedDetails(draft.kind, draft.title, extracted.details),
       );
       // Non-integer AND negative both fall to null. A negative extracted cost
       // is the model reading a refund line or a credit as the total; storing
@@ -641,18 +642,6 @@ function appendPersonStatements(
   }
 }
 
-function importDetails(kind: string, title: string, value: unknown): unknown {
-  const details = asRecord(value);
-  if (kind !== "lodging") return details;
-  return {
-    propertyName:
-      typeof details.propertyName === "string" && details.propertyName.trim() !== ""
-        ? details.propertyName
-        : title,
-    ...details,
-  };
-}
-
 function draftDateRange(draft: Pick<
   DraftBooking,
   "startsAt" | "startsAtTz" | "endsAt" | "endsAtTz" | "extracted"
@@ -676,23 +665,31 @@ function draftDateRange(draft: Pick<
     : { startsOn: endsOn, endsOn: startsOn };
 }
 
+/**
+ * The union of every dated draft in a selection — the range a trip created
+ * from them would get, and (via the shared scorer) the range the review
+ * queue's trip picker ranks existing trips against.
+ */
 function combinedDateRange(drafts: DraftBooking[]): DateRange | undefined {
-  const ranges = drafts.map(draftDateRange).filter((range): range is DateRange => !!range);
-  if (ranges.length === 0) return undefined;
-  return {
-    startsOn: ranges.map((range) => range.startsOn).sort()[0]!,
-    endsOn: ranges.map((range) => range.endsOn).sort().at(-1)!,
-  };
+  return combineRanges(drafts.map(draftDateRange)) ?? undefined;
 }
 
+/**
+ * The trips whose own range CONTAINS the draft's — the only relationship
+ * strong enough to put a "Matches Europe" chip on a card and a one-click
+ * accept behind it.
+ *
+ * Delegated to `shared/trip-match.ts` rather than spelled out here, so the
+ * suggestion and the queue's ordered trip picker cannot hold two different
+ * notions of "matches": the picker puts containment at the top of the list,
+ * and this puts it on the card. Containment specifically, not the scorer's
+ * full ranking — a suggestion is an assertion the UI acts on without asking,
+ * so it stays as conservative as it was before the scorer existed.
+ */
 function dateCompatibleTrips(trips: Trip[], range: DateRange): Trip[] {
   return trips.filter(
     (trip) =>
-      trip.status !== "cancelled" &&
-      trip.startsOn !== null &&
-      trip.endsOn !== null &&
-      trip.startsOn <= range.startsOn &&
-      trip.endsOn >= range.endsOn,
+      trip.status !== "cancelled" && tripDateFit(trip, range).fit === "contains",
   );
 }
 

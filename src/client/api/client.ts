@@ -12,6 +12,8 @@ import type {
   CreatePerkInput,
   CreateTripInput,
   DocumentField,
+  DraftBooking,
+  UpdateDraftBookingInput,
   HouseholdSettings,
   Identity,
   InboundEmailDetail,
@@ -94,7 +96,7 @@ export function createApi(config: ApiConfig = {}) {
    * per method is how one of them ends up missing its content-type and being
    * parsed as an empty body by Hono.
    */
-  const jsonBody = (method: "POST" | "PUT", body: unknown): RequestInit => ({
+  const jsonBody = (method: "POST" | "PUT" | "PATCH", body: unknown): RequestInit => ({
     method,
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -300,6 +302,17 @@ export function createApi(config: ApiConfig = {}) {
         request<{ dismissedDraftIds: string[] }>(
           "/api/imports/dismiss",
           jsonBody("POST", { draftIds }),
+        ),
+      /**
+       * Correct a draft in the queue, before it becomes a booking. The
+       * response is the stored draft; the caller reloads the queue, because
+       * an edit can change which trip is suggested and what the draft looks
+       * like a duplicate of — see the route's own note.
+       */
+      updateDraft: (draftId: string, patch: UpdateDraftBookingInput) =>
+        request<DraftBooking>(
+          `/api/imports/drafts/${seg(draftId)}`,
+          jsonBody("PATCH", patch),
         ),
       file: (file: File) => {
         const form = new FormData();
