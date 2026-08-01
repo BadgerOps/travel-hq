@@ -1,6 +1,6 @@
 import { TenantRepo, NotFoundError, ValidationError } from "./base.js";
 import { newId } from "../ids.js";
-import { isValidCalendarDate } from "../time.js";
+import { assertTripDateRange } from "./validation.js";
 import type { TripAccessRole, TripMemberRole } from "./trip-access.js";
 
 /**
@@ -89,11 +89,20 @@ type TripRow = {
 };
 
 export class TripRepo extends TenantRepo {
+  /**
+   * Validation is the SAME call `update()` makes, deliberately. This method
+   * used to make none at all, so `POST /api/trips` would happily store
+   * `startsOn: "next tuesday"` or a range that ended before it began, and the
+   * only way to discover it was the trip card rendering "Invalid Date" — while
+   * the very same values were a 400 on the update path. A rule enforced on one
+   * of two write paths is not a rule.
+   */
   async create(input: CreateTripInput): Promise<Trip> {
     // Redundant with base.ts's own requireWrite() check inside run()/insert() —
     // kept as explicit, belt-and-braces intent at the top of every mutating
     // method, not as the sole enforcement.
     this.requireWrite();
+    assertTripDateRange(input.startsOn, input.endsOn);
     const id = newId();
     await this.insert("trip", {
       id,
@@ -131,18 +140,13 @@ export class TripRepo extends TenantRepo {
     const existing = await this.findById(id);
     if (!existing) throw new NotFoundError("Trip not found in this household");
 
-    for (const key of ["startsOn", "endsOn"] as const) {
-      const value = patch[key];
-      if (value === undefined || value === null) continue;
-      if (typeof value !== "string" || !isValidCalendarDate(value)) {
-        throw new ValidationError(`${key} must be a well-formed YYYY-MM-DD date`);
-      }
-    }
-    const startsOn = patch.startsOn === undefined ? existing.startsOn : patch.startsOn;
-    const endsOn = patch.endsOn === undefined ? existing.endsOn : patch.endsOn;
-    if (startsOn !== null && endsOn !== null && startsOn > endsOn) {
-      throw new ValidationError("startsOn must be on or before endsOn");
-    }
+    // The EFFECTIVE post-patch pair: stored value where the patch is silent,
+    // patched value where it is not. Shared with create() and with
+    // ImportReviewRepo so all three enforce one rule, not three copies of it.
+    assertTripDateRange(
+      patch.startsOn === undefined ? existing.startsOn : patch.startsOn,
+      patch.endsOn === undefined ? existing.endsOn : patch.endsOn,
+    );
 
     const sets: string[] = [];
     const params: unknown[] = [];

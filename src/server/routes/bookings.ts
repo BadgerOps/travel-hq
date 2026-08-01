@@ -5,7 +5,7 @@ import type { UpdateBookingInput } from "../repos/booking.js";
 import { InboundEmailRepo } from "../repos/inbound-email.js";
 import { ForbiddenError, NotFoundError } from "../repos/base.js";
 import { BOOKING_KINDS } from "../schemas/booking-kinds.js";
-import { isValidTimestamp, isValidTimezone } from "../time.js";
+import { isValidInstant, isValidTimezone } from "../time.js";
 import { parseMime } from "../ingest/mime.js";
 import type { AppEnv } from "../index.js";
 
@@ -24,10 +24,12 @@ const setStatusSchema = z.object({ status: z.enum(BOOKING_STATUSES) });
  * had not, and (for the masked confirmation number) silently discarding an
  * edit that must instead be a loud 400.
  *
- * The timestamp/zone PAIRING is deliberately not checked here, unlike
- * createBookingSchema: a partial patch is only valid against the stored row
- * (clearing `startsAtTz` alone breaks a booking whose `startsAt` this request
- * never mentions), and only BookingRepo.update can see that row.
+ * The timestamp/zone PAIRING and the startsAt <= endsAt ORDERING are
+ * deliberately not checked here, unlike createBookingSchema: a partial patch is
+ * only valid against the stored row (clearing `startsAtTz` alone breaks a
+ * booking whose `startsAt` this request never mentions, and moving `endsAt`
+ * alone can invert a range against a `startsAt` this request never mentions
+ * either), and only BookingRepo.update can see that row.
  */
 const updateBookingSchema = z
   .object({
@@ -36,7 +38,9 @@ const updateBookingSchema = z
     location: z.string().nullable().optional(),
     startsAt: z
       .string()
-      .refine(isValidTimestamp, { message: "startsAt must be a parseable timestamp" })
+      .refine(isValidInstant, {
+        message: "startsAt must be an ISO-8601 instant with an explicit offset or Z",
+      })
       .nullable()
       .optional(),
     startsAtTz: z
@@ -46,7 +50,9 @@ const updateBookingSchema = z
       .optional(),
     endsAt: z
       .string()
-      .refine(isValidTimestamp, { message: "endsAt must be a parseable timestamp" })
+      .refine(isValidInstant, {
+        message: "endsAt must be an ISO-8601 instant with an explicit offset or Z",
+      })
       .nullable()
       .optional(),
     endsAtTz: z
@@ -57,8 +63,10 @@ const updateBookingSchema = z
     // `.min(1)`: an empty string is not a confirmation number. Clearing one is
     // spelled `null`, so "" can only be an accident.
     confirmationNumber: z.string().min(1).nullable().optional(),
-    costCents: z.number().int().nullable().optional(),
-    pointsUsed: z.number().int().nullable().optional(),
+    // `.nonnegative()`: spend and points usage are not a signed ledger — see
+    // assertNonNegativeAmount in repos/validation.ts. `null` still clears.
+    costCents: z.number().int().nonnegative().nullable().optional(),
+    pointsUsed: z.number().int().nonnegative().nullable().optional(),
     pointsProgram: z.string().nullable().optional(),
     status: z.enum(BOOKING_STATUSES).optional(),
     // Replaced wholesale when present, and validated against the effective

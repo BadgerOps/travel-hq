@@ -1,5 +1,6 @@
 import { TenantRepo, NotFoundError } from "./base.js";
 import { newId } from "../ids.js";
+import { assertCalendarDate } from "./validation.js";
 
 export type ChecklistItem = {
   id: string;
@@ -33,6 +34,15 @@ export class ChecklistRepo extends TenantRepo {
     // kept as explicit intent at the top of every mutating method, matching
     // TripRepo/BookingRepo/PersonRepo.
     this.requireWrite();
+
+    // `due_on` is sorted on directly (`ORDER BY due_on IS NULL, due_on` in
+    // both list methods below) and compared against today's date by the
+    // client's urgency badge, both of which assume the lexicographic ordering
+    // only exact YYYY-MM-DD gives. A free-text due date sorts into an
+    // arbitrary position in the list and renders as "Invalid Date" on the home
+    // screen, with no way to correct it — there is no update path for this
+    // column, only setDone.
+    assertCalendarDate("dueOn", input.dueOn);
 
     // NotFoundError, not TenantScopeError: an id the caller supplied that
     // isn't in this household is a 404, exactly as TripRepo.addTraveler
