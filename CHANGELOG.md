@@ -43,6 +43,26 @@
   close control pinned above it, it clears the notch and home-indicator safe
   areas, it paints over the bottom tab bar, and the page behind it no longer
   scrolls while it is open.
+- Added observability, so a failure is something you can look up rather than
+  guess at. Every request now emits one JSON log line carrying a request id,
+  the route pattern, the household and user ids, the status and how long it
+  took — and returns that id as `X-Request-Id`, so a reported problem can be
+  traced from the header alone. A 500 writes the real cause (class, message,
+  stack) to the log while the client still gets only `Internal error`;
+  previously it left no trace anywhere. Tenancy-scope bugs are logged in
+  production too, instead of being silenced in the one environment that
+  needed them. Emails, document numbers, confirmation values and raw message
+  bodies are kept out of the log stream by a redacting logger with a test
+  that asserts it. Reveals of a passport, Known Traveler, redress or
+  confirmation number are now recorded in a new `audit_log` table and shown
+  to household owners in Settings — who unmasked which record, and when,
+  never the value itself. Adds `GET /api/audit/reveals` and a D1 migration.
+- Fixed two nested trip routes that did not check the parent in their URL.
+  Revealing a booking's confirmation number under a *different* trip's URL now
+  answers 404 instead of succeeding (and the audit entry records the validated
+  trip), and asking for the travellers of an unknown or other-household trip
+  answers 404 instead of an empty list, matching the sibling bookings,
+  itinerary and rollup routes.
 - Fixed three places where a failure or a second writer could leave the
   database half-changed. Assigning a person to a booking now writes the
   booking and the trip roster in one transaction, so the two can no longer

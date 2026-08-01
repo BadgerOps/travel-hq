@@ -17,6 +17,7 @@ describe("migrated schema", () => {
 
   it("creates every core table, including extraction drafts", async () => {
     expect(await tableNames()).toEqual([
+      "audit_log",
       "booking",
       "booking_duplicate_dismissal",
       "booking_person",
@@ -35,6 +36,58 @@ describe("migrated schema", () => {
       "trip_person",
       "user",
     ]);
+  });
+
+  /**
+   * The audit trail's whole safety argument is structural: there is nowhere in
+   * `audit_log` to PUT a revealed passport or confirmation number, so no future
+   * edit to a route can accidentally persist one. Asserting the column list
+   * exactly is what keeps that true -- adding a `value`/`plaintext` column
+   * would have to break this test first.
+   */
+  it("records reveals as identifiers only, with no column that could hold a revealed value", async () => {
+    const columns = await env.DB.prepare("PRAGMA table_info(audit_log)").all<{ name: string }>();
+    expect(columns.results.map((column) => column.name)).toEqual([
+      "id",
+      "household_id",
+      "event",
+      "actor_user_id",
+      "actor_email",
+      "subject_type",
+      "subject_id",
+      "field",
+      "trip_id",
+      "at",
+    ]);
+  });
+
+  /**
+   * An audit record has to outlive what it describes: deleting the booking (or
+   * the trip, or the account) whose secret was revealed must not erase the
+   * record of the reveal. Only the household cascade applies.
+   */
+  it("keeps audit rows when the revealed record is deleted, and drops them with the household", async () => {
+    const now = new Date().toISOString();
+    await env.DB.prepare("INSERT INTO household (id, name, created_at) VALUES (?, ?, ?)")
+      .bind("hh-a", "A", now)
+      .run();
+    await env.DB.prepare("INSERT INTO trip (id, household_id, title, created_at) VALUES (?, ?, ?, ?)")
+      .bind("t1", "hh-a", "Guerneville", now)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO audit_log (id, household_id, event, actor_user_id, actor_email,
+                              subject_type, subject_id, field, trip_id, at)
+       VALUES (?, ?, 'confirmation_reveal', ?, ?, 'booking', ?, 'confirmation_number', ?, ?)`,
+    )
+      .bind("a1", "hh-a", "u1", "badger@example.com", "b1", "t1", now)
+      .run();
+
+    await env.DB.prepare("DELETE FROM trip WHERE id = ?").bind("t1").run();
+    expect(await env.DB.prepare("SELECT id FROM audit_log WHERE id = ?").bind("a1").first())
+      .toMatchObject({ id: "a1" });
+
+    await env.DB.prepare("DELETE FROM household WHERE id = ?").bind("hh-a").run();
+    expect(await env.DB.prepare("SELECT id FROM audit_log WHERE id = ?").bind("a1").first()).toBeNull();
   });
 
   it("adds booking provenance and stable draft ordinals", async () => {

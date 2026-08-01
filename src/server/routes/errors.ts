@@ -26,6 +26,15 @@ export type MappedError = {
  * written for logs/grep (see base.ts's `logScopeBug`), not for a client, and
  * surfacing it would hand back exactly the kind of internal detail — which
  * table, which query shape — a scope bug must never disclose over HTTP.
+ *
+ * This function stays PURE and stays lossy on purpose — it decides a status
+ * and a client-safe body, nothing else. It used to be the whole story, which
+ * meant a 500's cause was simply dropped on the floor (issue #8). It is not
+ * any more: `app.onError` in index.ts logs the full cause — name, message,
+ * stack, `cause` chain — through the structured logger BEFORE returning what
+ * this returns. Full detail in the logs, generic body in the response; the
+ * asymmetry is the design, and the tests for it live in
+ * tests/server/logging.test.ts.
  */
 export function mapError(err: unknown): MappedError {
   // HouseholdAccessError before AuthError: it's a subclass, and the household

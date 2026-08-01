@@ -1,4 +1,37 @@
-# Travel HQ — Handoff
+# Travel HQ — Handoff (HISTORICAL — 2026-07-22)
+
+> **This document is a historical snapshot, not current instructions.** It
+> describes the retired Node 22 + `node:sqlite` loopback architecture from
+> before the Cloudflare replatform. Do not follow its setup, run, or deployment
+> steps.
+>
+> **For the current system, read `README.md` and
+> `cloudflare-github-setup.md`.** Travel HQ is now a single Cloudflare Worker
+> (`src/server/worker.ts`) on D1, with Workers AI or the Anthropic API doing
+> extraction, R2 for trip photos, and Cloudflare Access for authentication.
+>
+> Specifically superseded below:
+>
+> - **`src/server/serve.ts`, `scripts/seed.ts`, `npm run seed`, and
+>   `npm run dev:server` do not exist.** There is no separate API process; the
+>   Worker serves the API and the SPA. Local setup is `wrangler dev` against a
+>   local D1 — see README, "Run locally".
+> - **`workers/inbound-email/` and `tests/workers/` do not exist.** Ingest is
+>   the Worker's own `email()` handler (`src/server/ingest.ts`), reached
+>   directly from Cloudflare Email Routing — there is no second Worker and no
+>   service-token-authenticated `/api/inbound-email` endpoint.
+> - **The "hybrid local-first" extraction decision below (`.ics` → local Ollama
+>   model → manual Claude escalation) was never carried into the Cloudflare
+>   architecture, and its privacy claim is false today.** A `.ics` part is
+>   still parsed in-process with no model, but everything else is extracted by
+>   Workers AI (default) or the Anthropic API if the household configures it.
+>   Both are third-party model services; email content leaves the Worker. There
+>   is no local model.
+> - **The keyring no longer auto-generates `.dev-secrets/keyring.key`.** The key
+>   is the `ENCRYPTION_KEY` secret (`.dev.vars` locally), formatted
+>   `<key_id> <base64-of-32-bytes>`.
+> - Test counts, `docs/superpowers/plans/` completion state, and the "Task 15"
+>   section are all frozen at 2026-07-22.
 
 **Updated:** 2026-07-22
 **State:** Plans 1-4 implemented and merged to `main`. The application runs and

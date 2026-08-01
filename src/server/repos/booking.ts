@@ -592,14 +592,35 @@ export class BookingRepo extends BookingAwareRepo {
    * I5: a bookingId that doesn't exist (or belongs to another household) now
    * throws NotFoundError, distinct from "this booking exists but has no
    * confirmation number", which still resolves to `null`.
+   *
+   * Issue #19: `tripId` is the PARENT the reveal is being performed under, and
+   * it is part of the lookup, not a decoration. The HTTP surface is a nested
+   * resource (POST /api/trips/:tripId/bookings/:bookingId/reveal); before this
+   * argument existed the :tripId segment was read and discarded, so any
+   * booking in the household could be revealed under any other trip's URL. The
+   * disclosure boundary was never crossed (household scoping saw to that), but
+   * the audit record that reveal now writes would have named a trip that had
+   * nothing to do with the booking -- a wrong answer to "where did this
+   * happen", which is worse than no answer.
+   *
+   * Optional so a non-nested caller (a repo-level test, a future job with no
+   * trip in hand) is not forced to invent one; passing it is what the nested
+   * route does, and a mismatch is a 404 -- the same answer as a booking that
+   * genuinely is not there, disclosing nothing about which trips exist.
    */
-  async revealConfirmation(bookingId: string): Promise<string | null> {
+  async revealConfirmation(bookingId: string, tripId?: string): Promise<string | null> {
     this.requireReveal();
-    const row = await this.get<{ value: string | null }>(
-      "SELECT confirmation_number AS value FROM booking WHERE {scope} AND id = ?2",
-      bookingId,
-    );
-    if (!row) throw new NotFoundError("Booking not found in this household");
+    const row = tripId
+      ? await this.get<{ value: string | null }>(
+          "SELECT confirmation_number AS value FROM booking WHERE {scope} AND id = ?2 AND trip_id = ?3",
+          bookingId,
+          tripId,
+        )
+      : await this.get<{ value: string | null }>(
+          "SELECT confirmation_number AS value FROM booking WHERE {scope} AND id = ?2",
+          bookingId,
+        );
+    if (!row) throw new NotFoundError("Booking not found on this trip in this household");
     return openConfirmation(this.ring, row.value);
   }
 }
