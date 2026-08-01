@@ -6,6 +6,7 @@ import { Settings } from "../../../src/client/pages/Settings.js";
 import { ApiError } from "../../../src/client/api/client.js";
 import { IdentityProvider } from "../../../src/client/api/identity.js";
 import type {
+  AuditEntry,
   Identity,
   InboundEmailDetail,
   InboundEmailMetadata,
@@ -42,6 +43,9 @@ function makeApi(over: Record<string, unknown> = {}) {
       get: vi.fn(async (): Promise<InboundEmailDetail> => {
         throw new Error("inboundEmails.get not mocked");
       }),
+    },
+    audit: {
+      reveals: vi.fn(async (): Promise<AuditEntry[]> => []),
     },
   };
 }
@@ -331,6 +335,56 @@ describe("Settings", () => {
     expect(await screen.findByText("Broken extraction")).toBeInTheDocument();
     expect(screen.getByText("Extraction failed: rate limited")).toBeInTheDocument();
     expect(screen.getByText("failed")).toBeInTheDocument();
+  });
+
+  /**
+   * Issue #8: the reveal audit trail is only worth persisting if an owner can
+   * actually read it, so the surface is part of the feature, not a follow-up.
+   */
+  describe("reveal activity", () => {
+    const ENTRY: AuditEntry = {
+      id: "a1",
+      event: "document_reveal",
+      actorUserId: "u2",
+      actorEmail: "ava@example.com",
+      subjectType: "person",
+      subjectId: "person-0191c3d4e5f6a7b8",
+      field: "passport_number",
+      tripId: null,
+      at: "2026-07-29T18:04:00.000Z",
+    };
+
+    it("shows who revealed what and when, and says the value is not stored", async () => {
+      const api = makeApi();
+      api.audit.reveals.mockResolvedValue([ENTRY]);
+      renderSettings(api);
+
+      const section = await screen.findByRole("region", { name: /reveal activity/i });
+      expect(within(section).getByText(/passport number/i)).toBeInTheDocument();
+      expect(within(section).getByText("ava@example.com")).toBeInTheDocument();
+      expect(within(section).getByText(/never stored/i)).toBeInTheDocument();
+    });
+
+    it("renders an honest empty state rather than an empty box", async () => {
+      renderSettings();
+      const section = await screen.findByRole("region", { name: /reveal activity/i });
+      expect(within(section).getByText(/no reveals yet/i)).toBeInTheDocument();
+    });
+
+    /**
+     * The endpoint is owner-only and 403s for an adult. A panel that cannot be
+     * populated should not be shown at all -- and, crucially, that failure must
+     * not surface as an error over the settings form, which works fine.
+     */
+    it("hides itself when the endpoint denies the caller, without reporting an error", async () => {
+      const api = makeApi();
+      api.audit.reveals.mockRejectedValue(new ApiError("nope", 403));
+      renderSettings(api, "adult");
+
+      await screen.findByLabelText("Forward address");
+      expect(screen.queryByRole("region", { name: /reveal activity/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
   });
 
   it("opens the parsed-data dialog when an ingest activity entry is clicked", async () => {

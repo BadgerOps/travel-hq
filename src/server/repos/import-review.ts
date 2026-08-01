@@ -17,7 +17,8 @@ import { findDuplicates } from "../dedupe.js";
 import type { DuplicateCandidate, DuplicateGroup } from "../dedupe.js";
 import { newId } from "../ids.js";
 import { parseDetails } from "../schemas/booking-kinds.js";
-import { isValidCalendarDate } from "../time.js";
+import { isValidCalendarDate, isValidInstant } from "../time.js";
+import { assertTripDateRange } from "./validation.js";
 
 /**
  * Something a pending draft appears to repeat — either a booking the household
@@ -438,10 +439,20 @@ export class ImportReviewRepo extends TenantRepo {
         draft.kind,
         importDetails(draft.kind, draft.title, extracted.details),
       );
+      // Non-integer AND negative both fall to null. A negative extracted cost
+      // is the model reading a refund line or a credit as the total; storing
+      // it would subtract from the trip's spend rollup, which the Cost
+      // Analysis tab presents as money spent (see assertNonNegativeAmount in
+      // repos/validation.ts for the decision). Dropped rather than rejected
+      // for the same reason bookableDraftTiming degrades: an unimportable
+      // draft is worse for the reviewer than an imported one missing a price.
       const costCents =
-        typeof extracted.costCents === "number" && Number.isInteger(extracted.costCents)
+        typeof extracted.costCents === "number" &&
+        Number.isInteger(extracted.costCents) &&
+        extracted.costCents >= 0
           ? extracted.costCents
           : null;
+      const timing = bookableDraftTiming(draft);
       const personIds = matchedPersonIds(
         extracted.travelerNames,
         extracted.travelerEmails,
@@ -478,10 +489,10 @@ export class ImportReviewRepo extends TenantRepo {
           draft.id,
           this.ctx.householdId,
           draft.location,
-          draft.startsAt,
-          draft.startsAtTz,
-          draft.endsAt,
-          draft.endsAtTz,
+          timing.startsAt,
+          timing.startsAtTz,
+          timing.endsAt,
+          timing.endsAtTz,
           encryptedConfirmation,
           costCents,
           JSON.stringify(details),
@@ -705,14 +716,56 @@ function localDate(at: string | null, zone: string | null): string | undefined {
   }
 }
 
+/**
+ * The timing an accepted draft may be written to `booking` with.
+ *
+ * This path does NOT go through `BookingRepo.create()` — it builds its INSERTs
+ * by hand so the whole review (trip, bookings, draft resolution) commits as one
+ * D1 batch — so it is the one write path that would otherwise miss the
+ * repository-level instant rules entirely.
+ *
+ * It DEGRADES rather than throws, which is the opposite of what a route-driven
+ * write does, and deliberately so. A draft's timestamps come from an AI
+ * extraction or a calendar attachment, both written before these rules
+ * tightened; the review queue offers no way to edit a draft's times, so
+ * refusing the accept would strand the reviewer with a booking they can only
+ * dismiss. Dropping an unusable instant (and its now-orphaned zone) leaves a
+ * booking that is correct in everything else and merely missing a time — the
+ * same "degrade the one bad value, keep the row" policy `BookingRepo.listByTrip`
+ * and `ItineraryRepo.group()` apply on the read side. Anything created since
+ * `DraftBookingRepo.createMany` started validating drafts already satisfies
+ * this, so in practice it only ever fires for legacy rows.
+ */
+function bookableDraftTiming(draft: DraftBooking): {
+  startsAt: string | null;
+  startsAtTz: string | null;
+  endsAt: string | null;
+  endsAtTz: string | null;
+} {
+  const usable = (at: string | null, tz: string | null): string | null =>
+    at !== null && tz !== null && isValidInstant(at) ? at : null;
+  const startsAt = usable(draft.startsAt, draft.startsAtTz);
+  let endsAt = usable(draft.endsAt, draft.endsAtTz);
+  // An end before its start is the extraction misreading a return leg, not a
+  // fact about the reservation. The start is the load-bearing half — it is
+  // what the day view groups on — so the end is what goes.
+  if (startsAt !== null && endsAt !== null && Date.parse(endsAt) < Date.parse(startsAt)) {
+    endsAt = null;
+  }
+  return {
+    startsAt,
+    startsAtTz: startsAt === null ? null : draft.startsAtTz,
+    endsAt,
+    endsAtTz: endsAt === null ? null : draft.endsAtTz,
+  };
+}
+
+/**
+ * Delegates to the shared repository rule so that a trip created from the
+ * import queue and a trip created through `POST /api/trips` cannot disagree
+ * about what a date range is. This function used to be a private third copy of
+ * those same two checks.
+ */
 function validateTripDates(startsOn: string | null, endsOn: string | null): void {
-  if (startsOn !== null && !isValidCalendarDate(startsOn)) {
-    throw new ValidationError("startsOn must be a well-formed YYYY-MM-DD date");
-  }
-  if (endsOn !== null && !isValidCalendarDate(endsOn)) {
-    throw new ValidationError("endsOn must be a well-formed YYYY-MM-DD date");
-  }
-  if (startsOn !== null && endsOn !== null && startsOn > endsOn) {
-    throw new ValidationError("startsOn must be on or before endsOn");
-  }
+  assertTripDateRange(startsOn, endsOn);
 }

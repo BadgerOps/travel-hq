@@ -360,6 +360,16 @@ export class InboundEmailRepo extends TenantRepo {
    * The only legal transitions are received → extracted|failed. Terminal
    * states (extracted, failed, rejected) never move again — a re-run of the
    * extractor over an already-processed row is a bug, not a retry.
+   *
+   * Compare-and-set, not read-then-write. The `AND status = 'received'`
+   * predicate has always been the real guard; what was missing was reading
+   * its verdict. The queue is drained by workers that can overlap (a retry, a
+   * second cron tick), so two of them can both pass the pre-check below and
+   * both issue the UPDATE — and the loser's UPDATE matches zero rows. Asking
+   * for exactly one changed row is what turns that into an error instead of a
+   * caller being told its own requested state was persisted when another
+   * worker's was. The row is then re-read rather than synthesized, so the
+   * return value is what the database holds, not what we hoped it would hold.
    */
   private async transition(
     id: string,
@@ -369,16 +379,32 @@ export class InboundEmailRepo extends TenantRepo {
     this.requireWrite();
     const current = await this.findById(id);
     if (!current) throw new NotFoundError("Inbound email not found in this household");
+    // Kept ahead of the UPDATE purely for the error message: the common case
+    // is a plain re-run over a processed row, and naming the state it is
+    // already in is more useful than reporting a race that did not happen.
     if (current.status !== "received") {
       throw new ValidationError(`Only a received inbound email can transition; this one is ${current.status}`);
     }
-    await this.run(
+    const changed = await this.runChanges(
       "UPDATE inbound_email SET status = ?2, error = ?3 WHERE {scope} AND id = ?4 AND status = 'received'",
       status,
       error,
       id,
     );
-    return { ...current, status, error };
+    if (changed !== 1) {
+      // Zero: another worker transitioned it in the window above. More than
+      // one is impossible against a primary key and would mean the predicate
+      // no longer identifies a single row — refuse either way rather than
+      // report a transition this call did not make.
+      const persisted = await this.findById(id);
+      throw new ValidationError(
+        `Inbound email ${id} was transitioned concurrently; it is now ` +
+          `${persisted?.status ?? "gone"} and this ${status} transition did not apply`,
+      );
+    }
+    const updated = await this.findById(id);
+    if (!updated) throw new Error("Inbound email disappeared immediately after transition");
+    return updated;
   }
 
   /**

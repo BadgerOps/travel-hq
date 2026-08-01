@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { FloppyDisk, Flask, Key, Robot, Trash } from "@phosphor-icons/react";
+import { Eye, FloppyDisk, Flask, Key, Robot, Trash } from "@phosphor-icons/react";
 import { api as defaultApi, ApiError } from "../api/client.js";
 import type {
   AiProvider,
+  AuditEntry,
   CatalogModel,
   ExtractedBooking,
   HouseholdSettings,
@@ -54,6 +55,10 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
   const [activity, setActivity] = useState<InboundEmailMetadata[]>([]);
   const [activityError, setActivityError] = useState<string | null>(null);
   const [viewingEmail, setViewingEmail] = useState<InboundEmailMetadata | null>(null);
+  // Owner-only (the endpoint 403s for anyone else), so this stays null for an
+  // adult and the panel simply never renders — the same "not for you" handling
+  // the ingest feed already uses, rather than an error nobody can act on.
+  const [revealLog, setRevealLog] = useState<AuditEntry[] | null>(null);
   const [loadFailed, setLoadFailed] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -99,6 +104,20 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
           if (!cancelled && !(err instanceof ApiError && err.status === 403)) {
             setActivityError(errorMessage(err));
           }
+        },
+      );
+    }
+
+    const listReveals = api.audit?.reveals;
+    if (listReveals) {
+      listReveals().then(
+        (rows) => {
+          if (!cancelled) setRevealLog(rows);
+        },
+        () => {
+          // Swallowed: 403 is the expected answer for a non-owner, and any
+          // other failure of an *auxiliary* panel must not take the settings
+          // form down with it.
         },
       );
     }
@@ -409,39 +428,43 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
             </form>
           </div>
 
-          <section aria-label="Recent ingest activity" className="rail">
-            <h4 className="section-kicker" style={{ margin: 0 }}>Recent ingest activity</h4>
-            {activityError && <p className="warning" role="alert" style={{ margin: 0 }}>{activityError}</p>}
-            {activity.length === 0 && !activityError ? (
-              <div className="card" style={{ alignItems: "flex-start", gap: 10 }}>
-                <span className="card-title"><Robot size={16} style={{ marginRight: 6 }} />Nothing ingested yet</span>
-                <p className="card-body" style={{ margin: 0 }}>
-                  Recent extraction results and failures will appear here.
-                </p>
-              </div>
-            ) : (
-              <div className="ingest-list">
-                {activity.map((email) => (
-                  // One interactive element per row: the button IS the card.
-                  <article className="ingest-item" key={email.id}>
-                    <button type="button" className="ingest-row"
-                      aria-label={`View parsed data for ${email.subject || "(no subject)"}`}
-                      onClick={() => setViewingEmail(email)}>
-                      <span className="ingest-row-top">
-                        <span className="ingest-subject">{email.subject || "(no subject)"}</span>
-                        <StatusChip status={email.status} />
-                      </span>
-                      <span className="ingest-from">From {email.from}</span>
-                      {email.error && <span className="warning">{email.error}</span>}
-                      <time className="card-meta" dateTime={email.receivedAt}>
-                        {new Date(email.receivedAt).toLocaleString()}
-                      </time>
-                    </button>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
+          <div className="rail settings-rail">
+            <section aria-label="Recent ingest activity">
+              <h4 className="section-kicker" style={{ margin: 0 }}>Recent ingest activity</h4>
+              {activityError && <p className="warning" role="alert" style={{ margin: 0 }}>{activityError}</p>}
+              {activity.length === 0 && !activityError ? (
+                <div className="card" style={{ alignItems: "flex-start", gap: 10 }}>
+                  <span className="card-title"><Robot size={16} style={{ marginRight: 6 }} />Nothing ingested yet</span>
+                  <p className="card-body" style={{ margin: 0 }}>
+                    Recent extraction results and failures will appear here.
+                  </p>
+                </div>
+              ) : (
+                <div className="ingest-list">
+                  {activity.map((email) => (
+                    // One interactive element per row: the button IS the card.
+                    <article className="ingest-item" key={email.id}>
+                      <button type="button" className="ingest-row"
+                        aria-label={`View parsed data for ${email.subject || "(no subject)"}`}
+                        onClick={() => setViewingEmail(email)}>
+                        <span className="ingest-row-top">
+                          <span className="ingest-subject">{email.subject || "(no subject)"}</span>
+                          <StatusChip status={email.status} />
+                        </span>
+                        <span className="ingest-from">From {email.from}</span>
+                        {email.error && <span className="warning">{email.error}</span>}
+                        <time className="card-meta" dateTime={email.receivedAt}>
+                          {new Date(email.receivedAt).toLocaleString()}
+                        </time>
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {revealLog !== null && <RevealLog entries={revealLog} />}
+          </div>
         </div>
       )}
       {viewingEmail && (
@@ -452,6 +475,74 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
         />
       )}
     </>
+  );
+}
+
+/** "passport_number" → "Passport number". Field NAMES only ever reach here. */
+function fieldLabel(field: string): string {
+  const words = field.replace(/_/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * A stable, human-quotable handle for the record that was revealed. The full
+ * id is a UUID nobody can read aloud; the tail is enough for an owner to match
+ * an entry against a booking or person they are looking at, and it is what
+ * they would paste into a question about it.
+ */
+function shortRef(id: string): string {
+  return id.length > 8 ? `…${id.slice(-8)}` : id;
+}
+
+/**
+ * The owner-visible reveal audit trail (issue #8). Renders WHO unmasked WHICH
+ * record's WHICH field, and WHEN.
+ *
+ * It cannot render the revealed value because the server never stored one —
+ * `audit_log` has no column that could hold it (see
+ * migrations/0016_audit_log.sql). That is the point of the panel, not a
+ * limitation of it, so the footnote says so out loud: an owner reading an
+ * audit trail deserves to know what it does and does not retain.
+ */
+function RevealLog({ entries }: { entries: AuditEntry[] }) {
+  return (
+    <section aria-label="Reveal activity">
+      <h4 className="section-kicker" style={{ margin: 0 }}>Reveal activity</h4>
+      {entries.length === 0 ? (
+        <div className="card" style={{ alignItems: "flex-start", gap: 10 }}>
+          <span className="card-title">
+            <Eye size={16} style={{ marginRight: 6 }} />No reveals yet
+          </span>
+          <p className="card-body" style={{ margin: 0 }}>
+            Unmasking a passport, Known Traveler, redress or confirmation number is recorded
+            here — who did it and when, never the number itself.
+          </p>
+        </div>
+      ) : (
+        <>
+          <ul className="reveal-list">
+            {entries.map((entry) => (
+              <li className="reveal-item" key={entry.id}>
+                <span className="reveal-what">
+                  {fieldLabel(entry.field)}
+                  {" · "}
+                  <span className="reveal-ref">
+                    {entry.subjectType} {shortRef(entry.subjectId)}
+                  </span>
+                </span>
+                <span className="reveal-who">{entry.actorEmail}</span>
+                <time className="card-meta" dateTime={entry.at}>
+                  {new Date(entry.at).toLocaleString()}
+                </time>
+              </li>
+            ))}
+          </ul>
+          <p className="text-muted field-hint" style={{ margin: 0 }}>
+            Revealed values are never stored in this log.
+          </p>
+        </>
+      )}
+    </section>
   );
 }
 

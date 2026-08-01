@@ -37,6 +37,18 @@ describe("api client", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/trips/t1/itinerary", expect.anything());
   });
 
+  it("reads the reveal audit trail", async () => {
+    const fetchMock = mockFetch(200, []);
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    expect(await api.audit.reveals()).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledWith("/api/audit/reveals", expect.anything());
+  });
+
+  it("surfaces the owner-only 403 on the audit trail as an ApiError", async () => {
+    const api = createApi({ fetch: mockFetch(403, { error: "Forbidden" }), baseUrl: "" });
+    await expect(api.audit.reveals()).rejects.toMatchObject({ status: 403 });
+  });
+
   it("throws ApiError carrying the status on a failure", async () => {
     const api = createApi({ fetch: mockFetch(401, { error: "Unauthorized" }), baseUrl: "" });
     await expect(api.trips.list()).rejects.toThrow(ApiError);
