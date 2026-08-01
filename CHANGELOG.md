@@ -107,6 +107,16 @@
   gap in days, with a conservative destination match as a tie-break — and each
   option says why it is ranked where it is ("covers these dates · same
   destination"). Adds `PATCH /api/imports/drafts/:draftId`.
+- Fixed a booking whose confirmation number can no longer be decrypted taking
+  down far more than itself. Duplicate detection reads every booking on a trip
+  at once, so one unreadable row — an envelope sealed under a key a rotation
+  has since retired, or a value written before envelope encryption existed —
+  turned both the trip's duplicates card and the whole import review queue into
+  an Internal error, even though every other view of that same booking already
+  degrades gracefully. Matching now treats an unreadable confirmation as no
+  signal at all and keeps comparing on title, time and location, so the row
+  cannot hide a real duplicate either; a duplicate group that cannot be
+  rendered is dropped with a logged warning rather than shown half-built.
 
 ## 0.7.0 - 2026-07-27
 
