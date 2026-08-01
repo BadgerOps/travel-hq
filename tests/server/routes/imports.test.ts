@@ -86,19 +86,25 @@ describe("POST /api/imports/file", () => {
     expect(run).toHaveBeenCalledTimes(1);
 
     const email = await env.DB.prepare(
-      "SELECT from_address, subject, raw, status FROM inbound_email",
+      "SELECT from_address, subject, raw, raw_encryption, status FROM inbound_email",
     ).first<{
       from_address: string;
       subject: string;
       raw: string;
+      raw_encryption: string;
       status: string;
     }>();
     expect(email).toMatchObject({
       from_address: "file-import@travel-hq.invalid",
       subject: "File import: delta-trip.pdf",
       status: "extracted",
+      raw_encryption: "envelope",
     });
-    expect(email?.raw).toContain(DELTA_ITINERARY_90_DAYS);
+    // The converted document is sealed at rest, not stored as readable text:
+    // an uploaded itinerary is the same class of data as a forwarded one.
+    expect(email?.raw).toMatch(/^v1\.test\./);
+    expect(email?.raw).not.toContain(DELTA_ITINERARY_90_DAYS);
+    expect(await ring.decrypt(email!.raw)).toContain(DELTA_ITINERARY_90_DAYS);
 
     const { results: drafts } = await env.DB.prepare(
       `SELECT ordinal, title, starts_at, starts_at_tz, ends_at, ends_at_tz,
@@ -137,19 +143,24 @@ describe("POST /api/imports/file", () => {
     expect(run).toHaveBeenCalledTimes(1);
 
     const email = await env.DB.prepare(
-      "SELECT from_address, subject, raw, status FROM inbound_email",
+      "SELECT from_address, subject, raw, raw_encryption, status FROM inbound_email",
     ).first<{
       from_address: string;
       subject: string;
       raw: string;
+      raw_encryption: string;
       status: string;
     }>();
-    expect(email).toEqual({
+    expect(email).toMatchObject({
       from_address: "receipts@delta.example",
       subject: "Delta.com Trip Information",
-      raw: DELTA_EML_90_DAYS,
       status: "extracted",
+      raw_encryption: "envelope",
     });
+    // Sealed in the column, byte-identical once opened: encryption is at
+    // rest only, and must not change what the extractor later reads.
+    expect(email?.raw).not.toContain("Delta");
+    expect(await ring.decrypt(email!.raw)).toBe(DELTA_EML_90_DAYS);
   });
 
   it("rejects missing and unsupported uploads before conversion", async () => {

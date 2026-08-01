@@ -83,6 +83,19 @@
   every path, enforced in the repositories so the email-import path is covered
   too, and an imported booking whose extracted times or price cannot be
   trusted now arrives without them rather than not at all.
+- Gave forwarded email an encryption and retention lifecycle. The raw message
+  is now sealed at rest with the same envelope crypto and rotatable key ring
+  that protect passport and confirmation numbers, and it no longer lives
+  forever: the full text is kept for 7 days after a successful extraction and
+  up to 30 days while an extraction is still queued or has failed, then
+  redacted automatically — the sender, subject, status and the bookings
+  extracted from it are kept. Purging is opportunistic (it rides on ingest and
+  on import review, since the Worker has no cron trigger), rows written before
+  this change stay readable as plaintext, Settings and the ingest activity
+  dialog state the policy, and re-running extraction over a message whose
+  window has passed answers 410 with the reason instead of silently finding
+  nothing. Adds `POST /api/imports/:inboundEmailId/reextract` and a D1
+  migration.
 
 ## 0.7.0 - 2026-07-27
 

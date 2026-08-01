@@ -11,6 +11,10 @@ import type {
   InboundEmailDetail,
   InboundEmailMetadata,
 } from "../../../src/client/api/types.js";
+import {
+  RAW_RETENTION_EXTRACTED_DAYS,
+  RAW_RETENTION_UNRESOLVED_DAYS,
+} from "../../../src/shared/email-retention.js";
 
 const SETTINGS = {
   forwardAddress: "trips@badgerops.foo",
@@ -62,6 +66,20 @@ function renderSettings(api = makeApi(), role: Identity["role"] = "owner") {
 }
 
 describe("Settings", () => {
+  it("states how long forwarded mail is kept, using the enforced constants", async () => {
+    // The point is not the wording but that the numbers on screen are the
+    // same ones the purge uses — a hard-coded "30 days" in JSX is how a
+    // privacy promise drifts away from the behaviour behind it.
+    renderSettings();
+    const policy = await screen.findByText(/kept in this household|forwarded mail is stored/i);
+    const section = policy.closest(".settings-retention");
+    expect(section).not.toBeNull();
+    expect(section).toHaveTextContent(`${RAW_RETENTION_EXTRACTED_DAYS} days`);
+    expect(section).toHaveTextContent(`${RAW_RETENTION_UNRESOLVED_DAYS} days`);
+    expect(section).toHaveTextContent(/stored encrypted/i);
+    expect(section).toHaveTextContent(/bookings extracted from it are kept/i);
+  });
+
   it("populates the Workers AI model presets from the catalog endpoint", async () => {
     const api = makeApi({
       aiModels: vi.fn(async () => ({
@@ -383,6 +401,9 @@ describe("Settings", () => {
     api.inboundEmails.list.mockResolvedValue([metadata]);
     api.inboundEmails.get.mockResolvedValue({
       ...metadata,
+      rawState: "retained",
+      rawExpiresAt: "2026-08-03T14:37:17.000Z",
+      rawUnavailableReason: null,
       textBody: "Site A12, arriving July 30.",
       calendars: [],
       drafts: [{

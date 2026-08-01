@@ -17,6 +17,13 @@ const metadata: InboundEmailMetadata = {
   receivedAt: "2026-07-27T14:37:17.000Z",
 };
 
+/** The retention fields every detail response carries; overridden per test. */
+const RETAINED = {
+  rawState: "retained",
+  rawExpiresAt: "2026-08-03T14:37:17.000Z",
+  rawUnavailableReason: null,
+} satisfies Pick<InboundEmailDetail, "rawState" | "rawExpiresAt" | "rawUnavailableReason">;
+
 function apiWith(detail: InboundEmailDetail) {
   return { inboundEmails: { get: vi.fn(async () => detail) } };
 }
@@ -25,6 +32,7 @@ describe("InboundEmailDetailDialog", () => {
   it("shows the extracted drafts, their raw data, and the message text", async () => {
     const api = apiWith({
       ...metadata,
+      ...RETAINED,
       textBody: "Site A12, arriving July 30.",
       calendars: ["BEGIN:VCALENDAR\nEND:VCALENDAR"],
       drafts: [{
@@ -77,7 +85,15 @@ describe("InboundEmailDetailDialog", () => {
       status: "rejected",
       error: "sender is not on the household allowlist",
     };
-    const api = apiWith({ ...rejected, textBody: null, calendars: [], drafts: [] });
+    const api = apiWith({
+      ...rejected,
+      textBody: null,
+      calendars: [],
+      drafts: [],
+      rawState: "never-stored",
+      rawExpiresAt: null,
+      rawUnavailableReason: "No copy of the forwarded message was stored for this email.",
+    });
     render(
       <InboundEmailDetailDialog email={rejected} api={api as never} onClose={vi.fn()} />,
     );
@@ -86,7 +102,45 @@ describe("InboundEmailDetailDialog", () => {
       await screen.findByText(/rejected before extraction/i),
     ).toBeInTheDocument();
     expect(screen.getByText("sender is not on the household allowlist")).toBeInTheDocument();
-    expect(screen.getByText(/no readable message body was stored/i)).toBeInTheDocument();
+    expect(screen.getByText(/no copy of the forwarded message was stored/i)).toBeInTheDocument();
+  });
+
+  it("states when a retained message is due to be deleted", async () => {
+    const api = apiWith({
+      ...metadata,
+      ...RETAINED,
+      textBody: "Site A12, arriving July 30.",
+      calendars: [],
+      drafts: [],
+    });
+    render(
+      <InboundEmailDetailDialog email={metadata} api={api as never} onClose={vi.fn()} />,
+    );
+    expect(await screen.findByText(/kept until/i)).toHaveTextContent(
+      /then deleted automatically/i,
+    );
+  });
+
+  it("explains a purged message instead of implying none was ever stored", async () => {
+    // The distinction the API draws, carried through to the reader: this
+    // message existed and aged out, which is very different from "we never
+    // kept it" and from "we cannot decrypt it".
+    const api = apiWith({
+      ...metadata,
+      textBody: null,
+      calendars: [],
+      drafts: [],
+      rawState: "purged",
+      rawExpiresAt: null,
+      rawUnavailableReason:
+        "The forwarded message is no longer retained — its retention window has passed, so only the extracted bookings and this summary remain.",
+    });
+    render(
+      <InboundEmailDetailDialog email={metadata} api={api as never} onClose={vi.fn()} />,
+    );
+    expect(await screen.findByText(/no longer retained/i)).toBeInTheDocument();
+    expect(screen.getByText(/only the message text is affected/i)).toBeInTheDocument();
+    expect(screen.queryByText(/kept until/i)).not.toBeInTheDocument();
   });
 
   it("reports a failed detail load", async () => {

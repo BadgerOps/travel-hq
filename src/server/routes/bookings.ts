@@ -101,7 +101,9 @@ bookings.get("/:bookingId/artifact", async (c) => {
   if (!booking.sourceInboundEmailId) {
     return c.json({ artifact: null });
   }
-  const email = await new InboundEmailRepo(c.get("db"), identity)
+  // With the ring: since migration 0015 a stored message is sealed with the
+  // envelope crypto, and without the key this artifact would render blank.
+  const email = await new InboundEmailRepo(c.get("db"), identity, c.get("ring"))
     .findById(booking.sourceInboundEmailId);
   if (!email) throw new NotFoundError("Source email not found in this household");
   const parsed = parseMime(email.raw);
