@@ -1,5 +1,6 @@
 import type {
   AuditEntry,
+  HouseholdMember,
   Booking,
   BookingStatus,
   Card,
@@ -127,7 +128,23 @@ export function createApi(config: ApiConfig = {}) {
     me: () => request<Identity>("/api/me"),
     people: {
       list: () => request<Person[]>("/api/people"),
-      ensureMe: () => request<Person>("/api/people/me", jsonBody("POST", {})),
+      /**
+       * Your own profile, or `undefined` when you have none.
+       *
+       * The server answers 204 rather than 404 for the empty case, and
+       * `request()` maps that to undefined — absence here is an ordinary
+       * state, not an error. It means nobody has pre-seeded a person row for
+       * your email yet, which is how a shared-trip guest looks: they can
+       * reach the household but were never made part of it.
+       */
+      me: () => request<Person | undefined>("/api/people/me"),
+      /**
+       * The POST form, kept for the two callers that ask "which traveler am
+       * I?" while assigning people. Since the profile work it LINKS an
+       * existing row and never creates one, so it too can resolve to
+       * undefined — see PersonRepo.ensureCurrentUser.
+       */
+      ensureMe: () => request<Person | undefined>("/api/people/me", jsonBody("POST", {})),
       reveal: (id: string, field: DocumentField) =>
         request<{ value: string | null }>(
           `/api/people/${seg(id)}/reveal/${seg(field)}`,
@@ -362,6 +379,47 @@ export function createApi(config: ApiConfig = {}) {
        * what was revealed — never the revealed values.
        */
       reveals: () => request<AuditEntry[]>("/api/audit/reveals"),
+      /**
+       * The rolling household activity log, newest first, one keyset page at
+       * a time. Open to everyone — what you SEE is the server's decision: an
+       * owner reads the household's history, anyone else reads only the
+       * entries they are the actor or the subject of, so "who edited my
+       * passport number?" is always answerable about your own record.
+       *
+       * `cursor` is opaque and comes from the previous page's `nextCursor`;
+       * a null `nextCursor` means the end. It is not authorization — the
+       * server scopes and filters regardless of what is passed.
+       */
+      activity: (options: { limit?: number; cursor?: string } = {}) => {
+        const query = new URLSearchParams();
+        if (options.limit !== undefined) query.set("limit", String(options.limit));
+        if (options.cursor) query.set("cursor", options.cursor);
+        const suffix = query.size > 0 ? `?${query}` : "";
+        return request<{ entries: AuditEntry[]; nextCursor: string | null }>(
+          `/api/audit/activity${suffix}`,
+        );
+      },
+    },
+    household: {
+      members: () => request<HouseholdMember[]>("/api/household/members"),
+      /**
+       * Owner-only. Creates the person row that CONSTITUTES membership, plus
+       * the account and the household_member row, in one batch. Idempotent:
+       * re-inviting an address returns the existing member and leaves their
+       * stored role alone, so a re-invite can never silently demote somebody.
+       *
+       * It does not send anything. Cloudflare Access decides who may sign in
+       * at all, and an address that Access does not admit reaches a login
+       * wall rather than the app — the UI has to say so or this looks broken.
+       */
+      invite: (input: { email: string; role: "admin" | "viewer"; displayName?: string }) =>
+        request<HouseholdMember>("/api/household/members", jsonBody("POST", input)),
+      /** Owner-only. Takes the ACCOUNT id, not the person id. */
+      setRole: (userId: string, role: "admin" | "viewer") =>
+        request<HouseholdMember>(
+          `/api/household/members/${seg(userId)}/role`,
+          jsonBody("PUT", { role }),
+        ),
     },
     imports: {
       pending: () => request<PendingImportDraft[]>("/api/imports/pending"),
