@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   CalendarBlank,
@@ -47,6 +47,93 @@ const DEFAULT_TAB: TabId = "overview";
 /** What the hash says this page should be showing. `date` is meaningful only
  * for the day view; it is null everywhere else. */
 type HashView = { tab: TabId; date: string | null };
+
+/**
+ * The banner's ⋯ menu. This was a native `<details>` with an absolutely
+ * positioned panel, which failed three ways: the panel was clipped out of
+ * existence by the banner's cover-photo `overflow: hidden` (dead button on a
+ * phone, cut off on desktop — the reason this component exists), it stayed
+ * open behind whatever dialog an item opened, and nothing outside it could
+ * dismiss it. Same disclosure pattern as Shell's AccountMenu instead: a real
+ * button with `aria-expanded`, outside-pointer and Escape to close, and every
+ * item closing the popup on its way to its action.
+ *
+ * Disclosure, not `role="menu"` — three items don't warrant arrow-key
+ * roving focus, and buttons already announce themselves.
+ */
+function TripMenu({
+  tripTitle,
+  canShare,
+  onEdit,
+  onShare,
+  onCheckDuplicates,
+}: {
+  tripTitle: string;
+  canShare: boolean;
+  onEdit: () => void;
+  onShare: () => void;
+  onCheckDuplicates: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  /* Every item is a one-shot: run it, and the popup's job is done. */
+  const choose = (action: () => void) => () => {
+    setOpen(false);
+    action();
+  };
+
+  return (
+    <div className="menu-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        ref={buttonRef}
+        className="btn btn-secondary btn-icon"
+        aria-label={`Trip menu for ${tripTitle}`}
+        aria-expanded={open}
+        aria-controls="trip-menu"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <DotsThree size={18} />
+      </button>
+      {open && (
+        <div className="menu-pop" id="trip-menu" data-testid="trip-menu">
+          <button type="button" className="btn btn-ghost" onClick={choose(onEdit)}>
+            <PencilSimple size={14} /> Edit trip
+          </button>
+          {canShare && (
+            <button type="button" className="btn btn-ghost" onClick={choose(onShare)}>
+              <ShareNetwork size={14} /> Share trip
+            </button>
+          )}
+          <button type="button" className="btn btn-ghost" onClick={choose(onCheckDuplicates)}>
+            <CopySimple size={14} /> Check duplicates
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * The tab lives in the URL hash so a trip view is linkable ("open the
@@ -293,8 +380,13 @@ export function TripDetail({
           cover art sits behind a bottom scrim so the title stays legible on
           any photo; without a photo the deterministic fallback art renders. */}
       <header className="detail-banner">
-        <TripCoverPhoto photoUrl={trip.photoUrl} tripId={trip.id} />
-        <div className="banner-scrim" />
+        {/* The art and its scrim are wrapped so the rounded corners clip them
+            and nothing else — see .banner-media. The banner itself must not
+            clip, or it eats the ⋯ menu's popup. */}
+        <div className="banner-media" aria-hidden="true">
+          <TripCoverPhoto photoUrl={trip.photoUrl} tripId={trip.id} />
+          <div className="banner-scrim" />
+        </div>
         <div className="banner-content">
           <div className="banner-title-block">
             <div className="banner-title-row">
@@ -326,41 +418,13 @@ export function TripDetail({
           </div>
           <div className="banner-actions">
             {canWrite && (
-              <details style={{ position: "relative" }}>
-                <summary
-                  className="btn btn-secondary btn-icon"
-                  aria-label={`Trip menu for ${trip.title}`}
-                  style={{ listStyle: "none" }}
-                >
-                  <DotsThree size={18} />
-                </summary>
-                <div className="card" style={{
-                  position: "absolute",
-                  right: 0,
-                  top: "calc(100% + 6px)",
-                  zIndex: 20,
-                  minWidth: 190,
-                  padding: 6,
-                  display: "grid",
-                  gap: 3,
-                }}>
-                  <button type="button" className="btn btn-ghost" onClick={() => setEditing(true)}>
-                    <PencilSimple size={14} /> Edit trip
-                  </button>
-                  {accessRole === "owner" && (
-                    <button type="button" className="btn btn-ghost" onClick={() => setSharing(true)}>
-                      <ShareNetwork size={14} /> Share trip
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    onClick={() => setDuplicateCheck((value) => value + 1)}
-                  >
-                    <CopySimple size={14} /> Check duplicates
-                  </button>
-                </div>
-              </details>
+              <TripMenu
+                tripTitle={trip.title}
+                canShare={accessRole === "owner"}
+                onEdit={() => setEditing(true)}
+                onShare={() => setSharing(true)}
+                onCheckDuplicates={() => setDuplicateCheck((value) => value + 1)}
+              />
             )}
             {canWrite && (
               <button

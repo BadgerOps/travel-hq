@@ -1,9 +1,19 @@
+import { useState } from "react";
+
 /**
  * Trip cover art: the real photo when the trip has one, otherwise a
  * deterministic Nocturne-styled placeholder (layered ridge lines + a dashed
  * route with endpoint dots, varied by trip id) so an empty slot still looks
  * intentional. The photo gets the system's `lighten` blend via CSS; the
  * fallback opts out by not being an <img>.
+ *
+ * A photo URL that *fails* takes the placeholder too. Having a URL is not the
+ * same as the bytes arriving: an uploaded photo whose R2 object is missing
+ * (or whose GET 500s on a deployment with no bucket bound), and a pasted
+ * external URL that later starts refusing hotlinks, both resolve to a dead
+ * image. Left alone the browser paints its own broken-image glyph in the
+ * middle of the banner — the trip page's largest element, reading as "the
+ * page is broken" rather than "this trip has no picture".
  */
 export function TripCoverPhoto({
   photoUrl,
@@ -12,9 +22,22 @@ export function TripCoverPhoto({
   photoUrl: string | null;
   tripId: string;
 }) {
-  if (photoUrl) {
+  // Keyed by URL rather than a bare boolean, so a re-upload (which changes the
+  // `?v=` cache-buster) gets a fresh attempt instead of inheriting the old
+  // URL's failure — no effect needed to reset it.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+
+  if (photoUrl && failedUrl !== photoUrl) {
     // Decorative: the card/banner text carries the trip's name.
-    return <img className="cover-img" src={photoUrl} alt="" loading="lazy" />;
+    return (
+      <img
+        className="cover-img"
+        src={photoUrl}
+        alt=""
+        loading="lazy"
+        onError={() => setFailedUrl(photoUrl)}
+      />
+    );
   }
   return <FallbackArt tripId={tripId} />;
 }
