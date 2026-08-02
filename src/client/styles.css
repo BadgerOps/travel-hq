@@ -207,6 +207,17 @@ figcaption {
 .input:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
 .input:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
 textarea.input { min-height: 90px; resize: vertical; }
+
+.document-reader {
+  display: grid; gap: 8px; padding: 12px;
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-accent) 5%, transparent);
+}
+.document-reader p { margin: 0; }
+.document-reader-heading,
+.document-reader-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.document-reader-fallback { font-size: 12px; }
+.document-reader-message { font-size: 13px; }
 .radio { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
 .radio input, .seg-opt input {
   position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;
@@ -781,4 +792,3 @@ textarea.input { min-height: 90px; resize: vertical; }
      omitted: the app has no toasts, only inline role="status" text. Restore
      it if a toast layer ever lands. */
 }
-

@@ -95,6 +95,38 @@ describe("PUT /api/people/:id", () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as { passportNumberMasked: string | null }).passportNumberMasked).toBe(null);
   });
+  it("encrypts, masks, and reveals a scanned driver's licence number", async () => {
+    const created = await jsonRequest("/api/people", "POST", {
+      displayName: "Ava",
+      driverLicenseNumber: "D1234567",
+      driverLicenseExpiry: "2031-04-15",
+      driverLicenseJurisdiction: "ID",
+    });
+    expect(created.status).toBe(201);
+    const person = (await created.json()) as {
+      id: string;
+      driverLicenseNumberMasked: string;
+      driverLicenseExpiry: string;
+      driverLicenseJurisdiction: string;
+    };
+    expect(person).toMatchObject({
+      driverLicenseNumberMasked: "••••4567",
+      driverLicenseExpiry: "2031-04-15",
+      driverLicenseJurisdiction: "ID",
+    });
+    const row = await env.DB.prepare("SELECT driver_license_number FROM person WHERE id = ?")
+      .bind(person.id)
+      .first<{ driver_license_number: string }>();
+    expect(row?.driver_license_number).not.toContain("D1234567");
+
+    const revealed = await request(
+      app,
+      `/api/people/${person.id}/reveal/driver_license_number`,
+      revealInit,
+    );
+    expect(revealed.status).toBe(200);
+    expect(await revealed.json()).toMatchObject({ value: "D1234567" });
+  });
   it("answers 404 for an unknown person", async () => {
     expect((await jsonRequest("/api/people/p-nope", "PUT", { displayName: "X" })).status).toBe(404);
   });
