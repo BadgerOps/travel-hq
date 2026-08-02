@@ -6,6 +6,7 @@ import type {
   BookingStatus,
   PendingImportDraft,
   Person,
+  ReminderMode,
   Trip,
   UpdateBookingInput,
 } from "../api/types.js";
@@ -51,6 +52,26 @@ const KINDS = [
 ] as const;
 
 type Kind = (typeof KINDS)[number]["id"];
+
+/**
+ * The per-booking reminder override (#61), as three named states rather than a
+ * number that sometimes means "none".
+ *
+ * The distinction the control exists to protect: `off` means no reminder at
+ * all, and a lead of `0` means "tell me the moment it starts" — a real choice
+ * for a dinner reservation you are already standing outside. A single nullable
+ * minutes field would make those two indistinguishable to anyone filling the
+ * form in, which is exactly how someone ends up hearing nothing about a flight
+ * they meant to be reminded of at departure.
+ */
+const REMINDER_CHOICES = [
+  { id: "inherit", label: "My default" },
+  { id: "custom", label: "Custom" },
+  { id: "off", label: "No reminder" },
+] as const;
+
+/** Kept in sync by hand with MAX_REMINDER_LEAD_MINUTES in repos/booking.ts. */
+const MAX_REMINDER_LEAD = 7 * 24 * 60;
 
 /** The kinds whose logistics are "be standing here at this time". */
 const EXCURSION_KINDS = new Set<Kind>(["activity", "other"]);
@@ -251,6 +272,17 @@ export function BookingDialog({
       : (seed.costCents / 100).toFixed(2),
   );
   const [status, setStatus] = useState<BookingStatus>(booking?.status ?? "booked");
+  // Real COLUMNS (reminder_mode / reminder_lead_minutes), not `details` keys,
+  // so they have their own state and their own place in the patch rather than
+  // riding along in details().
+  const [reminderMode, setReminderMode] = useState<ReminderMode>(
+    booking?.reminderMode ?? "inherit",
+  );
+  const [reminderLead, setReminderLead] = useState(
+    booking?.reminderLeadMinutes === null || booking?.reminderLeadMinutes === undefined
+      ? ""
+      : String(booking.reminderLeadMinutes),
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -349,13 +381,39 @@ export function BookingDialog({
     return null;
   }
 
+  /**
+   * The minutes to store, or null to let `custom` fall back to the account
+   * default. Only meaningful when the mode IS custom — the other two modes
+   * store null, because a lead time attached to "off" is a number nothing
+   * reads and everything is confused by.
+   */
+  function reminderLeadValue(): number | null {
+    if (reminderMode !== "custom") return null;
+    const trimmed = reminderLead.trim();
+    if (trimmed === "") return null;
+    return Number(trimmed);
+  }
+
+  function reminderProblem(): string | null {
+    if (reminderMode !== "custom") return null;
+    const trimmed = reminderLead.trim();
+    if (trimmed === "") return null;
+    const value = Number(trimmed);
+    // `< 0`, not `<= 0`: zero minutes is "when it starts", which is the whole
+    // reason this is a mode plus a number instead of one nullable number.
+    if (!Number.isInteger(value) || value < 0 || value > MAX_REMINDER_LEAD) {
+      return `Reminder lead time must be a whole number of minutes from 0 to ${MAX_REMINDER_LEAD}.`;
+    }
+    return null;
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (title.trim() === "") {
       setError("A title is required.");
       return;
     }
-    const problem = detailsProblem();
+    const problem = detailsProblem() ?? reminderProblem();
     if (problem !== null) {
       setError(problem);
       return;
@@ -438,6 +496,17 @@ export function BookingDialog({
     for (const personId of selected) {
       await api.bookings.assignPerson(created.id, personId);
     }
+    // A follow-up patch rather than a key on the create body: the create route
+    // is the one schema that does not accept the reminder columns, and a
+    // non-strict Zod object would SILENTLY DROP them — an override the operator
+    // watched themselves set and that never existed. A new booking defaults to
+    // 'inherit' server-side, so nothing is sent unless something was chosen.
+    if (reminderMode !== "inherit") {
+      await api.bookings.update(created.id, {
+        reminderMode,
+        reminderLeadMinutes: reminderLeadValue(),
+      });
+    }
   }
 
   /**
@@ -499,6 +568,8 @@ export function BookingDialog({
       endsAt: endsUtc ?? null,
       endsAtTz: endsUtc ? endsAtTz : null,
       costCents: cents ?? null,
+      reminderMode,
+      reminderLeadMinutes: reminderLeadValue(),
       ...(confirmationNumber.trim() === ""
         ? {}
         : { confirmationNumber: confirmationNumber.trim() }),
@@ -865,6 +936,58 @@ export function BookingDialog({
             </p>
           )}
         </fieldset>
+
+        {/*
+          The reminder override. Absent for a pending import, which has no
+          reminder columns at all — a draft is not schedulable until it becomes
+          a booking, so a control here would edit nothing.
+        */}
+        {!editingDraft && (
+          <fieldset className="card" style={{ display: "grid", gap: 12, padding: 12 }}>
+            <legend style={{ padding: "0 6px", fontWeight: 650 }}>Reminder</legend>
+            <div className="seg" role="radiogroup" aria-label="Reminder" style={{ width: "100%" }}>
+              {REMINDER_CHOICES.map(({ id, label }) => (
+                <label key={id} className="seg-opt" style={{ flex: 1, justifyContent: "center" }}>
+                  <input
+                    type="radio"
+                    name="booking-reminder"
+                    value={id}
+                    checked={reminderMode === id}
+                    onChange={() => setReminderMode(id)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            {reminderMode === "custom" && (
+              <div className="field">
+                <label htmlFor="bd-reminder-lead">Minutes before it starts</label>
+                <input
+                  id="bd-reminder-lead"
+                  className="input"
+                  inputMode="numeric"
+                  placeholder="60"
+                  value={reminderLead}
+                  onChange={(e) => setReminderLead(e.target.value)}
+                />
+                <p className="text-muted" style={{ margin: 0, fontSize: 12 }}>
+                  0 means right when it starts. Leave blank to use your default. To get no
+                  reminder at all, choose “No reminder” above.
+                </p>
+              </div>
+            )}
+            {reminderMode === "inherit" && (
+              <p className="text-muted" style={{ margin: 0, fontSize: 12 }}>
+                Uses the lead time from your notification settings.
+              </p>
+            )}
+            {reminderMode === "off" && (
+              <p className="text-muted" style={{ margin: 0, fontSize: 12 }}>
+                Nobody is reminded about this booking, whatever their own settings say.
+              </p>
+            )}
+          </fieldset>
+        )}
 
         {/*
           MODE DIFFERENCE 2 of 3: a pending import has neither of these yet.

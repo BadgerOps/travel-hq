@@ -84,25 +84,33 @@ and only one of them is something the user should be reassured about.
 
 ### Where it runs
 
-There is **no cron trigger** configured for this Worker, so purging is
-opportunistic — it rides on paths that already run and already write:
+**On a cron, every five minutes**, plus opportunistically on the paths that
+were the only trigger before issue #61 added a `[triggers]` block to
+`wrangler.toml`.
+
+The cron is the one that keeps the promise. `scheduled()` in
+`src/server/worker.ts` calls `runScheduledTasks`
+(`src/server/notifications/cron.ts`), which runs the notification sweep and
+then `InboundEmailRepo.purgeExpiredRawEverywhere(db)` — the cross-household
+version, deliberately unscoped and static because a cron has no household
+context to bind. It is the answer to the gap the opportunistic triggers leave:
+a household that stops using Travel HQ stops writing, and under the old scheme
+stopped being swept, so its expired raw messages sat there indefinitely. That
+is precisely the household most owed the deletion.
+
+The opportunistic triggers remain, because a household that IS active should
+not wait up to five minutes for a purge it has just earned:
 
 - `handleInboundEmail` — after the message is stored and extraction returns.
 - `POST /api/imports/file` — the other way mail enters.
 - `POST /api/imports/accept`, `/dismiss`, `/create-trip` — the review paths,
   which are exactly when the reviewer is finished with the message.
 
-Every trigger is a write by a member of the household being swept, so the
-sweep is scoped to that household. A household that stops using Travel HQ also
-stops accumulating mail, so it is owed no sweep. Failures are logged and
-swallowed: a housekeeping chore must never fail a real user action, and an
-expired row that survives one more day is a triviality.
-
-`InboundEmailRepo.purgeExpiredRawEverywhere(db)` is the cross-household
-version — deliberately unscoped and static, because a cron has no household
-context to bind. **Follow-up:** wire it to a `scheduled()` handler once a
-`[triggers]` block is added to `wrangler.toml`. Deploy configuration was out
-of scope for this change.
+Each of those is a write by a member of the household being swept, so that
+sweep is scoped to that household; the cron's is not scoped at all, by design.
+Failures are logged and swallowed everywhere: a housekeeping chore must never
+fail a real user action, and — on the cron — must never cost anybody their
+reminders. An expired row that survives one more tick is a triviality.
 
 ## Re-extraction after a purge
 

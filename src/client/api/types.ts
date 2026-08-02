@@ -55,3 +55,16 @@ export type {
   ImportReviewResult,
 } from "../../server/repos/import-review.js";
 export type { BookingSourceArtifact } from "../../server/routes/bookings.js";
+export type {
+  BookingSubscriptionState,
+  NotificationPreferences,
+  ReminderMode,
+  TimezoneSource,
+  UpdateNotificationPreferencesInput,
+  UserTimezone,
+} from "../../server/repos/notification.js";
+export type {
+  NotificationSettingsResponse,
+  PushDeviceView,
+  TestNotificationResult,
+} from "../../server/routes/notifications.js";

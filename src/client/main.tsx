@@ -18,6 +18,8 @@ import { Cards } from "./pages/Cards.js";
 import { Import } from "./pages/Import.js";
 import { Settings } from "./pages/Settings.js";
 import { IdentityProvider, useIdentity } from "./api/identity.js";
+import { api } from "./api/client.js";
+import { createTimezoneReporter, ensureServiceWorker } from "./lib/push.js";
 
 function ShellWithIdentity({ children }: { children: React.ReactNode }) {
   return <Shell identity={useIdentity()}>{children}</Shell>;
@@ -58,7 +60,34 @@ createRoot(document.getElementById("root")!).render(
   </React.StrictMode>,
 );
 
-// PROD-only so dev HMR never fights a cached shell.
+// PROD-only so dev HMR never fights a cached shell. The registration itself is
+// memoized by ensureServiceWorker(), so the "Enable notifications" button in
+// Settings — which needs the ServiceWorkerRegistration to call
+// pushManager.subscribe() — shares this one rather than racing a second
+// registration of the same script. (In dev nothing is registered until that
+// button is actually pressed.)
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
-  navigator.serviceWorker.register("/sw.js").catch(() => {});
+  ensureServiceWorker().catch(() => {});
 }
+
+/**
+ * Tell the server where this device is, on open and on every return to the
+ * foreground.
+ *
+ * The second half is the point. A session that was opened in Boise and
+ * survives in a background tab through a flight to Amsterdam would otherwise
+ * keep reporting Boise until the tab was closed — and the daily digest fires
+ * at a LOCAL wall clock, so it would arrive at 08:00 in a timezone the reader
+ * left yesterday. `visibilitychange` is the one event that fires when someone
+ * takes their phone off airplane mode and opens the app at the gate.
+ *
+ * Sent as `source: "device"`, which the server refuses to let overwrite a
+ * `manual` pin — so someone who deliberately set their zone keeps it through
+ * every layover. The reporter itself only posts when the zone actually
+ * differs; see createTimezoneReporter.
+ */
+const reportTimezone = createTimezoneReporter(api);
+void reportTimezone();
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") void reportTimezone();
+});

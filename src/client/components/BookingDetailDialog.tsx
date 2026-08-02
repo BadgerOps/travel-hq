@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Clock, MapPin, PencilSimple } from "@phosphor-icons/react";
+import { BellRinging, BellSlash, Clock, MapPin, PencilSimple } from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
 import type {
   Booking,
   BookingSourceArtifact,
+  BookingSubscriptionState,
   Person,
 } from "../api/types.js";
 import { useCanWrite } from "../api/identity.js";
@@ -65,6 +66,9 @@ export function BookingDetailDialog({
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [peopleBusy, setPeopleBusy] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [subscription, setSubscription] = useState<BookingSubscriptionState | null>(null);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
+  const [subscriptionBusy, setSubscriptionBusy] = useState(false);
   const canWrite = useCanWrite();
 
   useEffect(() => {
@@ -81,6 +85,50 @@ export function BookingDetailDialog({
       cancelled = true;
     };
   }, [api, booking.id]);
+
+  useEffect(() => {
+    const forBooking = api.notifications?.forBooking;
+    if (!forBooking) return;
+    let cancelled = false;
+    forBooking(booking.id).then(
+      (state) => {
+        if (!cancelled) setSubscription(state);
+      },
+      () => {
+        // An unreadable subscription state hides the control rather than
+        // showing an error: the dialog's job is the booking, and a failure
+        // here must not sit on top of it.
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [api, booking.id]);
+
+  /**
+   * Follow or stop following this one booking. `null` clears the explicit
+   * choice and falls back to the implicit answer — travelling on it, or a
+   * trip-wide decision — which is a third state a two-button control could
+   * not otherwise return to.
+   *
+   * Deliberately NOT behind `useCanWrite()`. This writes a row keyed by the
+   * signed-in user, not household data, and the person most likely to want it
+   * is a shared-trip account: a household viewer following a flight they are
+   * not on.
+   */
+  async function setSubscribed(next: boolean | null) {
+    const setBooking = api.notifications?.setBooking;
+    if (!setBooking || subscriptionBusy) return;
+    setSubscriptionBusy(true);
+    setSubscriptionError(null);
+    try {
+      setSubscription(await setBooking(booking.id, next));
+    } catch (err) {
+      setSubscriptionError(errorMessage(err));
+    } finally {
+      setSubscriptionBusy(false);
+    }
+  }
 
   async function togglePerson(personId: string) {
     if (peopleBusy) return;
@@ -228,6 +276,52 @@ export function BookingDetailDialog({
           </>
         )}
 
+        {subscription && (
+          <>
+            <hr className="hr" style={{ margin: "4px 0" }} />
+            <h5 style={{ margin: 0 }}>Notifications</h5>
+            <p className="text-muted" style={{ margin: 0 }}>
+              {explainSubscription(subscription)}
+            </p>
+            {subscriptionError && (
+              <p className="warning" role="alert" style={{ margin: 0 }}>
+                {subscriptionError}
+              </p>
+            )}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {subscription.subscribed ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={subscriptionBusy}
+                  onClick={() => void setSubscribed(false)}
+                >
+                  <BellSlash size={14} /> Stop notifying me
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={subscriptionBusy}
+                  onClick={() => void setSubscribed(true)}
+                >
+                  <BellRinging size={14} /> Notify me about this
+                </button>
+              )}
+              {subscription.bookingChoice !== null && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={subscriptionBusy}
+                  onClick={() => void setSubscribed(null)}
+                >
+                  Use the default
+                </button>
+              )}
+            </div>
+          </>
+        )}
+
         <hr className="hr" style={{ margin: "4px 0" }} />
         <h5 style={{ margin: 0 }}>Source artifact</h5>
         {error && <p className="warning" role="alert" style={{ margin: 0 }}>{error}</p>}
@@ -343,6 +437,31 @@ function ExcursionLogistics({ details }: { details: unknown }) {
       )}
     </div>
   );
+}
+
+/**
+ * Why this account does or does not hear about this booking, in the same
+ * precedence the server applies: the booking's own decision, then the trip's,
+ * then whether they are travelling on it.
+ *
+ * Stating the REASON, not just the state, is what makes the control
+ * predictable: "you follow this trip" tells someone that turning this booking
+ * off is a per-booking exception, and that the rest of the trip keeps coming.
+ */
+function explainSubscription(state: BookingSubscriptionState): string {
+  if (state.bookingChoice !== null) {
+    return state.bookingChoice
+      ? "You asked to be notified about this booking."
+      : "You asked not to be notified about this booking.";
+  }
+  if (state.tripChoice !== null) {
+    return state.tripChoice
+      ? "You follow this whole trip, so you are notified about this booking."
+      : "You turned notifications off for this whole trip.";
+  }
+  return state.implicit
+    ? "You are travelling on this, so you are notified about it."
+    : "You are not travelling on this, so you are not notified about it.";
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

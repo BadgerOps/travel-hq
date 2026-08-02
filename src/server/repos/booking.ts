@@ -16,6 +16,53 @@ export const BOOKING_STATUSES = ["draft", "planned", "booked", "cancelled"] as c
 
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
+/**
+ * Kept in sync by hand with the CHECK on `booking.reminder_mode`
+ * (migrations/0017_notifications.sql). THREE states, not two: `0` is a
+ * legitimate lead time meaning "remind me at the start", so it cannot double
+ * as "never remind me" — `off` has to be its own word. `inherit` means the
+ * booking has no opinion and follows the account's default, so changing that
+ * default keeps moving every booking that was never customised.
+ *
+ * Declared here, next to BOOKING_STATUSES, rather than in
+ * repos/notification.ts (which re-exports it): it is a column of `booking`,
+ * and putting it there would make booking.ts import notification.ts, which
+ * imports itinerary.ts, which imports booking.ts.
+ */
+export const REMINDER_MODES = ["inherit", "custom", "off"] as const;
+
+export type ReminderMode = (typeof REMINDER_MODES)[number];
+
+/**
+ * Ceiling on a custom lead time: a week. Not arbitrary — it is what bounds
+ * the candidate window the reminder sweep has to scan
+ * (NotificationRepo.findDueReminders), so an unbounded lead here would be an
+ * unbounded query there.
+ */
+export const MAX_REMINDER_LEAD_MINUTES = 7 * 24 * 60;
+
+function assertReminderMode(mode: string): ReminderMode {
+  if (!(REMINDER_MODES as readonly string[]).includes(mode)) {
+    throw new ValidationError(`reminderMode must be one of ${REMINDER_MODES.join(", ")}`);
+  }
+  return mode as ReminderMode;
+}
+
+/**
+ * 0 is legal and means "at the start" — the whole reason `off` is a separate
+ * mode rather than a sentinel number. Negative is not: a reminder AFTER
+ * departure is a bug in the caller, not a feature.
+ */
+function assertReminderLeadMinutes(value: number | null): number | null {
+  if (value === null) return null;
+  if (!Number.isInteger(value) || value < 0 || value > MAX_REMINDER_LEAD_MINUTES) {
+    throw new ValidationError(
+      `reminderLeadMinutes must be a whole number of minutes from 0 to ${MAX_REMINDER_LEAD_MINUTES}`,
+    );
+  }
+  return value;
+}
+
 export type Booking = {
   id: string;
   tripId: string;
@@ -32,6 +79,19 @@ export type Booking = {
   pointsUsed: number | null;
   pointsProgram: string | null;
   status: BookingStatus;
+  /**
+   * Per-booking override of the account's reminder lead time (#61).
+   *
+   * Optional in the TYPE, always present in anything `toBooking` produced.
+   * `Booking` is re-exported to the client (src/client/api/types.ts) and is
+   * therefore also the shape an optimistic update or a test fixture builds by
+   * hand, and such a caller has no opinion about reminders. Absent means
+   * exactly what 'inherit' means — follow the account default — so the two
+   * spellings agree rather than the type forcing a fabricated answer.
+   */
+  reminderMode?: ReminderMode;
+  /** Minutes before `startsAt`; meaningful only when reminderMode is 'custom'. */
+  reminderLeadMinutes?: number | null;
   details: unknown;
   personIds: string[];
   /** Present only in itinerary responses when a booking spans several days. */
@@ -53,6 +113,8 @@ export type CreateBookingInput = {
   pointsUsed?: number;
   pointsProgram?: string;
   status?: BookingStatus;
+  reminderMode?: ReminderMode;
+  reminderLeadMinutes?: number | null;
   details: unknown;
 };
 
@@ -88,6 +150,10 @@ export type UpdateBookingInput = {
   pointsUsed?: number | null;
   pointsProgram?: string | null;
   status?: BookingStatus;
+  /** Non-nullable: "no reminder opinion" is spelled 'inherit', never NULL. */
+  reminderMode?: ReminderMode;
+  /** Tri-state as usual; null clears the custom lead back to unset. */
+  reminderLeadMinutes?: number | null;
   details?: unknown;
 };
 
@@ -112,6 +178,8 @@ const UPDATE_COLUMNS = {
   pointsUsed: "points_used",
   pointsProgram: "points_program",
   status: "status",
+  reminderMode: "reminder_mode",
+  reminderLeadMinutes: "reminder_lead_minutes",
 } as const;
 
 /**
@@ -136,6 +204,8 @@ export type BookingRow = {
   points_used: number | null;
   points_program: string | null;
   status: BookingStatus;
+  reminder_mode: ReminderMode;
+  reminder_lead_minutes: number | null;
   details: string;
 };
 
@@ -172,6 +242,14 @@ export async function toBooking(
     pointsUsed: row.points_used,
     pointsProgram: row.points_program,
     status: row.status,
+    // A stored mode the CHECK constraint could not have produced (a
+    // hand-edited row, a future value read by an older deploy) falls back to
+    // 'inherit' rather than throwing: an unreadable reminder preference must
+    // degrade to the account default, never break the booking list.
+    reminderMode: (REMINDER_MODES as readonly string[]).includes(row.reminder_mode)
+      ? row.reminder_mode
+      : "inherit",
+    reminderLeadMinutes: row.reminder_lead_minutes,
     details: JSON.parse(row.details),
     personIds,
   };
@@ -293,6 +371,8 @@ export class BookingRepo extends BookingAwareRepo {
       points_used: input.pointsUsed ?? null,
       points_program: input.pointsProgram ?? null,
       status: input.status ?? "planned",
+      reminder_mode: assertReminderMode(input.reminderMode ?? "inherit"),
+      reminder_lead_minutes: assertReminderLeadMinutes(input.reminderLeadMinutes ?? null),
       details: JSON.stringify(details),
       created_at: new Date().toISOString(),
     });
@@ -398,6 +478,10 @@ export class BookingRepo extends BookingAwareRepo {
       }
       if (key === "costCents" || key === "pointsUsed") {
         assertNonNegativeAmount(key, value as number | null);
+      }
+      if (key === "reminderMode") assertReminderMode(value as string);
+      if (key === "reminderLeadMinutes") {
+        assertReminderLeadMinutes(value as number | null);
       }
       sets.push(`${column} = ?${next++}`);
       params.push(value ?? null);

@@ -243,3 +243,80 @@ describe("BookingDetailDialog traveler edits before an edit", () => {
     expect(assignPerson).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * Following an event you are not travelling on (#61). The control states the
+ * REASON as well as the state, because "you follow this trip" is what tells
+ * someone that turning this one booking off is an exception rather than a
+ * blanket mute.
+ */
+describe("BookingDetailDialog — notifications", () => {
+  function renderWith(state: Record<string, unknown> | null, setBooking = vi.fn()) {
+    const api = {
+      bookings: { artifact: vi.fn(async () => ({ artifact: null })) },
+      notifications: {
+        forBooking: vi.fn(async () => {
+          if (state === null) throw new Error("unavailable");
+          return state;
+        }),
+        setBooking,
+      },
+    };
+    render(<BookingDetailDialog booking={booking} api={api as never} onClose={vi.fn()} />);
+    return api;
+  }
+
+  const base = { bookingId: "booking-1", tripId: "trip-1" };
+
+  it("explains an implicit subscription for somebody travelling on it", async () => {
+    renderWith({ ...base, implicit: true, bookingChoice: null, tripChoice: null, subscribed: true });
+    expect(await screen.findByText(/you are travelling on this/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /stop notifying me/i })).toBeInTheDocument();
+  });
+
+  it("offers to follow a booking the reader is NOT on — the whole point of the feature", async () => {
+    const setBooking = vi.fn(async () => ({
+      ...base,
+      implicit: false,
+      bookingChoice: true,
+      tripChoice: null,
+      subscribed: true,
+    }));
+    renderWith(
+      { ...base, implicit: false, bookingChoice: null, tripChoice: null, subscribed: false },
+      setBooking,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: /notify me about this/i }));
+    expect(setBooking).toHaveBeenCalledWith("booking-1", true);
+    expect(await screen.findByText(/you asked to be notified/i)).toBeInTheDocument();
+  });
+
+  it("names the trip-wide decision as the reason, when that is what it is", async () => {
+    renderWith({ ...base, implicit: false, bookingChoice: null, tripChoice: true, subscribed: true });
+    expect(await screen.findByText(/you follow this whole trip/i)).toBeInTheDocument();
+    // No "use the default" while there is no per-booking decision to drop.
+    expect(screen.queryByRole("button", { name: /use the default/i })).toBeNull();
+  });
+
+  it("offers a way back to the default once an explicit choice exists", async () => {
+    const setBooking = vi.fn(async () => ({
+      ...base,
+      implicit: true,
+      bookingChoice: null,
+      tripChoice: null,
+      subscribed: true,
+    }));
+    renderWith(
+      { ...base, implicit: true, bookingChoice: false, tripChoice: null, subscribed: false },
+      setBooking,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: /use the default/i }));
+    expect(setBooking).toHaveBeenCalledWith("booking-1", null);
+  });
+
+  it("hides the control entirely rather than stacking an error on the booking", async () => {
+    renderWith(null);
+    expect(await screen.findByText(/entered manually|no source email/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /notify me/i })).toBeNull();
+  });
+});

@@ -11,6 +11,7 @@ import { bookings } from "./routes/bookings.js";
 import { checklist } from "./routes/checklist.js";
 import { cards } from "./routes/cards.js";
 import { settings } from "./routes/settings.js";
+import { notifications, notificationSubjects } from "./routes/notifications.js";
 import { inboundEmails } from "./routes/inbound-emails.js";
 import { imports } from "./routes/imports.js";
 import { audit } from "./routes/audit.js";
@@ -40,6 +41,15 @@ export type AppBindings = {
   // `received` (see src/server/ingest.ts). Optional -- unset means such mail
   // is dropped after being recorded/logged.
   FALLBACK_FORWARD_TO?: string;
+  // Web Push (issue #61). The public key is handed to the browser as
+  // `applicationServerKey`; the private key is a secret and never leaves the
+  // Worker; the subject is the `mailto:`/`https:` contact RFC 8292 requires.
+  // ALL THREE OPTIONAL, on purpose: a deployment without push configured must
+  // still serve every other route, and the notification endpoints degrade with
+  // an explanation rather than a 5xx (see routes/notifications.ts).
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
 };
 
 export type AppEnv = {
@@ -272,6 +282,13 @@ export function createApp(overrides: AppOverrides = {}) {
   app.use("/api/imports/*", requireHouseholdWriter);
   app.use("/api/imports", requireHouseholdWriter);
 
+  // /api/notifications is DELIBERATELY ABSENT from the list above. Every row
+  // behind it is keyed by the authenticated user — their phone, their digest
+  // time, the events they personally follow — and none of it is household
+  // data, so the household write role has no question to answer about it.
+  // Gating it would lock out every shared-trip account, which is a household
+  // `viewer` globally and is the exact person #61 exists to serve.
+
   app.route("/api/people", people);
   app.route("/api/trips", trips);
   app.route("/api", itinerary);
@@ -279,6 +296,13 @@ export function createApp(overrides: AppOverrides = {}) {
   app.route("/api/checklist", checklist);
   app.route("/api/cards", cards);
   app.route("/api/settings", settings);
+  app.route("/api/notifications", notifications);
+  // At "/api", not under /api/notifications: these two live at
+  // /api/bookings/:bookingId/notification and /api/trips/:tripId/notification
+  // so the authorizeBooking/authorizeTrip middleware registered above matches
+  // them and the parent check cannot be skipped. Same reason routes/itinerary.ts
+  // is mounted here.
+  app.route("/api", notificationSubjects);
   app.route("/api/inbound-emails", inboundEmails);
   app.route("/api/imports", imports);
   // Owner-only; the gate lives in AuditRepo (requireOwner), not in a
