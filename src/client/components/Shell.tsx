@@ -6,14 +6,23 @@ import {
   PaperPlaneTilt,
   SuitcaseRolling,
   TrayArrowDown,
-  Users,
+  UserCircle,
 } from "@phosphor-icons/react";
 
+/* `householdWide` marks the destinations that are about EVERYONE's data, and
+   an invite-only viewer is filtered out of them below.
+
+   "You" deliberately carries no such flag. /me is the one page that is only
+   ever about the person looking at it — their own details, their own
+   documents, their own notification settings — so a viewer needs it more than
+   anybody, not less. Marking it householdWide would lock the single page built
+   for them out of the only navigation they have. The roster that used to live
+   at /people is householdWide, and is now a section of /settings. */
 const NAV = [
   { href: "/", label: "Today" },
   { href: "/trips", label: "Trips" },
   { href: "/checklist", label: "Checklist" },
-  { href: "/people", label: "People", householdWide: true },
+  { href: "/me", label: "You" },
   { href: "/cards", label: "Cards", householdWide: true },
   { href: "/settings", label: "Settings", householdWide: true },
 ];
@@ -130,6 +139,16 @@ function AccountMenu({ email, sharedOnly }: { email: string; sharedOnly: boolean
       {open && (
         <div className="nav-user-menu" id="nav-user-menu" data-testid="nav-user-menu">
           <span className="nav-user-email">{email}</span>
+          {/* Outside the sharedOnly gate on purpose. Your profile is your own
+              row, and the activity log is scoped by the SERVER — an owner
+              reads the household's history, everyone else reads only the
+              entries they are the actor or the subject of. Both answer "what
+              happened to MY data", which is a question a viewer is entitled to
+              ask, so hiding them would be hiding somebody's own record from
+              them. */}
+          <Link href="/me" aria-current={location === "/me" ? "page" : undefined}>
+            Your profile
+          </Link>
           {!sharedOnly && (
             <>
               <Link href="/settings" aria-current={location === "/settings" ? "page" : undefined}>
@@ -140,6 +159,9 @@ function AccountMenu({ email, sharedOnly }: { email: string; sharedOnly: boolean
               </Link>
             </>
           )}
+          <Link href="/audit" aria-current={location === "/audit" ? "page" : undefined}>
+            Activity
+          </Link>
         </div>
       )}
     </div>
@@ -153,14 +175,20 @@ const TABS = [
   { href: "/trips", label: "Trips", Icon: SuitcaseRolling },
   { href: "/import", label: "Import", Icon: TrayArrowDown },
   { href: "/checklist", label: "Checklist", Icon: CheckSquare },
-  { href: "/people", label: "People", Icon: Users },
+  /* Was People. "You" replaces it rather than joining it because the roster
+     moved into Settings, and because this fixes a live problem: notification
+     setup now lives on /me, and until now it was unreachable from the tab bar
+     — which is exactly where someone enables notifications, on the phone they
+     want them on. */
+  { href: "/me", label: "You", Icon: UserCircle },
 ];
 
 export function BottomTabs({ sharedOnly = false }: { sharedOnly?: boolean }) {
   const [location] = useLocation();
   return (
     <nav className="bottom-tabs" aria-label="Tabs">
-      {TABS.filter(({ href }) => !sharedOnly || !["/import", "/people"].includes(href)).map(({ href, label, Icon }) => {
+      {/* Only /import is withheld from a viewer here. /me is theirs. */}
+      {TABS.filter(({ href }) => !sharedOnly || href !== "/import").map(({ href, label, Icon }) => {
         /* startsWith, unlike the top nav's exact match, so /trips/:id keeps
            the Trips tab lit. */
         const active = href === "/" ? location === "/" : location.startsWith(href);

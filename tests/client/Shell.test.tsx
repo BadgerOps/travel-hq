@@ -21,17 +21,29 @@ describe("Shell", () => {
     renderAt("/");
     expect(screen.getByText("Travel HQ")).toBeInTheDocument();
     const nav = within(screen.getByRole("navigation", { name: "Primary" }));
-    for (const label of ["Today", "Trips", "Checklist", "People", "Cards", "Settings"]) {
+    for (const label of ["Today", "Trips", "Checklist", "You", "Cards", "Settings"]) {
       expect(nav.getByRole("link", { name: label })).toBeInTheDocument();
     }
+    // The roster moved into Settings; nothing may still point at /people.
+    expect(nav.queryByRole("link", { name: "People" })).not.toBeInTheDocument();
   });
 
   it("renders the mobile tab bar links", () => {
     renderAt("/");
     const tabs = within(screen.getByRole("navigation", { name: "Tabs" }));
-    for (const label of ["Today", "Trips", "Import", "Checklist", "People"]) {
+    for (const label of ["Today", "Trips", "Import", "Checklist", "You"]) {
       expect(tabs.getByRole("link", { name: label })).toBeInTheDocument();
     }
+    expect(tabs.queryByRole("link", { name: "People" })).not.toBeInTheDocument();
+  });
+
+  it("points You at /me in both navs", () => {
+    renderAt("/me");
+    const nav = within(screen.getByRole("navigation", { name: "Primary" }));
+    expect(nav.getByRole("link", { name: "You" })).toHaveAttribute("href", "/me");
+    expect(nav.getByRole("link", { name: "You" })).toHaveAttribute("aria-current", "page");
+    const tabs = within(screen.getByRole("navigation", { name: "Tabs" }));
+    expect(tabs.getByRole("link", { name: "You" })).toHaveAttribute("href", "/me");
   });
 
   it("marks the current route as the active page", () => {
@@ -86,7 +98,7 @@ describe("Shell", () => {
     expect(screen.getByTitle("badger@example.com")).toHaveTextContent("B");
   });
 
-  it("opens the avatar menu with the account email and Settings/Cards links", async () => {
+  it("opens the avatar menu with the account email, profile, activity and Settings/Cards links", async () => {
     const user = userEvent.setup();
     renderAt("/", { email: "badger@example.com", role: "owner" });
 
@@ -98,8 +110,10 @@ describe("Shell", () => {
     expect(button).toHaveAttribute("aria-expanded", "true");
     const menu = within(screen.getByTestId("nav-user-menu"));
     expect(menu.getByText("badger@example.com")).toBeInTheDocument();
+    expect(menu.getByRole("link", { name: "Your profile" })).toHaveAttribute("href", "/me");
     expect(menu.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     expect(menu.getByRole("link", { name: "Cards" })).toBeInTheDocument();
+    expect(menu.getByRole("link", { name: "Activity" })).toHaveAttribute("href", "/audit");
   });
 
   it("hides household-wide navigation from an invite-only account", async () => {
@@ -112,11 +126,29 @@ describe("Shell", () => {
     const tabs = within(screen.getByRole("navigation", { name: "Tabs" }));
     expect(tabs.queryByRole("link", { name: "People" })).not.toBeInTheDocument();
     expect(tabs.queryByRole("link", { name: "Import" })).not.toBeInTheDocument();
+  });
+
+  /* The regression this pins: /me is the one page built FOR a viewer — their
+     own details, documents and notification settings. Marking it householdWide
+     alongside Cards and Settings would have filtered it out of every navigation
+     a viewer has, leaving them no way in at all. */
+  it("still lets an invite-only account reach their own profile and the activity log", async () => {
+    renderAt("/", { email: "guest@example.com", role: "viewer" });
+
+    const nav = within(screen.getByRole("navigation", { name: "Primary" }));
+    expect(nav.getByRole("link", { name: "You" })).toHaveAttribute("href", "/me");
+    const tabs = within(screen.getByRole("navigation", { name: "Tabs" }));
+    expect(tabs.getByRole("link", { name: "You" })).toHaveAttribute("href", "/me");
 
     await userEvent.click(screen.getByRole("button", { name: "Account menu" }));
     const menu = within(screen.getByTestId("nav-user-menu"));
     expect(menu.getByText("guest@example.com")).toBeInTheDocument();
-    expect(menu.queryByRole("link")).not.toBeInTheDocument();
+    expect(menu.getByRole("link", { name: "Your profile" })).toHaveAttribute("href", "/me");
+    // Open to every role: the server returns only the entries a viewer is the
+    // actor or subject of, so "what happened to my record" stays answerable.
+    expect(menu.getByRole("link", { name: "Activity" })).toHaveAttribute("href", "/audit");
+    expect(menu.queryByRole("link", { name: "Settings" })).not.toBeInTheDocument();
+    expect(menu.queryByRole("link", { name: "Cards" })).not.toBeInTheDocument();
   });
 
   it("closes the avatar menu on Escape and returns focus to the button", async () => {

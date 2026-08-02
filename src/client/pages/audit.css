@@ -1,0 +1,86 @@
+/* Activity log. Read-only rows in the same idiom as Settings' reveal panel —
+   nothing here is clickable, because the entry IS the whole record; there is
+   nothing to drill into. Shared primitives (.card, .tag, .chip-toggle,
+   .page-header) live in styles.css. */
+
+.activity-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  min-width: 0;
+  /* A left edge that carries the one distinction this page is for. The
+     default is the loud one: an action on somebody else's record. */
+  border-left: 3px solid var(--color-accent);
+}
+
+/* Somebody acting on their own record. Recessed rather than hidden: it is
+   still history, and a viewer's page is mostly made of it — but a family
+   checking its own passport numbers must not drown the entry where one person
+   opened another person's. The filter above the list removes them outright;
+   this is what the ones left behind look like. */
+.activity-item--self {
+  border-left-color: var(--color-divider);
+  opacity: 0.72;
+}
+
+.activity-what {
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  flex: 1 1 320px;
+}
+
+/* The record handle reads as data, not prose. */
+.activity-ref {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+}
+
+.activity-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.activity-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.activity-foot p {
+  margin-left: auto;
+  font-size: 12.5px;
+}
+
+@media (max-width: 560px) {
+  /* The timestamp belongs under the sentence on a phone, not squeezed beside
+     it — the sentence is the thing being read. */
+  .activity-item {
+    display: grid;
+    gap: 6px;
+  }
+  .activity-meta {
+    justify-content: flex-start;
+  }
+  .activity-foot p {
+    margin-left: 0;
+  }
+}
