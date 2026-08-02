@@ -58,6 +58,19 @@ export class ApiError extends Error {
      * the client cannot phrase for itself.
      */
     readonly detail?: string,
+    /**
+     * The body's `details` field, present only when the server rejected the
+     * SHAPE of the request rather than its meaning — a Zod issue list from a
+     * route's `safeParse`, or `mapError`'s ZodError branch.
+     *
+     * Kept as the raw value rather than a boolean so this class stays a
+     * faithful mirror of the body it came from; what the difference MEANS is
+     * lib/errors.ts's decision, and it is a sharp one: a 400 carrying issues
+     * is this app sending the wrong shape (a bug the user cannot act on),
+     * while a 400 without them is a repository ValidationError, whose message
+     * routes/errors.ts surfaces verbatim precisely so a human can read it.
+     */
+    readonly details?: unknown,
   ) {
     super(message);
   }
@@ -80,16 +93,18 @@ export function createApi(config: ApiConfig = {}) {
     if (!res.ok) {
       let detail = res.statusText;
       let fromBody: string | undefined;
+      let issues: unknown;
       try {
-        const body = (await res.json()) as { error?: string };
+        const body = (await res.json()) as { error?: string; details?: unknown };
         if (body.error) {
           detail = body.error;
           fromBody = body.error;
         }
+        issues = body.details;
       } catch {
         // Non-JSON error body; the status line is all we have.
       }
-      throw new ApiError(`${path} failed: ${detail}`, res.status, fromBody);
+      throw new ApiError(`${path} failed: ${detail}`, res.status, fromBody, issues);
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;

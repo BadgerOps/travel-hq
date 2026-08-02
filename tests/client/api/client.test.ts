@@ -55,6 +55,36 @@ describe("api client", () => {
     await expect(api.trips.list()).rejects.toMatchObject({ status: 401 });
   });
 
+  /**
+   * The two 400s that must not look alike. lib/errors.ts shows a repository
+   * ValidationError's message to the reviewer and hides a schema rejection
+   * behind "this is a bug", and `details` is the only thing in the body that
+   * tells them apart — so it has to survive the trip out of the response.
+   */
+  it("carries a schema rejection's issue list, and leaves it absent otherwise", async () => {
+    const schema = createApi({
+      fetch: mockFetch(400, {
+        error: "Invalid import acceptance",
+        details: [{ code: "invalid_type", path: ["tripId"] }],
+      }),
+      baseUrl: "",
+    });
+    await expect(schema.imports.dismiss(["d1"])).rejects.toMatchObject({
+      status: 400,
+      detail: "Invalid import acceptance",
+      details: [{ code: "invalid_type", path: ["tripId"] }],
+    });
+
+    const validation = createApi({
+      fetch: mockFetch(400, { error: "Only pending imports can be reviewed" }),
+      baseUrl: "",
+    });
+    await expect(validation.imports.dismiss(["d1"])).rejects.toSatisfy(
+      (err: ApiError) =>
+        err.detail === "Only pending imports can be reviewed" && err.details === undefined,
+    );
+  });
+
   it("reveals a booking confirmation", async () => {
     const fetchMock = mockFetch(200, { value: "ABCDX4T2" });
     const api = createApi({ fetch: fetchMock, baseUrl: "" });

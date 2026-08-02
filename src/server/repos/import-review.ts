@@ -113,6 +113,28 @@ export class ImportReviewRepo extends TenantRepo {
     this.trips = new TripRepo(db, ctx);
   }
 
+  /**
+   * VIEWERS ARE REFUSED, and that is a deliberate departure from issue #7,
+   * which asked for reads to be open to viewers with mutations gated.
+   *
+   * Two reasons, and the second is the load-bearing one:
+   *
+   * - A draft is not household data yet. It is a proposal about data, and the
+   *   only things anyone can do with it are accept it and dismiss it — both
+   *   writes. A viewer handed this list gets a screen of rows with no verb;
+   *   `pages/Import.tsx` says so outright rather than rendering the queue, so
+   *   opening the read would answer a request the UI never makes.
+   * - A draft's confirmation number is stored IN THE CLEAR. `draft_booking`
+   *   has no envelope column (see `draftCandidate` below) — encryption happens
+   *   at the moment of accept, when the value lands on `booking`. So "reads
+   *   available to viewers (no secrets)" is not true of this table the way it
+   *   is of the ones the issue had in mind; the queue would hand a viewer
+   *   plaintext confirmation numbers that `requireReveal()` refuses them one
+   *   table over. That inconsistency is the reason this stayed closed.
+   *
+   * Revisit if drafts ever get an envelope column, or if a viewer gains
+   * something to do with one.
+   */
   async listPending(): Promise<PendingImportDraft[]> {
     if (this.ctx.role === "viewer") {
       throw new ForbiddenError("Viewers may not review imported bookings");
