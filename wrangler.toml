@@ -70,7 +70,7 @@ crons = ["*/5 * * * *"]
 # It deliberately does NOT take claims it cannot honour -- a claim is permanent,
 # so claiming and failing would mean those reminders never re-arm.
 [vars]
-VAPID_PUBLIC_KEY = ""
+VAPID_PUBLIC_KEY = "BL2E3xYeNI4iAwA2ztRd63OiEMflBQ7iA1foWVMPgeejc-oFEbrmTGVyZQHNnZBES5KakFbPOCXFxNz25jh5k10"
 VAPID_SUBJECT = "mailto:trips@badgerops.foo"
 
 # --- testing (PR preview target; its own D1) --------------------------------
@@ -169,7 +169,7 @@ bucket_name = "travel-hq-production-photos"
 [env.production.vars]
 CF_ACCESS_TEAM_DOMAIN = "https://badgerops.cloudflareaccess.com"
 CF_ACCESS_AUD = "8827163cf52568219746a23c957628c4fc3b284d5383b4a78d12abc71f38d8ce"
-VAPID_PUBLIC_KEY = ""
+VAPID_PUBLIC_KEY = "BL2E3xYeNI4iAwA2ztRd63OiEMflBQ7iA1foWVMPgeejc-oFEbrmTGVyZQHNnZBES5KakFbPOCXFxNz25jh5k10"
 VAPID_SUBJECT = "mailto:trips@badgerops.foo"
 
 # Repeated per environment for the same reason: [triggers] does not inherit
