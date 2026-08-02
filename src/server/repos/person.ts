@@ -310,9 +310,9 @@ export class PersonRepo extends TenantRepo {
      * The only thing this grants is the ability to edit your own record, which
      * is what makes a viewer's own profile reachable at all -- a teenager
      * correcting their own phone number was previously impossible. Nothing is
-     * taken away from anybody: an adult still edits every other row in the
+     * taken away from anybody: an admin still edits every other row in the
      * household, linked or not, which is what keeps children, pre-seeded rows,
-     * and a two-adult household working exactly as they do today.
+     * and a two-admin household working exactly as they do today.
      */
     const selfService = this.isOwnRow(existing.user_id);
     if (!selfService) this.requireWrite();

@@ -21,7 +21,7 @@ export function MaskedValue({
   // fail. Plain text, no dotted underline, no hover: nothing to click.
   if (!canReveal) {
     return (
-      <span title="Only owners and adults can reveal stored numbers">{masked}</span>
+      <span title="Only owners and admins can reveal stored numbers">{masked}</span>
     );
   }
 

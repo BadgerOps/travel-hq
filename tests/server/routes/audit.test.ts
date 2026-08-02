@@ -21,7 +21,7 @@ const owner: Identity = {
   householdId: "hh-a",
   role: "owner",
 };
-const adult: Identity = { ...owner, userId: "u2", email: "ava@example.com", role: "adult" };
+const admin: Identity = { ...owner, userId: "u2", email: "ava@example.com", role: "admin" };
 const testEnv = { DB: env.DB } as unknown as AppBindings;
 
 const revealInit: RequestInit = {
@@ -141,8 +141,8 @@ describe("GET /api/audit/reveals", () => {
     expect(entries.map((e) => e.field)).toEqual(["known_traveler_number", "passport_number"]);
   });
 
-  it("is owner-only: an adult in the same household gets 403", async () => {
-    const res = await request(appAs(adult), "/api/audit/reveals");
+  it("is owner-only: an admin in the same household gets 403", async () => {
+    const res = await request(appAs(admin), "/api/audit/reveals");
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: "Forbidden" });
   });
@@ -275,7 +275,7 @@ describe("GET /api/audit/activity", () => {
    */
   it("shows an owner the whole household", async () => {
     const mine = await person("Ava");
-    await put(adult, mine, { phone: "+1 208 555 0125" });
+    await put(admin, mine, { phone: "+1 208 555 0125" });
     expect((await activity(owner)).entries).toHaveLength(2);
   });
 
@@ -295,10 +295,10 @@ describe("GET /api/audit/activity", () => {
     expect(entries.every((e) => e.actorUserId === "u1")).toBe(true);
   });
 
-  it("shows an adult the entries they are the actor of", async () => {
+  it("shows an admin the entries they are the actor of", async () => {
     const theirs = await person("Ava");
-    await put(adult, theirs, { notes: "corrected" });
-    const { entries } = await activity(adult);
+    await put(admin, theirs, { notes: "corrected" });
+    const { entries } = await activity(admin);
     // The person_created row was the owner's doing on somebody else's record.
     expect(entries.map((e) => e.event)).toEqual(["person_updated"]);
     expect(entries[0]).toMatchObject({ actorUserId: "u2" });

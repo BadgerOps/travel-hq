@@ -145,11 +145,11 @@ export class InboundEmailRepo extends TenantRepo {
    * household is resolved from the envelope recipient by
    * HouseholdSettingsRepo.findHouseholdByForwardAddress, and this factory
    * fabricates the one synthetic context in the codebase — greppable here,
-   * never inline at call sites. Role "adult" so writes pass requireWrite()
+   * never inline at call sites. Role "admin" so writes pass requireWrite()
    * without granting owner-only powers.
    */
   static forIngest(db: D1Database, householdId: string, ring?: Keyring): InboundEmailRepo {
-    const ctx: HouseholdContext = { householdId, userId: "system:email-ingest", role: "adult" };
+    const ctx: HouseholdContext = { householdId, userId: "system:email-ingest", role: "admin" };
     return new InboundEmailRepo(db, ctx, ring);
   }
 
@@ -203,7 +203,7 @@ export class InboundEmailRepo extends TenantRepo {
   }
 
   /**
-   * Owner/adult activity feed. Deliberately selects no raw or Message-ID
+   * Owner/admin activity feed. Deliberately selects no raw or Message-ID
    * columns; the opaque row id is included as the handle for the detail
    * endpoint (GET /api/inbound-emails/:id).
    */

@@ -250,9 +250,9 @@ export class AuditRepo extends TenantRepo {
   }
 
   /**
-   * The owner-only reveal history. Owner and not adult: "who unmasked whose
-   * passport number" is household-governance information, and an adult being
-   * able to audit the other adults is a different product decision from an
+   * The owner-only reveal history. Owner and not admin: "who unmasked whose
+   * passport number" is household-governance information, and an admin being
+   * able to audit the other admins is a different product decision from an
    * owner being able to audit their household. Mirrors TripAccessRepo's
    * requireOwner() rather than inventing a second owner concept.
    */
@@ -278,7 +278,7 @@ export class AuditRepo extends TenantRepo {
    *
    * The asymmetry is the point, and it is the same one that made listReveals()
    * owner-only: reading who did what to whom across a household is governance,
-   * and handing it to every adult is a different decision from handing it to
+   * and handing it to every admin is a different decision from handing it to
    * the person who administers the household. But "who edited my passport
    * number?" is a question about your OWN record that you should never have to
    * ask an owner to answer for you -- so that slice is yours whatever your

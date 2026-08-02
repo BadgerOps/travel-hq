@@ -87,7 +87,7 @@ describe("Import page", () => {
 
   it("does not offer file import to a viewer", async () => {
     setup("viewer");
-    expect(await screen.findByText("Owners and adults only")).toBeInTheDocument();
+    expect(await screen.findByText("Owners and admins only")).toBeInTheDocument();
     expect(screen.queryByLabelText("Itinerary file")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Import file" })).not.toBeInTheDocument();
   });

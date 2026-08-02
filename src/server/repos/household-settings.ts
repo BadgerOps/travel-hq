@@ -114,17 +114,17 @@ export class HouseholdSettingsRepo extends TenantRepo {
 
   /**
    * The household's settings, or the defaults when no row exists yet.
-   * Owner/adult only — see requireOwnerOrAdult below.
+   * Owner/admin only — see requireOwnerOrAdmin below.
    */
   async getSettings(): Promise<HouseholdSettings> {
-    this.requireOwnerOrAdult();
+    this.requireOwnerOrAdmin();
     const row = await this.getRow();
     return row ? toSettings(row) : defaultHouseholdSettings();
   }
 
   /** Internal provider configuration, including only encrypted credential data. */
   async getIngestSettings(): Promise<IngestHouseholdSettings> {
-    this.requireOwnerOrAdult();
+    this.requireOwnerOrAdmin();
     const row = await this.getRow();
     return row
       ? toIngestSettings(row)
@@ -303,13 +303,13 @@ export class HouseholdSettingsRepo extends TenantRepo {
   }
 
   /**
-   * Settings are owner/adult only in BOTH directions, unlike ordinary domain
+   * Settings are owner/admin only in BOTH directions, unlike ordinary domain
    * reads: the forward address and sender allowlist decide whose mail can
    * write into this household, so even seeing them is configuration access,
    * not trip-viewing. requireWrite() would deny the same role, but its
    * message ("may not modify") would be a lie on a GET.
    */
-  private requireOwnerOrAdult(): void {
+  private requireOwnerOrAdmin(): void {
     if (this.ctx.role === "viewer") {
       throw new ForbiddenError("Viewers may not access household settings");
     }

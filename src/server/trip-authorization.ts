@@ -4,7 +4,7 @@ import { ForbiddenError, NotFoundError } from "./repos/base.js";
 import { TripAccessRepo } from "./repos/trip-access.js";
 
 /**
- * Converts a trip-specific editor permission into the ordinary "adult"
+ * Converts a trip-specific editor permission into the ordinary "admin"
  * repository capability for this request only. The account remains a
  * household viewer everywhere else.
  */
@@ -18,7 +18,7 @@ export async function authorizeTrip(c: Context<AppEnv>, next: Next, tripId: stri
   if (access === "editor" || access === "viewer") {
     c.set("identity", {
       ...identity,
-      role: access === "editor" ? "adult" : "viewer",
+      role: access === "editor" ? "admin" : "viewer",
       tripRole: access,
     });
   }

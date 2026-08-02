@@ -86,13 +86,13 @@ describe("HouseholdMemberRepo.invite", () => {
   it("provisions an account, a membership, and the person row that constitutes it", async () => {
     const member = await repo(owner).invite({
       email: "ada@example.com",
-      role: "adult",
+      role: "admin",
       displayName: "Ada",
     });
 
     expect(member).toMatchObject({
       email: "ada@example.com",
-      role: "adult",
+      role: "admin",
       displayName: "Ada",
       claimed: false,
       status: "invited",
@@ -110,7 +110,7 @@ describe("HouseholdMemberRepo.invite", () => {
     )
       .bind("hh-a", member.userId)
       .first<{ role: string }>();
-    expect(membership?.role).toBe("adult");
+    expect(membership?.role).toBe("admin");
     const person = await env.DB.prepare(
       "SELECT id, household_id, user_id, display_name, email FROM person WHERE id = ?",
     )
@@ -126,7 +126,7 @@ describe("HouseholdMemberRepo.invite", () => {
   });
 
   it("records the invitation against the membership it created", async () => {
-    const member = await repo(owner).invite({ email: "ada@example.com", role: "adult" });
+    const member = await repo(owner).invite({ email: "ada@example.com", role: "admin" });
     expect(await auditRows()).toEqual([
       { event: "member_invited", subject_type: "household_member", subject_id: member.userId },
     ]);
@@ -136,14 +136,14 @@ describe("HouseholdMemberRepo.invite", () => {
   });
 
   it("is idempotent: a second invite creates no second person and no second membership", async () => {
-    const first = await repo(owner).invite({ email: "ada@example.com", role: "adult" });
+    const first = await repo(owner).invite({ email: "ada@example.com", role: "admin" });
     const second = await repo(owner).invite({ email: "ada@example.com", role: "viewer" });
 
     expect(second.personId).toBe(first.personId);
     expect(second.userId).toBe(first.userId);
     // The stored role wins over the re-invited one -- a repeat invite must not
     // rewrite an existing role.
-    expect(second.role).toBe("adult");
+    expect(second.role).toBe("admin");
 
     expect(await count("SELECT COUNT(*) AS count FROM user WHERE lower(email) = ?", "ada@example.com")).toBe(1);
     expect(
@@ -161,10 +161,10 @@ describe("HouseholdMemberRepo.invite", () => {
   it("does not create a second person for someone who has already onboarded", async () => {
     await addUser("u-ada", "ada@example.com");
     await addPerson("p-ada", "hh-a", "Ada", { userId: "u-ada", email: "ada@example.com" });
-    await addMembership("hh-a", "u-ada", "adult");
+    await addMembership("hh-a", "u-ada", "admin");
 
     const member = await repo(owner).invite({ email: "ADA@example.com", role: "viewer" });
-    expect(member).toMatchObject({ personId: "p-ada", claimed: true, status: "onboarded", role: "adult" });
+    expect(member).toMatchObject({ personId: "p-ada", claimed: true, status: "onboarded", role: "admin" });
     // Only the owner's own row and Ada's; no second Ada.
     expect(await count("SELECT COUNT(*) AS count FROM person WHERE household_id = ?", "hh-a")).toBe(2);
   });
@@ -193,18 +193,18 @@ describe("HouseholdMemberRepo.invite", () => {
   });
 
   it("rejects a malformed email with a message written for the person filling in the form", async () => {
-    await expect(repo(owner).invite({ email: "not-an-email", role: "adult" })).rejects.toThrow(
+    await expect(repo(owner).invite({ email: "not-an-email", role: "admin" })).rejects.toThrow(
       "Enter a valid email address",
     );
     await expect(
-      repo(owner).invite({ email: `${"a".repeat(320)}@example.com`, role: "adult" }),
+      repo(owner).invite({ email: `${"a".repeat(320)}@example.com`, role: "admin" }),
     ).rejects.toThrow(ValidationError);
     // Nothing was written: only the owner's own pre-existing row remains.
     expect(await count("SELECT COUNT(*) AS count FROM person WHERE household_id = ?", "hh-a")).toBe(1);
   });
 
   it("is owner-only", async () => {
-    for (const role of ["adult", "viewer"] as const) {
+    for (const role of ["admin", "viewer"] as const) {
       await expect(
         repo({ ...owner, userId: "u-someone", role }).invite({
           email: "ada@example.com",
@@ -217,7 +217,7 @@ describe("HouseholdMemberRepo.invite", () => {
 
   it("leaves an existing account's membership of another household alone", async () => {
     await addUser("u-ada", "ada@example.com");
-    await addMembership("hh-b", "u-ada", "adult");
+    await addMembership("hh-b", "u-ada", "admin");
 
     const member = await repo(owner).invite({ email: "ada@example.com", role: "viewer" });
     expect(member.userId).toBe("u-ada");
@@ -229,7 +229,7 @@ describe("HouseholdMemberRepo.invite", () => {
       .all<{ household_id: string; role: string }>();
     expect(memberships.results).toEqual([
       { household_id: "hh-a", role: "viewer" },
-      { household_id: "hh-b", role: "adult" },
+      { household_id: "hh-b", role: "admin" },
     ]);
     // The invite belongs to this household only: no person row appeared in hh-b.
     expect(
@@ -258,10 +258,10 @@ describe("HouseholdMemberRepo.setRole", () => {
     return row?.role;
   }
 
-  it("promotes a viewer to adult and demotes them again", async () => {
-    const promoted = await repo(owner).setRole("u-ada", "adult");
-    expect(promoted).toMatchObject({ userId: "u-ada", role: "adult", personId: "p-ada" });
-    expect(await storedRole("hh-a", "u-ada")).toBe("adult");
+  it("promotes a viewer to admin and demotes them again", async () => {
+    const promoted = await repo(owner).setRole("u-ada", "admin");
+    expect(promoted).toMatchObject({ userId: "u-ada", role: "admin", personId: "p-ada" });
+    expect(await storedRole("hh-a", "u-ada")).toBe("admin");
 
     const demoted = await repo(owner).setRole("u-ada", "viewer");
     expect(demoted.role).toBe("viewer");
@@ -269,19 +269,19 @@ describe("HouseholdMemberRepo.setRole", () => {
   });
 
   it("records the role change against the membership, and records nothing when refused", async () => {
-    await repo(owner).setRole("u-ada", "adult");
+    await repo(owner).setRole("u-ada", "admin");
     expect(await auditRows()).toEqual([
       { event: "member_role_changed", subject_type: "household_member", subject_id: "u-ada" },
     ]);
 
-    await expect(repo(owner).setRole("u-nobody", "adult")).rejects.toThrow(NotFoundError);
+    await expect(repo(owner).setRole("u-nobody", "admin")).rejects.toThrow(NotFoundError);
     expect(await auditRows()).toHaveLength(1);
   });
 
   it("is owner-only in both directions", async () => {
-    for (const role of ["adult", "viewer"] as const) {
+    for (const role of ["admin", "viewer"] as const) {
       await expect(
-        repo({ householdId: "hh-a", userId: "u-someone", role }).setRole("u-ada", "adult"),
+        repo({ householdId: "hh-a", userId: "u-someone", role }).setRole("u-ada", "admin"),
       ).rejects.toThrow(ForbiddenError);
       await expect(
         repo({ householdId: "hh-a", userId: "u-someone", role }).setRole("u-ada", "viewer"),
@@ -296,16 +296,16 @@ describe("HouseholdMemberRepo.setRole", () => {
   });
 
   it("refuses to let an owner change their own role, in words a person can act on", async () => {
-    await expect(repo(owner).setRole(owner.userId, "adult")).rejects.toThrow(
+    await expect(repo(owner).setRole(owner.userId, "admin")).rejects.toThrow(
       "You cannot change your own role. Another owner has to do it, so a household is never left without one.",
     );
     expect(await storedRole("hh-a", owner.userId)).toBe("owner");
   });
 
   it("answers 404 for a non-member and for another household's member alike", async () => {
-    await expect(repo(owner).setRole("u-nobody", "adult")).rejects.toThrow(NotFoundError);
+    await expect(repo(owner).setRole("u-nobody", "admin")).rejects.toThrow(NotFoundError);
     // A real account, a real membership -- in a household this caller is not in.
-    await expect(repo(owner).setRole(otherOwner.userId, "adult")).rejects.toThrow(NotFoundError);
+    await expect(repo(owner).setRole(otherOwner.userId, "admin")).rejects.toThrow(NotFoundError);
     expect(await storedRole("hh-b", otherOwner.userId)).toBe("owner");
   });
 });
@@ -313,7 +313,7 @@ describe("HouseholdMemberRepo.setRole", () => {
 describe("HouseholdMemberRepo.list", () => {
   it("tells a claimed row apart from a pre-seeded one that nobody has onboarded", async () => {
     await addUser("u-ada", "ada@example.com");
-    await addMembership("hh-a", "u-ada", "adult");
+    await addMembership("hh-a", "u-ada", "admin");
     await addPerson("p-ada", "hh-a", "Ada", { userId: "u-ada", email: "ada@example.com" });
     await repo(owner).invite({ email: "bo@example.com", role: "viewer", displayName: "Bo" });
     // A child: a person row with no account behind it at all.
@@ -321,7 +321,7 @@ describe("HouseholdMemberRepo.list", () => {
 
     const list = await repo(owner).list();
     expect(list.map((m) => [m.displayName, m.status, m.claimed, m.role])).toEqual([
-      ["Ada", "onboarded", true, "adult"],
+      ["Ada", "onboarded", true, "admin"],
       ["Bo", "invited", false, "viewer"],
       ["Cy", "unclaimed", false, null],
       ["Sol", "onboarded", true, "owner"],
@@ -347,8 +347,8 @@ describe("HouseholdMemberRepo.list", () => {
   });
 
   it("never returns another household's members", async () => {
-    await repo(owner).invite({ email: "ada@example.com", role: "adult", displayName: "Ada" });
-    await repo(otherOwner).invite({ email: "zed@example.com", role: "adult", displayName: "Zed" });
+    await repo(owner).invite({ email: "ada@example.com", role: "admin", displayName: "Ada" });
+    await repo(otherOwner).invite({ email: "zed@example.com", role: "admin", displayName: "Zed" });
 
     const mine = await repo(owner).list();
     expect(mine.map((m) => m.email)).toEqual(["ada@example.com", "sol@example.com"]);

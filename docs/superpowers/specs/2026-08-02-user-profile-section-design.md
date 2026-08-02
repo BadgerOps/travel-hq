@@ -35,13 +35,19 @@ Your data is yours. The owner's job is provisioning.
    onboarding gate.
 2. **You may always edit your own row**, whatever your role — including
    `viewer`.
-3. **Onboarding hands over stewardship.** Once a row is linked to a user, only
-   that user and the owner may edit it. Adults keep full control of unlinked,
-   pre-seeded rows.
-4. **You may reveal your own document numbers**, whatever your role.
-5. **`/me` is where your data lives** — details, documents, and notifications
+3. **Self-edit is purely additive.** Nothing is taken away from anybody — an
+   admin still edits every other row in the household. Self-edit is a
+   permission added, never one revoked.
+4. **The owner can grant and revoke the admin role.** The middle tier becomes
+   something you hand out, so it is renamed from `adult` to `admin`: what is
+   being granted is the ability to edit everyone, which is a statement about
+   trust rather than age.
+5. **Every change is recorded, not just reveals.** `audit_log` becomes a rolling
+   household activity log, readable at `/audit`.
+6. **You may reveal your own document numbers**, whatever your role.
+7. **`/me` is where your data lives** — details, documents, and notifications
    together.
-6. **`/settings` is where the household is administered**, and gains the members
+8. **`/settings` is where the household is administered**, and gains the members
    list that `/people` used to be.
 
 Explicitly **not** in this change: document photographs and on-device OCR. That
@@ -77,23 +83,49 @@ you" rather than an empty form that silently saves nowhere.
 profile is a read, and gating it on write is what makes their own row
 unreachable.
 
-### Stewardship, not shared custody
+### Additive, and a grantable admin role
 
-`PersonRepo.update()` gates on `requireWrite()`. It gains a rule that runs
-first:
+`PersonRepo.update()` gates on `requireWrite()`. It gains one branch above it:
 
 ```
-if person.user_id == ctx.userId        -> allow, any role
-else if person.user_id is not null     -> owner only
-else                                   -> requireWrite() as today
+if person.user_id == ctx.userId  -> allow, any role     (new)
+else                             -> requireWrite()      (exactly as today)
 ```
 
-An adult loses the ability to edit another *onboarded* adult. That is the point,
-and it is a real regression for a two-adult household where only one is owner —
-the owner is the escape hatch, so nothing is unrecoverable.
+Nothing is taken away. An admin still edits every other row in the household,
+and a two-admin household works exactly as it does now.
 
-Unlinked rows keep today's behaviour exactly, which is what keeps children and
-pre-seeding working.
+An earlier draft made onboarding a *handover* — once a row was linked, only that
+user and the owner could edit it. It was rejected because it revoked a
+capability people already rely on: in a household with two adults where only one
+is the owner, the other would have lost the ability to fix their partner's
+details. A profile section is not worth a regression in the thing the household
+already does every week.
+
+Instead, elevated access becomes something an owner **grants**. `setRole()`
+promotes and demotes, owner-only, and that is what makes the middle tier's name
+worth fixing: it is handed out on trust, not held by age.
+
+Two guardrails, both learned from thinking about what cannot be undone.
+Promoting to `owner` is refused outright — ownership transfer has different
+consequences and is not in scope. And an owner cannot change **their own** row:
+counting owners to check "is this the last one?" races, because two owners
+demoting each other both read a count of two and both pass, leaving a household
+nobody can administer. Refusing self-change needs no count and cannot race.
+
+### Renaming `adult` to `admin`
+
+Until now the middle role was set once at seeding and never changed, so its name
+never had to answer for itself. Making it grantable changes that: what an owner
+hands out is the ability to edit everyone, which is a claim about trust, not
+age. A teenager can be the one who keeps everyone's passports current; a
+grandparent along for one trip should not be.
+
+Migration `0019` rebuilds `household_member` — SQLite cannot ALTER a CHECK — and
+translates the value during the copy, since the new constraint would reject an
+`adult` row on the way in. `owner` and `viewer` are untouched; only the
+ambiguous one moves. The code side is compiler-enforced: the role is a string
+literal union, so TypeScript finds every site.
 
 ### Revealing your own documents
 
@@ -123,7 +155,7 @@ following `TripAccessRepo.invite()`: provision a `user` row from a normalized
 email, insert a `household_member` row, and — new here — create the person row
 that constitutes membership.
 
-Two differences from the trip-level invite. The role is chosen (`adult` or
+Two differences from the trip-level invite. The role is chosen (`admin` or
 `viewer`) rather than hardcoded to `viewer`. And the person row is created in
 the same batch, because under this design the row *is* the membership.
 
@@ -139,23 +171,22 @@ it is the difference between "I invited them" and "they are actually here".
 
 ## Shape
 
-### Migration `0018_audit_self_service.sql`
+### Migrations
 
-```sql
-ALTER TABLE audit_log
-  ADD COLUMN self_service INTEGER NOT NULL DEFAULT 0;
-```
+`0018_audit_activity.sql` rebuilds `audit_log`: adds `self_service` and a
+`detail` column holding field NAMES, and widens the `event` and `subject_type`
+CHECKs. `self_service` defaults to 0, which is right for history rather than
+merely convenient — every reveal recorded before this change happened under a
+rule that refused viewers outright and had no concept of a self-reveal.
 
-Default 0 is right for existing rows: every reveal recorded before this change
-was made under a rule that refused viewers, so none of them was a self-reveal by
-a person who could not otherwise have looked.
+`0019_role_admin.sql` rebuilds `household_member` for the role rename.
 
 ### Server
 
 | Unit | Change |
 | --- | --- |
 | `PersonRepo.ensureCurrentUser` | no `requireWrite()`; link-or-nothing, never create. Returns `Person \| null`. |
-| `PersonRepo.update` | stewardship rule above `requireWrite()` |
+| `PersonRepo.update` | self-edit branch above `requireWrite()`; emits `person_updated` |
 | `PersonRepo.revealDocument` | self-reveal allowed at any role; reports whether it was self |
 | `AuditRepo.recordReveal` | accepts and stores `selfService` |
 | `HouseholdMemberRepo` (new) | `list()`, `invite({email, role, displayName})`, owner-only |
@@ -194,19 +225,27 @@ a layout annoyance, so it is tested exhaustively rather than representatively:
 
 - viewer edits own row → allowed
 - viewer edits another's row → 403
-- adult edits own row → allowed
-- adult edits unlinked pre-seeded row → allowed
-- adult edits another **onboarded** row → 403 *(the regression, pinned)*
+- admin edits own row → allowed
+- admin edits unlinked pre-seeded row → allowed
+- admin edits another **onboarded** row → allowed *(pinned: this is the
+  capability the rejected handover would have taken away, so it is asserted
+  rather than left to be inferred from the absence of a test)*
 - owner edits any row → allowed
 - viewer reveals own document → allowed, audit row has `self_service = 1`
 - viewer reveals another's document → 403
 - owner reveals another's document → allowed, `self_service = 0`
 - `ensureCurrentUser` with no matching row → returns nothing, **creates nothing**
 - `ensureCurrentUser` adopts an unlinked row matching email, once
-- cross-household person id → 404, never 403 (no membership oracle)
-- invite is owner-only; adult and viewer both 403
+- cross-household person id → 404, never 403, for **every** role and both verbs
+- invite is owner-only; admin and viewer both 403
 - invite creates user + household_member + person in one batch
-- invite twice with the same email is idempotent
+- invite twice with the same email is idempotent, and does not change the
+  stored role
+- promote and demote are owner-only; promoting to `owner` is refused; an owner
+  changing their own role is refused
+- a role change for a non-member → 404
+- every change writes an audit row naming the fields, and **no audit row ever
+  contains a value** — asserted directly against the stored `detail`
 
 Client: `/me` renders the absent-profile state; a viewer sees editable own
 fields; notification settings render on `/me` and no longer on `/settings`;

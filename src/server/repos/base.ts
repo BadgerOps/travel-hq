@@ -1,6 +1,6 @@
 import { log } from "../logging.js";
 
-export type Role = "owner" | "adult" | "viewer";
+export type Role = "owner" | "admin" | "viewer";
 
 export type HouseholdContext = {
   householdId: string;
@@ -9,12 +9,12 @@ export type HouseholdContext = {
   /**
    * Set only after a trip-scoped request has passed TripAccessRepo. It lets
    * an invited editor use ordinary repositories without turning that account
-   * into a household-wide adult.
+   * into a household-wide admin.
    */
   tripRole?: "viewer" | "editor";
 };
 
-const ROLES: readonly Role[] = ["owner", "adult", "viewer"];
+const ROLES: readonly Role[] = ["owner", "admin", "viewer"];
 
 /** Shared base for every error the repository layer throws. */
 export abstract class RepoError extends Error {}

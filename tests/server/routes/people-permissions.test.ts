@@ -10,7 +10,7 @@ import type { Identity } from "../../../src/server/auth.js";
  * representatively: a mistake here is a security bug, not a layout annoyance.
  *
  * The rule under test is ADDITIVE. Before this change, `person` had no notion
- * of ownership at all -- an adult or owner wrote everyone's record and a viewer
+ * of ownership at all -- an admin or owner wrote everyone's record and a viewer
  * wrote nothing, so a teenager could not correct their own phone number and
  * could not read back the passport number they had just stored. What is new is
  * that the row linked to YOUR account is yours to edit and reveal whatever your
@@ -26,22 +26,22 @@ const owner: Identity = {
   householdId: "hh-a",
   role: "owner",
 };
-const adult: Identity = { ...owner, userId: "u-adult", email: "adult@example.com", role: "adult" };
+const admin: Identity = { ...owner, userId: "u-admin", email: "admin@example.com", role: "admin" };
 const viewer: Identity = {
   ...owner,
   userId: "u-viewer",
   email: "viewer@example.com",
   role: "viewer",
 };
-/** A second adult, so "an adult edits another onboarded adult" has a subject. */
-const otherAdult: Identity = {
+/** A second admin, so "an admin edits another onboarded admin" has a subject. */
+const otherAdmin: Identity = {
   ...owner,
-  userId: "u-adult2",
-  email: "adult2@example.com",
-  role: "adult",
+  userId: "u-admin2",
+  email: "admin2@example.com",
+  role: "admin",
 };
 
-const ACCOUNTS = [owner, adult, viewer, otherAdult];
+const ACCOUNTS = [owner, admin, viewer, otherAdmin];
 
 function appAs(who: Identity) {
   return createApp({ verify: async () => who, ring });
@@ -95,10 +95,10 @@ async function auditRow(personId: string): Promise<{ event: string; self_service
 }
 
 let ownersRow: string;
-let adultsRow: string;
+let adminsRow: string;
 let viewersRow: string;
 let unlinkedRow: string;
-let otherAdultsRow: string;
+let otherAdminsRow: string;
 let otherHouseholdRow: string;
 
 beforeEach(async () => {
@@ -119,9 +119,9 @@ beforeEach(async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
 
   ownersRow = await seedPerson("Owner", owner.userId);
-  adultsRow = await seedPerson("Adult", adult.userId);
+  adminsRow = await seedPerson("Admin", admin.userId);
   viewersRow = await seedPerson("Viewer", viewer.userId);
-  otherAdultsRow = await seedPerson("SecondAdult", otherAdult.userId);
+  otherAdminsRow = await seedPerson("SecondAdmin", otherAdmin.userId);
   // Pre-seeded and never claimed: a child, or a member who has not signed in.
   unlinkedRow = await seedPerson("Unlinked", null);
 
@@ -149,34 +149,34 @@ describe("editing a person", () => {
   });
 
   it("a viewer may not edit anybody else's row", async () => {
-    expect((await put(viewer, adultsRow, { phone: "+1 208 555 0112" })).status).toBe(403);
+    expect((await put(viewer, adminsRow, { phone: "+1 208 555 0112" })).status).toBe(403);
     expect((await put(viewer, unlinkedRow, { phone: "+1 208 555 0113" })).status).toBe(403);
     expect((await put(viewer, ownersRow, { phone: "+1 208 555 0114" })).status).toBe(403);
   });
 
-  it("an adult may edit their own row", async () => {
-    expect((await put(adult, adultsRow, { phone: "+1 208 555 0115" })).status).toBe(200);
+  it("an admin may edit their own row", async () => {
+    expect((await put(admin, adminsRow, { phone: "+1 208 555 0115" })).status).toBe(200);
   });
 
-  it("an adult may edit an unlinked, pre-seeded row", async () => {
+  it("an admin may edit an unlinked, pre-seeded row", async () => {
     // The case that keeps children and not-yet-onboarded members editable.
-    expect((await put(adult, unlinkedRow, { displayName: "Child" })).status).toBe(200);
+    expect((await put(admin, unlinkedRow, { displayName: "Child" })).status).toBe(200);
   });
 
   /**
    * DELIBERATE, and pinned because an earlier draft of this design took it
    * away. Linking a row to an account grants that account access; it does not
-   * revoke anyone else's. Making it a handover would have cost a two-adult
+   * revoke anyone else's. Making it a handover would have cost a two-admin
    * household with a single owner the ability to fix each other's records, for
    * a threat model ("either parent can rewrite the other's passport number")
    * that a shared household has other answers to.
    */
-  it("an adult may still edit another ONBOARDED adult's row", async () => {
-    expect((await put(adult, otherAdultsRow, { phone: "+1 208 555 0116" })).status).toBe(200);
+  it("an admin may still edit another ONBOARDED admin's row", async () => {
+    expect((await put(admin, otherAdminsRow, { phone: "+1 208 555 0116" })).status).toBe(200);
   });
 
   it("an owner may edit any row in the household", async () => {
-    for (const id of [ownersRow, adultsRow, viewersRow, unlinkedRow, otherAdultsRow]) {
+    for (const id of [ownersRow, adminsRow, viewersRow, unlinkedRow, otherAdminsRow]) {
       expect((await put(owner, id, { notes: "checked" })).status).toBe(200);
     }
   });
@@ -188,14 +188,14 @@ describe("editing a person", () => {
    * first.
    */
   it("answers 404, never 403, for a person in another household", async () => {
-    for (const who of [owner, adult, viewer]) {
+    for (const who of [owner, admin, viewer]) {
       expect((await put(who, otherHouseholdRow, { notes: "nope" })).status).toBe(404);
       expect((await put(who, "p-does-not-exist", { notes: "nope" })).status).toBe(404);
     }
   });
 
   it("leaves the other household's row untouched", async () => {
-    await put(adult, otherHouseholdRow, { displayName: "Renamed" });
+    await put(admin, otherHouseholdRow, { displayName: "Renamed" });
     expect(
       await env.DB.prepare("SELECT display_name FROM person WHERE id = ?")
         .bind(otherHouseholdRow)
@@ -216,7 +216,7 @@ describe("revealing a document", () => {
   });
 
   it("a viewer may not reveal anybody else's document", async () => {
-    for (const id of [adultsRow, ownersRow, unlinkedRow]) {
+    for (const id of [adminsRow, ownersRow, unlinkedRow]) {
       expect((await reveal(viewer, id)).status).toBe(403);
       // A refused reveal is not a reveal, so it leaves no row claiming one.
       expect(await auditRow(id)).toBeNull();
@@ -224,8 +224,8 @@ describe("revealing a document", () => {
   });
 
   it("an owner revealing somebody else's document is NOT self-service", async () => {
-    expect((await reveal(owner, adultsRow)).status).toBe(200);
-    expect(await auditRow(adultsRow)).toMatchObject({ self_service: 0 });
+    expect((await reveal(owner, adminsRow)).status).toBe(200);
+    expect(await auditRow(adminsRow)).toMatchObject({ self_service: 0 });
   });
 
   it("an owner revealing their own document IS self-service", async () => {
@@ -234,13 +234,13 @@ describe("revealing a document", () => {
     expect(await auditRow(ownersRow)).toMatchObject({ self_service: 1 });
   });
 
-  it("an adult may still reveal another onboarded member's document", async () => {
-    expect((await reveal(adult, otherAdultsRow)).status).toBe(200);
-    expect(await auditRow(otherAdultsRow)).toMatchObject({ self_service: 0 });
+  it("an admin may still reveal another onboarded member's document", async () => {
+    expect((await reveal(admin, otherAdminsRow)).status).toBe(200);
+    expect(await auditRow(otherAdminsRow)).toMatchObject({ self_service: 0 });
   });
 
   it("answers 404, never 403, for a person in another household", async () => {
-    for (const who of [owner, adult, viewer]) {
+    for (const who of [owner, admin, viewer]) {
       expect((await reveal(who, otherHouseholdRow)).status).toBe(404);
       expect((await reveal(who, "p-does-not-exist")).status).toBe(404);
     }

@@ -153,7 +153,7 @@ export class DraftBookingRepo extends TenantRepo {
     return new DraftBookingRepo(db, {
       householdId,
       userId: "system:email-ingest",
-      role: "adult",
+      role: "admin",
     });
   }
 

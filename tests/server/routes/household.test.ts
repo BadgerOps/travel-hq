@@ -17,7 +17,7 @@ const owner: Identity = {
   householdId: "hh-a",
   role: "owner",
 };
-const adult: Identity = { ...owner, userId: "u-adult", email: "ada@example.com", role: "adult" };
+const admin: Identity = { ...owner, userId: "u-admin", email: "ada@example.com", role: "admin" };
 const teen: Identity = { ...owner, userId: "u-teen", email: "teen@example.com", role: "viewer" };
 const tripGuest: Identity = {
   ...owner,
@@ -99,7 +99,7 @@ describe("GET /api/household/members", () => {
     expect(
       (await json(ownerApp, "/api/household/members", "POST", {
         email: "kit@example.com",
-        role: "adult",
+        role: "admin",
         displayName: "Kit",
       })).status,
     ).toBe(201);
@@ -128,9 +128,9 @@ describe("GET /api/household/members", () => {
 
 describe("POST /api/household/members", () => {
   it("is owner-only", async () => {
-    await addUser(adult.userId, adult.email);
-    await addMembership(adult.userId, "adult");
-    for (const identity of [adult, teen]) {
+    await addUser(admin.userId, admin.email);
+    await addMembership(admin.userId, "admin");
+    for (const identity of [admin, teen]) {
       const response = await json(appAs(identity), "/api/household/members", "POST", {
         email: "kit@example.com",
         role: "viewer",
@@ -182,7 +182,7 @@ describe("POST /api/household/members", () => {
       role: "owner",
     });
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "Choose a role of adult or viewer" });
+    expect(await response.json()).toEqual({ error: "Choose a role of admin or viewer" });
   });
 
   it("rejects a body with keys it does not read", async () => {
@@ -204,10 +204,10 @@ describe("PUT /api/household/members/:userId/role", () => {
 
   it("promotes and demotes for an owner", async () => {
     const promoted = await json(ownerApp, `/api/household/members/${teen.userId}/role`, "PUT", {
-      role: "adult",
+      role: "admin",
     });
     expect(promoted.status).toBe(200);
-    expect(await promoted.json()).toMatchObject({ userId: teen.userId, role: "adult" });
+    expect(await promoted.json()).toMatchObject({ userId: teen.userId, role: "admin" });
 
     const demoted = await json(ownerApp, `/api/household/members/${teen.userId}/role`, "PUT", {
       role: "viewer",
@@ -216,13 +216,13 @@ describe("PUT /api/household/members/:userId/role", () => {
     expect(await demoted.json()).toMatchObject({ role: "viewer" });
   });
 
-  it("is refused to an adult and to a viewer", async () => {
-    await addUser(adult.userId, adult.email);
-    await addMembership(adult.userId, "adult");
-    for (const identity of [adult, teen]) {
+  it("is refused to an admin and to a viewer", async () => {
+    await addUser(admin.userId, admin.email);
+    await addMembership(admin.userId, "admin");
+    for (const identity of [admin, teen]) {
       expect(
         (await json(appAs(identity), `/api/household/members/${teen.userId}/role`, "PUT", {
-          role: "adult",
+          role: "admin",
         })).status,
       ).toBe(403);
     }
@@ -230,7 +230,7 @@ describe("PUT /api/household/members/:userId/role", () => {
 
   it("refuses an owner's attempt to change their own role, and says why", async () => {
     const response = await json(ownerApp, `/api/household/members/${owner.userId}/role`, "PUT", {
-      role: "adult",
+      role: "admin",
     });
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
@@ -241,7 +241,7 @@ describe("PUT /api/household/members/:userId/role", () => {
 
   it("answers 404 for someone who is not a member of this household", async () => {
     expect(
-      (await json(ownerApp, "/api/household/members/u-nobody/role", "PUT", { role: "adult" }))
+      (await json(ownerApp, "/api/household/members/u-nobody/role", "PUT", { role: "admin" }))
         .status,
     ).toBe(404);
   });

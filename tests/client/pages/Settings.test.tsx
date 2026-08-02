@@ -252,14 +252,14 @@ describe("Settings", () => {
     expect(api.settings.update).not.toHaveBeenCalled();
   });
 
-  it("shows the owners-and-adults card to a viewer (server 403), not the form", async () => {
+  it("shows the owners-and-admins card to a viewer (server 403), not the form", async () => {
     const api = makeApi({
       get: vi.fn(async () => {
         throw new ApiError("/api/settings failed: Forbidden", 403);
       }),
     });
     renderSettings(api, "viewer");
-    expect(await screen.findByText(/owners and adults only/i)).toBeInTheDocument();
+    expect(await screen.findByText(/owners and admins only/i)).toBeInTheDocument();
     expect(screen.queryByLabelText("Forward address")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /save settings/i })).not.toBeInTheDocument();
   });
@@ -315,7 +315,7 @@ describe("Settings", () => {
   });
 
   it("still shows the version to a viewer who cannot read the settings", async () => {
-    // A viewer sees only the "owners and adults only" card, and is exactly the
+    // A viewer sees only the "owners and admins only" card, and is exactly the
     // person most likely to be reporting a problem to someone else.
     const api = makeApi({
       get: vi.fn(async () => {
@@ -445,14 +445,14 @@ describe("Settings", () => {
     });
 
     /**
-     * The endpoint is owner-only and 403s for an adult. A panel that cannot be
+     * The endpoint is owner-only and 403s for an admin. A panel that cannot be
      * populated should not be shown at all -- and, crucially, that failure must
      * not surface as an error over the settings form, which works fine.
      */
     it("hides itself when the endpoint denies the caller, without reporting an error", async () => {
       const api = makeApi();
       api.audit.reveals.mockRejectedValue(new ApiError("nope", 403));
-      renderSettings(api, "adult");
+      renderSettings(api, "admin");
 
       await screen.findByLabelText("Forward address");
       expect(screen.queryByRole("region", { name: /reveal activity/i })).not.toBeInTheDocument();
@@ -707,7 +707,7 @@ describe("Settings — notifications", () => {
       }),
     });
     renderSettings(api, "viewer");
-    expect(await screen.findByText(/owners and adults only/i)).toBeInTheDocument();
+    expect(await screen.findByText(/owners and admins only/i)).toBeInTheDocument();
     expect(
       await screen.findByRole("region", { name: /notifications/i }),
     ).toBeInTheDocument();

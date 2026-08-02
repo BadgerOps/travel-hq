@@ -76,7 +76,7 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
   const [activityError, setActivityError] = useState<string | null>(null);
   const [viewingEmail, setViewingEmail] = useState<InboundEmailMetadata | null>(null);
   // Owner-only (the endpoint 403s for anyone else), so this stays null for an
-  // adult and the panel simply never renders — the same "not for you" handling
+  // admin and the panel simply never renders — the same "not for you" handling
   // the ingest feed already uses, rather than an error nobody can act on.
   const [revealLog, setRevealLog] = useState<AuditEntry[] | null>(null);
   const [loadFailed, setLoadFailed] = useState<string | null>(null);
@@ -260,10 +260,10 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
         <SettingsHeader />
         <div className="settings-main">
           <div className="card" style={{ maxWidth: 560, alignItems: "flex-start", gap: 10 }}>
-            <span className="card-title">Owners and adults only</span>
+            <span className="card-title">Owners and admins only</span>
             <p className="card-body" style={{ margin: 0 }}>
               Household settings control whose email can write into this household, so viewing and
-              editing them is limited to owners and adults.
+              editing them is limited to owners and admins.
             </p>
           </div>
           <NotificationsCard api={api} />

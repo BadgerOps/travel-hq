@@ -10,7 +10,7 @@ import {
 } from "../../../src/shared/email-retention.js";
 
 const ctxA: HouseholdContext = { householdId: "hh-a", userId: "u1", role: "owner" };
-const ctxB: HouseholdContext = { householdId: "hh-b", userId: "u2", role: "adult" };
+const ctxB: HouseholdContext = { householdId: "hh-b", userId: "u2", role: "admin" };
 
 const ring = new Keyring("k1", { k1: crypto.getRandomValues(new Uint8Array(32)) });
 /** A ring that shares no key id with `ring` — i.e. a key rotated fully out. */

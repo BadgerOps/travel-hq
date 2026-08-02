@@ -17,7 +17,7 @@ import {
  * CHECK constraint on `household_member.role` accepts it; this list is what
  * refuses it, with a message a person can act on.
  */
-export const INVITABLE_ROLES = ["adult", "viewer"] as const;
+export const INVITABLE_ROLES = ["admin", "viewer"] as const;
 export type InvitableRole = (typeof INVITABLE_ROLES)[number];
 
 /**
@@ -167,7 +167,7 @@ export class HouseholdMemberRepo extends TenantRepo {
   async invite(input: InviteHouseholdMemberInput): Promise<HouseholdMember> {
     this.requireOwner();
     if (!INVITABLE_ROLES.includes(input.role)) {
-      throw new ValidationError("Choose a role of adult or viewer");
+      throw new ValidationError("Choose a role of admin or viewer");
     }
     const email = normalizeEmail(input.email);
     if (email.length > MAX_EMAIL_CHARS || !EMAIL_RE.test(email)) {
@@ -248,7 +248,7 @@ export class HouseholdMemberRepo extends TenantRepo {
   }
 
   /**
-   * Promotes or demotes an existing member. "Adult" is this app's word for an
+   * Promotes or demotes an existing member. "Admin" is this app's word for an
    * administrator: they may edit everyone's records, not only their own.
    *
    * `owner` is not settable here, in either direction of intent. Making someone
@@ -259,7 +259,7 @@ export class HouseholdMemberRepo extends TenantRepo {
   async setRole(userId: string, role: InvitableRole): Promise<HouseholdMember> {
     this.requireOwner();
     if (!INVITABLE_ROLES.includes(role)) {
-      throw new ValidationError("Choose a role of adult or viewer");
+      throw new ValidationError("Choose a role of admin or viewer");
     }
     // THE CHECK IS "YOURSELF", NOT "THE LAST OWNER", and deliberately so.
     //
@@ -393,7 +393,7 @@ export class HouseholdMemberRepo extends TenantRepo {
    * The roster is readable by everyone the household considers family, and by
    * nobody else.
    *
-   * Owner and adult already see every person through `PersonRepo.list()`, so
+   * Owner and admin already see every person through `PersonRepo.list()`, so
    * this discloses nothing new to them. A `viewer` is the delicate case,
    * because that role covers two very different people: a family member the
    * owner pre-seeded, and a weekend guest invited to a single shared trip by
