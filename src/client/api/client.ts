@@ -38,6 +38,12 @@ import type {
   TripDuplicateGroup,
   TripMember,
   TripMemberRole,
+  BookingSubscriptionState,
+  NotificationSettingsResponse,
+  PushDeviceView,
+  TestNotificationResult,
+  TimezoneSource,
+  UpdateNotificationPreferencesInput,
 } from "./types.js";
 
 export class ApiError extends Error {
@@ -271,6 +277,68 @@ export function createApi(config: ApiConfig = {}) {
     inboundEmails: {
       list: () => request<InboundEmailMetadata[]>("/api/inbound-emails"),
       get: (id: string) => request<InboundEmailDetail>(`/api/inbound-emails/${seg(id)}`),
+    },
+    /**
+     * Per-user notification settings (issue #61). Not household settings: none
+     * of this is behind the household-writer gate, because every row it
+     * touches is keyed by the authenticated user, and a shared-trip account —
+     * a household viewer — must be able to register its own phone.
+     */
+    notifications: {
+      /** Preferences, stored timezone, and the VAPID applicationServerKey. */
+      preferences: () =>
+        request<NotificationSettingsResponse>("/api/notifications/preferences"),
+      /** Partial: send only the keys being changed. Returns the whole state. */
+      update: (input: UpdateNotificationPreferencesInput) =>
+        request<NotificationSettingsResponse>(
+          "/api/notifications/preferences",
+          jsonBody("PUT", input),
+        ),
+      /**
+       * `source: "device"` is the automatic report and is IGNORED by the
+       * server when a manual pin is set — the response carries the pin that
+       * won, so the caller should use what comes back rather than what it
+       * sent. `timezone: null` clears the zone and the pin together, which is
+       * how "use my device's timezone" resets.
+       */
+      setTimezone: (timezone: string | null, source: TimezoneSource) =>
+        request<NotificationSettingsResponse>(
+          "/api/notifications/timezone",
+          jsonBody("PUT", { timezone, source }),
+        ),
+      devices: () =>
+        request<{ devices: PushDeviceView[] }>("/api/notifications/subscriptions"),
+      /** Takes `PushSubscription.toJSON()` verbatim. Upserted on the endpoint. */
+      registerDevice: (subscription: unknown) =>
+        request<{ device: PushDeviceView }>(
+          "/api/notifications/subscriptions",
+          jsonBody("POST", subscription),
+        ),
+      removeDevice: (id: string) =>
+        // No body: the route reads the id from the path and never calls
+        // c.req.json(). Sending a content-type here would be a lie.
+        request<void>(`/api/notifications/subscriptions/${seg(id)}`, { method: "DELETE" }),
+      /**
+       * Sends one push to every registered device, right now, and answers per
+       * device. `error` (with no results) is the honest 200 for "push is not
+       * configured on this server" or "no device is registered".
+       */
+      test: () =>
+        request<{ results: TestNotificationResult[]; error?: string }>(
+          "/api/notifications/test",
+          jsonBody("POST", {}),
+        ),
+      /** Whether this account hears about one booking, and why. */
+      forBooking: (bookingId: string) =>
+        request<BookingSubscriptionState>(`/api/bookings/${seg(bookingId)}/notification`),
+      /** `null` clears the explicit choice and falls back to the implicit one. */
+      setBooking: (bookingId: string, subscribed: boolean | null) =>
+        request<BookingSubscriptionState>(
+          `/api/bookings/${seg(bookingId)}/notification`,
+          jsonBody("PUT", { subscribed }),
+        ),
+      setTrip: (tripId: string, subscribed: boolean | null) =>
+        request<void>(`/api/trips/${seg(tripId)}/notification`, jsonBody("PUT", { subscribed })),
     },
     audit: {
       /**

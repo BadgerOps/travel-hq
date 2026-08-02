@@ -9,7 +9,7 @@ import {
   reminderSendAt,
   resolveSubscription,
 } from "../../../src/server/repos/notification.js";
-import { ForbiddenError, NotFoundError, ValidationError } from "../../../src/server/repos/base.js";
+import { NotFoundError, ValidationError } from "../../../src/server/repos/base.js";
 import type { HouseholdContext } from "../../../src/server/repos/base.js";
 
 /**
@@ -278,11 +278,21 @@ describe("NotificationRepo preferences", () => {
     expect((await new NotificationRepo(env.DB, ctxAva).getPreferences()).digestSendTime).toBeNull();
   });
 
-  it("denies a household viewer, who may read the app but not change what it sends", async () => {
+  /**
+   * Was the opposite assertion until the HTTP layer went in, and the flip is
+   * the point rather than a relaxation. `requireWrite()` denies the household
+   * `viewer` role because a viewer may not change HOUSEHOLD data — and a
+   * preference row keyed by `user_id` is not household data. Every shared-trip
+   * account is a household viewer (trip-authorization.ts), so the old rule
+   * meant the parent following a kid's connection — #61's motivating example —
+   * could not set their own lead time. See the note at the top of
+   * repos/notification.ts.
+   */
+  it("lets a household viewer set their OWN preferences: this is not household data", async () => {
     const viewer = new NotificationRepo(env.DB, { ...ctxAva, role: "viewer" });
-    await expect(viewer.updatePreferences({ reminderLeadMinutes: 5 })).rejects.toThrow(
-      ForbiddenError,
-    );
+    expect(await viewer.updatePreferences({ reminderLeadMinutes: 5 })).toMatchObject({
+      reminderLeadMinutes: 5,
+    });
   });
 });
 

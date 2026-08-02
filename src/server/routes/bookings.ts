@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { BookingRepo, BOOKING_STATUSES } from "../repos/booking.js";
+import {
+  BookingRepo,
+  BOOKING_STATUSES,
+  MAX_REMINDER_LEAD_MINUTES,
+  REMINDER_MODES,
+} from "../repos/booking.js";
 import type { UpdateBookingInput } from "../repos/booking.js";
 import { InboundEmailRepo } from "../repos/inbound-email.js";
 import { ForbiddenError, NotFoundError } from "../repos/base.js";
@@ -72,6 +77,27 @@ const updateBookingSchema = z
     // Replaced wholesale when present, and validated against the effective
     // kind by parseDetails inside the repo.
     details: z.unknown().optional(),
+    /**
+     * The per-booking reminder override (#61). Two columns rather than one
+     * nullable number, because the third state is real: `inherit` follows the
+     * account default, `custom` uses `reminderLeadMinutes`, `off` means no
+     * reminder at all. Not nullable — "no opinion" is spelled `inherit`.
+     */
+    reminderMode: z.enum(REMINDER_MODES).optional(),
+    /**
+     * `.min(0)`, not `.min(1)`: zero minutes is "tell me when it starts", a
+     * lead time a person can legitimately choose, and conflating it with
+     * `off` is precisely the bug the three-state mode exists to prevent.
+     * `null` clears the stored number and lets `custom` fall back to the
+     * account default.
+     */
+    reminderLeadMinutes: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_REMINDER_LEAD_MINUTES)
+      .nullable()
+      .optional(),
   })
   .strict();
 

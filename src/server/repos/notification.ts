@@ -1,4 +1,5 @@
-import { TenantRepo, NotFoundError, ValidationError } from "./base.js";
+import { TenantRepo, NotFoundError, TenantScopeError, ValidationError } from "./base.js";
+import type { HouseholdContext } from "./base.js";
 import { newId } from "../ids.js";
 import { isValidTimezone, zonedTimestampToUtc } from "../time.js";
 import { localDateOf } from "./itinerary.js";
@@ -14,7 +15,7 @@ import type { ReminderMode } from "./booking.js";
  * keyed by `user_id` and carry no `household_id`, exactly like `trip_member`.
  * A person belongs to households; their phone and their 8am does not. That
  * makes the usual `{scope}` predicate inexpressible, so every statement below
- * goes through unscoped()/unscopedRun() with a reason naming what already
+ * goes through unscoped()/runAsSelf() with a reason naming what already
  * proved the caller may do this.
  *
  * WHICH MAKES REACHABILITY THIS FILE'S JOB. The acceptance criterion in #61 is
@@ -24,6 +25,37 @@ import type { ReminderMode } from "./booking.js";
  * SELECT of that row — `WHERE {scope} AND id = ?2` — which 404s if the caller's
  * household does not contain it. The unscoped write that follows is safe only
  * because that query ran, and each reason string says so.
+ *
+ * AND WHY NONE OF THESE WRITES ASK requireWrite(). `requireWrite()` denies the
+ * household `viewer` role, because a viewer may not change HOUSEHOLD DATA:
+ * trips, bookings, people, cards, settings. Nothing in this file is household
+ * data. Every row written here is keyed by `user_id` and describes the caller's
+ * own phone, their own 8am, and which events they personally want to hear
+ * about — changing it cannot alter one byte another member of the household
+ * will ever read.
+ *
+ * Gating it on the household write role was not a harmless extra safety net,
+ * it was WRONG, and wrong precisely for #61's motivating example: a parent
+ * following a kid's connection is a shared-trip account, which is a household
+ * `viewer` globally (see trip-authorization.ts — a trip VIEWER stays `viewer`
+ * even inside their own trip). Under `requireWrite()` that parent could not
+ * register their phone, could not set their digest time, and could not follow
+ * the one flight the feature exists for. The feature was unusable by exactly
+ * the person it was built for.
+ *
+ * So the writes below go through `runAsSelf()` rather than `unscopedRun()`:
+ * same bypass of the {scope} machinery, same mandatory reason string, but no
+ * role check — because the role being checked was answering a question about
+ * somebody else's data. What replaces it is not "nothing":
+ *
+ *   - preferences / timezone / push devices are constrained to
+ *     `user_id = this.ctx.userId`. The caller's own identity, verified by
+ *     Access, IS the authorization; there is no id from the request to abuse.
+ *   - subscribing to a booking or a trip additionally keeps the household-
+ *     SCOPED reachability SELECT, unchanged. That is the check that matters
+ *     here, and it is the one a `viewer` must still face: a viewer may follow
+ *     a booking they can see and gets the same 404 as anyone else for one they
+ *     cannot.
  */
 
 /** Kept in sync by hand with the CHECK on `user.timezone_source`. */
@@ -352,6 +384,19 @@ export function resolveSubscription(state: {
 }
 
 export class NotificationRepo extends TenantRepo {
+  /**
+   * The same D1 handle TenantRepo was given, kept because `runAsSelf()` needs
+   * to reach it and the base class's copy is private. Held here and nowhere
+   * else, so the only statements that can skip the role check are the ones in
+   * this file.
+   */
+  private readonly selfDb: D1Database;
+
+  constructor(db: D1Database, ctx: HouseholdContext) {
+    super(db, ctx);
+    this.selfDb = db;
+  }
+
   // ---------------------------------------------------------------- prefs
 
   /** The caller's own preferences, or the documented defaults. */
@@ -368,9 +413,6 @@ export class NotificationRepo extends TenantRepo {
   async updatePreferences(
     input: UpdateNotificationPreferencesInput,
   ): Promise<NotificationPreferences> {
-    // Redundant with unscopedRun()'s own check -- kept as explicit intent at
-    // the top of every mutating method, as the other repos do.
-    this.requireWrite();
     const current = await this.getPreferences();
 
     const digestEnabled =
@@ -389,8 +431,8 @@ export class NotificationRepo extends TenantRepo {
         : assertLeadMinutes(input.reminderLeadMinutes);
 
     const now = new Date().toISOString();
-    await this.unscopedRun(
-      "notification_preference is keyed by user, not household; the row written is the authenticated caller's own",
+    await this.runAsSelf(
+      "notification_preference is keyed by user, not household; the row written is the authenticated caller's own, so a viewer may set their own digest time",
       `INSERT INTO notification_preference
          (user_id, digest_enabled, digest_send_time, reminders_enabled,
           reminder_lead_minutes, created_at, updated_at)
@@ -445,8 +487,6 @@ export class NotificationRepo extends TenantRepo {
    * accepted normally. A 'manual' write always wins — that IS the pin.
    */
   async setTimezone(input: SetTimezoneInput): Promise<UserTimezone> {
-    // Redundant with unscopedRun()'s own check -- explicit intent, as above.
-    this.requireWrite();
     if (!(TIMEZONE_SOURCES as readonly string[]).includes(input.source)) {
       throw new ValidationError(`timezone source must be one of ${TIMEZONE_SOURCES.join(", ")}`);
     }
@@ -462,8 +502,8 @@ export class NotificationRepo extends TenantRepo {
     }
 
     const now = new Date().toISOString();
-    await this.unscopedRun(
-      "user accounts are globally keyed and carry no household_id; the row written is the authenticated caller's own",
+    await this.runAsSelf(
+      "user accounts are globally keyed and carry no household_id; the row written is the authenticated caller's own, so a viewer may report their own zone",
       "UPDATE user SET timezone = ?, timezone_source = ?, timezone_updated_at = ? WHERE id = ?",
       timezone,
       // Clearing the zone clears its provenance too: a source with no value
@@ -486,14 +526,12 @@ export class NotificationRepo extends TenantRepo {
   async registerPushSubscription(
     input: RegisterPushSubscriptionInput,
   ): Promise<PushSubscriptionRecord> {
-    // Redundant with unscopedRun()'s own check -- explicit intent, as above.
-    this.requireWrite();
     const endpoint = requireNonBlank("endpoint", input.endpoint);
     const p256dh = requireNonBlank("p256dh", input.p256dh);
     const auth = requireNonBlank("auth", input.auth);
 
-    await this.unscopedRun(
-      "push_subscription is keyed by user, not household; the row written is the authenticated caller's own device",
+    await this.runAsSelf(
+      "push_subscription is keyed by user, not household; the row written is the authenticated caller's own device, so a viewer may register their own phone",
       `INSERT INTO push_subscription
          (id, user_id, endpoint, p256dh, auth, created_at, last_success_at, failure_count)
        VALUES (?, ?, ?, ?, ?, ?, NULL, 0)
@@ -535,8 +573,6 @@ export class NotificationRepo extends TenantRepo {
    * would let any account delete any endpoint it could guess.
    */
   async deletePushSubscription(id: string): Promise<void> {
-    // Redundant with unscopedRun()'s own check -- explicit intent, as above.
-    this.requireWrite();
     const existing = await this.unscoped<{ id: string }>(
       "push_subscription is keyed by user, not household; the lookup is constrained to the authenticated caller's own rows",
       "SELECT id FROM push_subscription WHERE id = ? AND user_id = ?",
@@ -544,7 +580,7 @@ export class NotificationRepo extends TenantRepo {
       this.ctx.userId,
     );
     if (existing.length === 0) throw new NotFoundError("Push subscription not found");
-    await this.unscopedRun(
+    await this.runAsSelf(
       "push_subscription is keyed by user, not household; ownership was confirmed by the user-constrained query above",
       "DELETE FROM push_subscription WHERE id = ? AND user_id = ?",
       id,
@@ -566,10 +602,8 @@ export class NotificationRepo extends TenantRepo {
 
   /** Drop the explicit decision and fall back to the implicit default. */
   async clearBookingSubscription(bookingId: string): Promise<BookingSubscriptionState> {
-    // Redundant with unscopedRun()'s own check -- explicit intent, as above.
-    this.requireWrite();
     await this.requireReachableBooking(bookingId);
-    await this.unscopedRun(
+    await this.runAsSelf(
       "notification_subscription is keyed by user, not household; the booking was confirmed in-household by the scoped SELECT above and the row is the caller's own",
       "DELETE FROM notification_subscription WHERE user_id = ? AND booking_id = ?",
       this.ctx.userId,
@@ -593,10 +627,8 @@ export class NotificationRepo extends TenantRepo {
   }
 
   async clearTripSubscription(tripId: string): Promise<void> {
-    // Redundant with unscopedRun()'s own check -- explicit intent, as above.
-    this.requireWrite();
     await this.requireReachableTrip(tripId);
-    await this.unscopedRun(
+    await this.runAsSelf(
       "notification_subscription is keyed by user, not household; the trip was confirmed in-household by the scoped SELECT above and the row is the caller's own",
       "DELETE FROM notification_subscription WHERE user_id = ? AND trip_id = ?",
       this.ctx.userId,
@@ -664,13 +696,31 @@ export class NotificationRepo extends TenantRepo {
 
   // -------------------------------------------------------------- internals
 
+  /**
+   * `unscopedRun()` minus the household write-role check, for the per-user
+   * rows described in the note at the top of this file. Read that note before
+   * adding a call: the ONLY statements that belong here are ones whose every
+   * affected row is already pinned to `this.ctx.userId`, or whose subject was
+   * proved reachable by a household-scoped SELECT immediately above the call.
+   *
+   * The reason string is mandatory for the same purpose it is on
+   * `unscopedRun()`: every bypass in this codebase is greppable and says out
+   * loud what already proved the caller may do this.
+   */
+  private async runAsSelf(reason: string, sql: string, ...params: unknown[]): Promise<void> {
+    if (typeof reason !== "string" || reason.trim() === "") {
+      throw new TenantScopeError("unscoped access requires a non-empty, human-readable reason");
+    }
+    await this.selfDb.prepare(sql).bind(...(params as never[])).run();
+  }
+
   private async setBookingSubscription(
     bookingId: string,
     subscribed: boolean,
   ): Promise<BookingSubscriptionState> {
-    // Redundant with unscopedRun()'s own check -- explicit intent, as above.
-    this.requireWrite();
-    // THE reachability gate. Without this scoped SELECT, the unscoped upsert
+    // THE reachability gate, and — since the role check came out (see the note
+    // at the top of this file) — the ONLY gate. Without this scoped SELECT, the
+    // unscoped upsert
     // below would happily record a subscription to any booking id the caller
     // could guess, in any household, and the sweep would then dutifully push
     // its title and departure time to them.
@@ -680,8 +730,6 @@ export class NotificationRepo extends TenantRepo {
   }
 
   private async setTripSubscription(tripId: string, subscribed: boolean): Promise<void> {
-    // Redundant with unscopedRun()'s own check -- explicit intent, as above.
-    this.requireWrite();
     // Same gate as setBookingSubscription, for the same reason.
     await this.requireReachableTrip(tripId);
     await this.upsertSubscription("trip_id", tripId, subscribed);
@@ -698,7 +746,7 @@ export class NotificationRepo extends TenantRepo {
     subscribed: boolean,
   ): Promise<void> {
     const other = column === "booking_id" ? "trip_id" : "booking_id";
-    await this.unscopedRun(
+    await this.runAsSelf(
       "notification_subscription is keyed by user, not household; the subject was confirmed in-household by the scoped SELECT above and the row is the caller's own",
       `INSERT INTO notification_subscription (id, user_id, ${column}, ${other}, subscribed, created_at)
        VALUES (?, ?, ?, NULL, ?, ?)
