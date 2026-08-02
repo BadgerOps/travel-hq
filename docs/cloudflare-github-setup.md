@@ -229,7 +229,35 @@ The independent fallback needs outbound HTTPS access to
   `wrangler d1 migrations apply travel-hq-<env> --remote`.
 - Bootstrapping the first household/user (so Access can resolve a membership) is
   handled by a seed path described in the platform plan — the D1 equivalent of
-  the old `npm run seed`.
+  the old `npm run seed`. That first member must be `owner`; only an owner can
+  invite anybody else.
+
+## 7. Adding people (owner action, and the Access half is manual)
+
+Roles are `owner`, `admin`, `viewer`. `admin` was called `adult` before 0.9.0
+and migration `0019` renames it in place — it is what an owner grants to
+somebody who may edit *everyone's* records, so it is about trust rather than
+age.
+
+**Adding someone is two steps in two systems, and the app can only do one.**
+
+1. **In the app**: Settings → Members → invite, with their email and a role.
+   This creates the account row, the household membership, and the person
+   record that *is* their membership — until an owner has done this, signing in
+   gives them a profile page that says nobody has added them yet.
+2. **In Cloudflare Access**: add the same email to the Access application's
+   policy. **Nothing in the app can do this**, and skipping it is the failure
+   that looks like a bug: the invite succeeds, the member appears in the list as
+   *invited*, and the person hits a login wall instead of Travel HQ. The invite
+   form says as much, but it is worth knowing before the first support
+   conversation.
+
+An owner cannot change their own role, and cannot promote anyone to owner.
+Both are refusals about things that cannot be undone — the first would let two
+owners demote each other into a household nobody can administer.
+
+Every membership change, person edit and document reveal is recorded in the
+activity log at `/audit`. It stores field *names*, never values.
 
 ## What must never be committed
 
