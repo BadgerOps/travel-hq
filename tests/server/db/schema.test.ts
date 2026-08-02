@@ -48,8 +48,12 @@ describe("migrated schema", () => {
    * edit to a route can accidentally persist one. Asserting the column list
    * exactly is what keeps that true -- adding a `value`/`plaintext` column
    * would have to break this test first.
+   *
+   * `detail` is the column that could most easily become one, which is why the
+   * repo accepts a list of field NAMES rather than a value bag, and why the
+   * test below pins that a change entry stores names only.
    */
-  it("records reveals as identifiers only, with no column that could hold a revealed value", async () => {
+  it("records activity as identifiers only, with no column that could hold a revealed value", async () => {
     const columns = await env.DB.prepare("PRAGMA table_info(audit_log)").all<{ name: string }>();
     expect(columns.results.map((column) => column.name)).toEqual([
       "id",
@@ -61,8 +65,66 @@ describe("migrated schema", () => {
       "subject_id",
       "field",
       "trip_id",
+      "self_service",
+      "detail",
       "at",
     ]);
+  });
+
+  /**
+   * 0018 rebuilt this table (SQLite cannot ALTER a CHECK), which is the kind
+   * of migration that silently drops rows, defaults, indexes, or constraints.
+   * Each of those is checked here because each has a different failure: a lost
+   * row is lost history, a lost default relabels it, and a lost index turns
+   * the activity feed into a table scan.
+   */
+  it("keeps the rebuilt audit table's constraints, defaults, and indexes", async () => {
+    const now = new Date().toISOString();
+    await env.DB.prepare("INSERT INTO household (id, name, created_at) VALUES (?, ?, ?)")
+      .bind("hh-audit", "Audit", now)
+      .run();
+    const insert = (event: string, subjectType: string, field: string | null, detail: string | null) =>
+      env.DB.prepare(
+        `INSERT INTO audit_log (id, household_id, event, actor_user_id, actor_email,
+                                subject_type, subject_id, field, detail, at)
+         VALUES (?, 'hh-audit', ?, 'u1', 'u1@example.com', ?, 's1', ?, ?, ?)`,
+      ).bind(crypto.randomUUID(), event, subjectType, field, detail, now);
+
+    // The widened vocabulary, and the fact that it is still a vocabulary.
+    await insert("person_updated", "person", null, '{"fields":["phone"]}').run();
+    await insert("member_invited", "household_member", null, null).run();
+    await expect(insert("person_deleted", "person", null, null).run()).rejects.toThrow(/CHECK/i);
+    await expect(insert("person_updated", "trip", null, null).run()).rejects.toThrow(/CHECK/i);
+
+    // A reveal still has to name the one field it unmasked; a change event
+    // names its fields in `detail` instead, so `field` is nullable for it.
+    await expect(insert("document_reveal", "person", null, null).run()).rejects.toThrow(/CHECK/i);
+    await insert("document_reveal", "person", "passport_number", null).run();
+
+    // Defaults survived the rebuild: history is not retroactively self-service.
+    expect(
+      await env.DB.prepare("SELECT DISTINCT self_service FROM audit_log WHERE household_id = ?")
+        .bind("hh-audit")
+        .all<{ self_service: number }>(),
+    ).toMatchObject({ results: [{ self_service: 0 }] });
+    await expect(
+      env.DB.prepare("UPDATE audit_log SET self_service = 2 WHERE household_id = ?")
+        .bind("hh-audit")
+        .run(),
+    ).rejects.toThrow(/CHECK/i);
+    // `detail` is JSON or nothing; a bare string is neither.
+    await expect(
+      env.DB.prepare("UPDATE audit_log SET detail = 'passport C03X72119' WHERE household_id = ?")
+        .bind("hh-audit")
+        .run(),
+    ).rejects.toThrow(/CHECK/i);
+
+    const indexes = await env.DB.prepare(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='audit_log' ORDER BY name",
+    ).all<{ name: string }>();
+    expect(indexes.results.map((index) => index.name)).toEqual(
+      expect.arrayContaining(["idx_audit_log_household_at"]),
+    );
   });
 
   /**

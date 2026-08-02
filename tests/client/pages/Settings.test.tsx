@@ -420,6 +420,10 @@ describe("Settings", () => {
       subjectId: "person-0191c3d4e5f6a7b8",
       field: "passport_number",
       tripId: null,
+      // Somebody else's passport number, which is the case this panel exists
+      // to surface; a self-reveal is the one it can afford to bury.
+      selfService: false,
+      fields: null,
       at: "2026-07-29T18:04:00.000Z",
     };
 

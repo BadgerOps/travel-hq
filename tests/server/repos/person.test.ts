@@ -17,6 +17,17 @@ beforeEach(async () => {
   for (const id of ["hh-a", "hh-b"]) {
     await env.DB.prepare("INSERT INTO household (id,name,created_at) VALUES (?,?,?)").bind(id, id, now).run();
   }
+  // person.user_id is a real foreign key, so every account a test links a row
+  // to has to exist first.
+  for (const [id, email] of [
+    ["u1", "badger@example.com"],
+    ["u2", "other@example.com"],
+    ["u-teen", "teen@example.com"],
+    ["u-other", "someone@example.com"],
+  ]) {
+    await env.DB.prepare("INSERT INTO user (id,email,created_at) VALUES (?,?,?)")
+      .bind(id, email, now).run();
+  }
 });
 
 describe("PersonRepo", () => {
@@ -38,19 +49,83 @@ describe("PersonRepo", () => {
     expect(JSON.stringify(list)).not.toContain("C03X72119");
   });
 
-  it("creates one idempotent traveler profile for the signed-in user", async () => {
-    const now = new Date().toISOString();
-    await env.DB.prepare("INSERT INTO user (id, email, created_at) VALUES (?, ?, ?)")
-      .bind("u1", "sol@badgerops.net", now)
-      .run();
+  /**
+   * The row an owner pre-seeded IS the household membership, so signing in
+   * claims it rather than making a second one. Twice, because the first call
+   * is what onboarding looks like and the second is every request after it.
+   */
+  it("adopts the unlinked row matching the signed-in email, exactly once", async () => {
+    await new PersonRepo(env.DB, ctxA, ring).create({
+      displayName: "Sol",
+      email: "SOL@BadgerOps.net",
+    });
+
     const repo = new PersonRepo(env.DB, ctxA, ring);
     const first = await repo.ensureCurrentUser("sol@badgerops.net");
     const second = await repo.ensureCurrentUser("sol@badgerops.net");
-    expect(second.id).toBe(first.id);
-    expect(first).toMatchObject({ displayName: "Sol", email: "sol@badgerops.net" });
+    expect(first).toBeDefined();
+    expect(second?.id).toBe(first?.id);
+    expect(first).toMatchObject({ displayName: "Sol" });
     expect(await env.DB.prepare(
       "SELECT COUNT(*) AS count FROM person WHERE household_id = ? AND user_id = ?",
     ).bind("hh-a", "u1").first()).toEqual({ count: 1 });
+    // And no second person row appeared alongside the adopted one.
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM person WHERE household_id = ?")
+      .bind("hh-a").first()).toEqual({ count: 1 });
+  });
+
+  /**
+   * The load-bearing half of the link-or-nothing rule. TripAccessRepo.invite()
+   * provisions a `viewer` for anyone invited to a single shared trip, so a
+   * weekend guest and a family teenager are the same role; if this method
+   * created a row, "you may edit your own person" would hand that guest a
+   * passport field. Membership is the pre-seeded row, and there isn't one.
+   */
+  it("returns nothing, and CREATES nothing, when no row matches the signed-in user", async () => {
+    const repo = new PersonRepo(env.DB, ctxA, ring);
+    expect(await repo.ensureCurrentUser("guest@example.com")).toBeUndefined();
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM person WHERE household_id = ?")
+      .bind("hh-a").first()).toEqual({ count: 0 });
+  });
+
+  it("does not adopt a row that another account has already claimed", async () => {
+    const person = await new PersonRepo(env.DB, ctxA, ring).create({
+      displayName: "Ava",
+      email: "ava@example.com",
+    });
+    await env.DB.prepare("UPDATE person SET user_id = ? WHERE id = ?").bind("u-other", person.id).run();
+
+    expect(await new PersonRepo(env.DB, ctxA, ring).ensureCurrentUser("ava@example.com"))
+      .toBeUndefined();
+    expect(await env.DB.prepare("SELECT user_id FROM person WHERE id = ?").bind(person.id).first())
+      .toMatchObject({ user_id: "u-other" });
+  });
+
+  /**
+   * Resolving your own profile is a READ. Gating it on requireWrite() is
+   * exactly what made a viewer's own row unreachable -- and the adopt branch
+   * writes, so this also pins that a viewer can complete their own onboarding.
+   */
+  it("lets a viewer resolve and claim their own pre-seeded row", async () => {
+    await new PersonRepo(env.DB, ctxA, ring).create({
+      displayName: "Teen",
+      email: "teen@example.com",
+    });
+    const viewer = new PersonRepo(env.DB, { ...ctxA, userId: "u-teen", role: "viewer" }, ring);
+
+    const mine = await viewer.ensureCurrentUser("teen@example.com");
+    expect(mine).toMatchObject({ displayName: "Teen" });
+    expect(await env.DB.prepare("SELECT user_id FROM person WHERE id = ?").bind(mine!.id).first())
+      .toMatchObject({ user_id: "u-teen" });
+  });
+
+  it("never adopts a row belonging to another household", async () => {
+    await new PersonRepo(env.DB, ctxB, ring).create({
+      displayName: "Bo",
+      email: "shared@example.com",
+    });
+    expect(await new PersonRepo(env.DB, ctxA, ring).ensureCurrentUser("shared@example.com"))
+      .toBeUndefined();
   });
 
   it("isolates people by household", async () => {
@@ -62,10 +137,14 @@ describe("PersonRepo", () => {
   it("reveals a document only through revealDocument", async () => {
     const repo = new PersonRepo(env.DB, ctxA, ring);
     const person = await repo.create({ displayName: "Ava", passportNumber: "C03X72119" });
-    expect(await repo.revealDocument(person.id, "passport_number")).toBe("C03X72119");
+    expect(await repo.revealDocument(person.id, "passport_number")).toMatchObject({
+      value: "C03X72119",
+      // Nobody's row: created by an owner and never linked to an account.
+      selfService: false,
+    });
   });
 
-  it("a viewer cannot reveal a document", async () => {
+  it("a viewer cannot reveal someone else's document", async () => {
     const owner = new PersonRepo(env.DB, ctxA, ring);
     const person = await owner.create({ displayName: "Ava", passportNumber: "C03X72119" });
     const viewer = new PersonRepo(env.DB, { ...ctxA, role: "viewer" }, ring);
@@ -80,17 +159,17 @@ describe("PersonRepo", () => {
   it("revealDocument returns null when the field is unset", async () => {
     const repo = new PersonRepo(env.DB, ctxA, ring);
     const person = await repo.create({ displayName: "Ava" });
-    expect(await repo.revealDocument(person.id, "passport_number")).toBeNull();
+    expect(await repo.revealDocument(person.id, "passport_number")).toMatchObject({ value: null });
   });
 
   it("update leaves an absent field unchanged, clears on null, replaces on string", async () => {
     const repo = new PersonRepo(env.DB, ctxA, ring);
     const person = await repo.create({ displayName: "Ava", passportNumber: "C03X72119", notes: "keep" });
     await repo.update(person.id, { knownTravelerNumber: "KTN999999" });
-    expect(await repo.revealDocument(person.id, "passport_number")).toBe("C03X72119"); // untouched
-    expect(await repo.revealDocument(person.id, "known_traveler_number")).toBe("KTN999999");
+    expect((await repo.revealDocument(person.id, "passport_number")).value).toBe("C03X72119"); // untouched
+    expect((await repo.revealDocument(person.id, "known_traveler_number")).value).toBe("KTN999999");
     await repo.update(person.id, { passportNumber: null });
-    expect(await repo.revealDocument(person.id, "passport_number")).toBeNull();
+    expect(await repo.revealDocument(person.id, "passport_number")).toMatchObject({ value: null });
   });
 
   it("updates and clears optional contact fields", async () => {

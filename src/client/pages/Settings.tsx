@@ -963,7 +963,12 @@ const TEST_OUTCOMES: Record<TestNotificationResult["outcome"], string> = {
 };
 
 /** "passport_number" → "Passport number". Field NAMES only ever reach here. */
-function fieldLabel(field: string): string {
+function fieldLabel(field: string | null): string {
+  // Nullable since audit_log started carrying events other than reveals: an
+  // edit names its fields in `fields`, not in the single `field` column. This
+  // panel lists reveals only, so the fallback should never render -- it is
+  // here because "Reveal" is a better thing to show than a crash if it does.
+  if (!field) return "Reveal";
   const words = field.replace(/_/g, " ").trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
