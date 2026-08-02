@@ -17,15 +17,9 @@ the whole point of showing it: a bug report can name the build it came from
 instead of describing it, and the number it names cannot have drifted from the
 one this file records.
 
-Numbering restarted at 0.1.0 on 2026-08-01. The versions below it — 0.2.0
-through 0.7.0 — were only ever headings in this file: nothing derived from
-them, nothing displayed them, and no release was ever cut under them. They are
-kept, unedited, because they are still an accurate record of what shipped and
-when; they are simply not part of the sequence that 0.1.0 begins.
-
 ## Unreleased
 
-## 0.1.0 — 2026-08-01
+## 0.8.0 — 2026-08-01
 
 - Added booking editing. Every field a booking has — kind, title, location,
   both timestamps and their timezones, cost, confirmation number, status,
