@@ -5,16 +5,6 @@ import { Keyring, mask, assertNotMasked } from "../crypto/envelope.js";
 import { newId } from "../ids.js";
 import { assertCalendarDate } from "./validation.js";
 
-/**
- * base.ts keeps these module-private, so they are restated here for the single
- * statement `runOwnRow()` has to expand itself. If they ever disagree with
- * base.ts the expansion stops matching what run() produces, which is why
- * runOwnRow() is written so the SAME sql string also goes through run() for
- * every non-viewer role — any drift fails the ordinary tests first.
- */
-const SCOPE_TOKEN = "{scope}";
-const SCOPE_SQL = "household_id = ?1";
-
 export const DOCUMENT_FIELDS = [
   "passport_number",
   "known_traveler_number",
@@ -165,13 +155,10 @@ type PersonRow = {
 
 export class PersonRepo extends TenantRepo {
   /**
-   * A second handle on the same D1 binding, for two things base.ts's private
-   * handle cannot do: `runOwnRow()` below, which must skip base's ROLE gate,
-   * and constructing the AuditRepo this repo records its own changes through.
-   *
-   * Preparing a statement from it is within the architecture test's allowlist
-   * -- this file is the tenancy layer -- but it happens in exactly one method,
-   * which explains itself at length.
+   * The same D1 binding again, kept only to construct the AuditRepo this repo
+   * records its own changes through. base.ts holds its handle privately, and
+   * the role-gate bypass that used to need one of its own now lives in
+   * base.ts as `roleExemptRun`.
    */
   private readonly rawDb: D1Database;
 
@@ -489,42 +476,18 @@ export class PersonRepo extends TenantRepo {
   /**
    * A write to a person row the caller has ALREADY been shown to own.
    *
-   * base.ts's run() asks "may this ROLE write?", and for the two statements
-   * that reach here that is the wrong question. Claiming the row an owner
-   * pre-seeded for you, and editing it once claimed, are exactly what a viewer
-   * is now permitted to do; requireWrite() refuses both and leaves a viewer's
-   * own profile permanently unreachable, which is the bug this change exists
-   * to fix.
-   *
-   * unscopedRun() is NOT the escape hatch for this. It applies the very same
-   * requireWrite() to any write statement, so it refuses these for the same
-   * reason run() does — the documented hatch is for escaping the tenancy
-   * SCOPE, and the scope is not what is in the way here. The bypass is
-   * therefore local, and as narrow as it can be made:
-   *
-   *  - Only a viewer takes it. Every other role goes through run(), so the SQL
-   *    text below is the same text base.ts validates on the owner/adult path,
-   *    exercised by the same tests.
-   *  - {scope} is expanded to base.ts's own predicate and the household id is
-   *    bound first, exactly as run() does. The statement stays tenant-scoped.
-   *  - Both call sites pin `id` to a single row, and have already established
-   *    that this account owns it: update() via `person.user_id`, and
-   *    ensureCurrentUser() via an email match against the AUTHENTICATED
-   *    address plus `user_id IS NULL`.
-   *
-   * This method authorizes nothing on its own. Its callers do that first.
+   * Both call sites pin `id` to a single row and establish ownership first:
+   * update() via `person.user_id`, and ensureCurrentUser() via an email match
+   * against the AUTHENTICATED address plus `user_id IS NULL`. See
+   * `roleExemptRun` in base.ts for why the role gate is the only thing skipped
+   * and why the `unscoped*` family cannot serve this.
    */
   private async runOwnRow(sql: string, ...params: unknown[]): Promise<void> {
-    if (this.ctx.role !== "viewer") return this.run(sql, ...params);
-    // Guard rather than a silent no-op replace: a template that lost its token
-    // would otherwise run unscoped across every household.
-    if (sql.split(SCOPE_TOKEN).length !== 2) {
-      throw new TenantScopeError(`runOwnRow() requires exactly one ${SCOPE_TOKEN} token`);
-    }
-    await this.rawDb
-      .prepare(sql.replace(SCOPE_TOKEN, SCOPE_SQL))
-      .bind(this.ctx.householdId, ...(params as never[]))
-      .run();
+    await this.roleExemptRun(
+      "the caller was proved to own this person row before the call; role is not what authorizes it",
+      sql,
+      ...params,
+    );
   }
 
   private async seal(plaintext: string | undefined): Promise<string | null> {

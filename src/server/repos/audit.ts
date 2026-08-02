@@ -161,17 +161,6 @@ const ACTIVITY_PAGE = 50;
 const MAX_ACTIVITY_PAGE = 200;
 
 export class AuditRepo extends TenantRepo {
-  /**
-   * A second handle on the same D1 binding, for `insertSelfServiceRow()`
-   * alone -- base.ts keeps its own private, and that method exists precisely
-   * because base's role gate would refuse the write. See it for why.
-   */
-  private readonly selfServiceDb: D1Database;
-
-  constructor(db: D1Database, ctx: HouseholdContext) {
-    super(db, ctx);
-    this.selfServiceDb = db;
-  }
 
   /**
    * Writes the record of an action that ALREADY SUCCEEDED. Call it after the
@@ -360,43 +349,22 @@ export class AuditRepo extends TenantRepo {
    * The insert for the one case base.ts's insert() refuses: a viewer recording
    * an action on their own record.
    *
-   * insert() calls requireWrite() unconditionally, and so does unscopedRun(),
-   * so neither can carry this row -- and dropping the row instead is not an
-   * option, because an unauditable action must fail rather than succeed
-   * quietly (see the matching comment in routes/people.ts). Preparing a
-   * statement here is inside the architecture test's allowlist: this file is
-   * the tenancy layer. The bypass keeps everything except the role check --
-   * the household id still comes from the context and never from a caller, so
-   * the row cannot be written into another tenant, and the column list is a
-   * fixed literal rather than caller-supplied keys.
+   * Dropping the row instead is not an option — an unauditable action must
+   * fail rather than succeed quietly (see the matching comment in
+   * routes/people.ts), so a viewer's self-reveal would 500 on the very log
+   * entry that proves it happened.
    *
-   * Only reachable when the caller passed `selfService`, which only
-   * PersonRepo produces, and only after it has established that the subject
-   * is this account's own record.
+   * Only reachable when the caller passed `selfService`, which only PersonRepo
+   * produces, and only after it has established that the subject is this
+   * account's own record. See `roleExemptInsert` in base.ts for what is and is
+   * not given up.
    */
   private async insertSelfServiceRow(values: Row): Promise<void> {
-    await this.selfServiceDb
-      .prepare(
-        `INSERT INTO audit_log
-           (id, household_id, event, actor_user_id, actor_email,
-            subject_type, subject_id, field, trip_id, self_service, detail, at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        values.id,
-        this.ctx.householdId,
-        values.event,
-        values.actor_user_id,
-        values.actor_email,
-        values.subject_type,
-        values.subject_id,
-        values.field,
-        values.trip_id,
-        values.self_service,
-        values.detail,
-        values.at,
-      )
-      .run();
+    await this.roleExemptInsert(
+      "a viewer's action on their own record must still be auditable; the alternative is an unlogged reveal",
+      "audit_log",
+      { ...values },
+    );
   }
 
   /**
