@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Eye, FloppyDisk, Flask, Key, Robot, Trash } from "@phosphor-icons/react";
+import { Eye, FloppyDisk, Flask, Info, Key, Robot, Trash } from "@phosphor-icons/react";
 import { api as defaultApi, ApiError } from "../api/client.js";
 import type {
   AiProvider,
@@ -241,6 +241,9 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
             editing them is limited to owners and adults.
           </p>
         </div>
+        {/* Still shown to a viewer: the one thing on this page they can use is
+            the number that identifies the build they are reporting against. */}
+        <AboutBuild />
       </>
     );
   }
@@ -464,6 +467,8 @@ export function Settings({ api = defaultApi }: { api?: typeof defaultApi }) {
             </section>
 
             {revealLog !== null && <RevealLog entries={revealLog} />}
+
+            <AboutBuild />
           </div>
         </div>
       )}
@@ -542,6 +547,38 @@ function RevealLog({ entries }: { entries: AuditEntry[] }) {
           </p>
         </>
       )}
+    </section>
+  );
+}
+
+/**
+ * The running build, parked at the foot of the rail. Nobody comes to Settings
+ * looking for it, so it is deliberately quiet — but a bug report is worth far
+ * more when it can name the build it came from instead of describing it, and
+ * "the configuration screen" is where people already go hunting for that kind
+ * of fact.
+ *
+ * __APP_VERSION__ is substituted at build time from package.json's `version`
+ * (see the `define` in vite.config.ts, mirrored in vitest.client.config.ts).
+ * It is not a string typed in here, because a hand-copied number is exactly
+ * the thing that goes stale a release later and then misidentifies the build
+ * in every report that quotes it.
+ */
+function AboutBuild() {
+  return (
+    <section aria-label="About this build">
+      <h4 className="section-kicker" style={{ margin: 0 }}>About this build</h4>
+      <div className="card" style={{ alignItems: "flex-start", gap: 10 }}>
+        <span className="card-title">
+          <Info size={16} style={{ marginRight: 6 }} />
+          Travel HQ <span className="build-version">v{__APP_VERSION__}</span>
+        </span>
+        <p className="card-body text-muted" style={{ margin: 0 }}>
+          Quote this version when reporting a problem — it identifies the exact
+          build you were using. What changed in each release is recorded in
+          CHANGELOG.md.
+        </p>
+      </div>
     </section>
   );
 }

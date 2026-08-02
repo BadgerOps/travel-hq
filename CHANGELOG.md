@@ -1,6 +1,25 @@
 # Changelog
 
+Versions here follow [semantic versioning](https://semver.org/): the last
+number moves when something that already existed stops being wrong, the middle
+one when the app can do something it could not do before, and the first is
+held back for the day a change breaks a caller or a stored shape rather than
+just adding to it. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — newest release
+first, with `Unreleased` at the top collecting what has merged but not yet
+shipped. Entries are written for whoever is trying to work out what changed
+underneath them, so they say why as well as what, and they name the endpoints
+and migrations a release added.
+
+The running version is shown in Settings, under **About this build**, and is
+read from `package.json` at build time rather than typed in by hand. That is
+the whole point of showing it: a bug report can name the build it came from
+instead of describing it, and the number it names cannot have drifted from the
+one this file records.
+
 ## Unreleased
+
+## 0.8.0 — 2026-08-01
 
 - Added booking editing. Every field a booking has — kind, title, location,
   both timestamps and their timezones, cost, confirmation number, status,

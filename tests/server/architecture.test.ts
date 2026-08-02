@@ -133,4 +133,50 @@ describe("architecture", () => {
     expect(source).toContain('url.pathname.startsWith("/assets/")');
     expect(source).toContain("caches.delete");
   });
+
+  /**
+   * package.json's version is not decoration: vite.config.ts substitutes it
+   * into the bundle as __APP_VERSION__, and Settings shows it so a bug report
+   * can name the build it came from. That number is only useful if it agrees
+   * with the release CHANGELOG.md describes — a build calling itself 0.9.0
+   * while the changelog's newest release is 0.8.0 sends the reader to the
+   * wrong list of changes.
+   *
+   * Cutting a release is therefore two edits, and this test fails until both
+   * are made: bump `version`, and add the matching `## <version> — <date>`
+   * heading above the previous one.
+   */
+  it("ships the version CHANGELOG.md says is newest", () => {
+    const { version } = JSON.parse(
+      readFileSync(join(REPO_ROOT, "package.json"), "utf8"),
+    ) as { version: string };
+    const changelog = readFileSync(join(REPO_ROOT, "CHANGELOG.md"), "utf8");
+
+    expect(version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(newestReleaseInChangelog(changelog)).toBe(version);
+  });
 });
+
+/**
+ * The first `##` heading that names a version, reading top-down. Deliberately
+ * tolerant, because the alternative — a regex tuned to today's exact heading —
+ * would break on the next release for reasons that have nothing to do with
+ * what this test is checking:
+ *
+ * - `## Unreleased` (and any other prose heading) is skipped rather than
+ *   treated as a version, so entries can sit there between releases.
+ * - A leading `v` is accepted, as is any suffix after the numbers: the date is
+ *   separated by an em dash today and was a hyphen in older headings, and a
+ *   prerelease tag (`0.2.0-rc.1`) would read as part of the version.
+ * - Order in the file wins over numeric comparison, because "newest" is a
+ *   question about release order and the file is already kept in it. Sorting
+ *   the numbers instead would answer a subtly different question, and would
+ *   have to be taught how prerelease tags rank to answer even that one.
+ */
+function newestReleaseInChangelog(markdown: string): string | null {
+  for (const line of markdown.split("\n")) {
+    const heading = /^##\s+v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\b/.exec(line.trim());
+    if (heading) return heading[1] ?? null;
+  }
+  return null;
+}

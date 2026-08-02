@@ -15,6 +15,7 @@ import {
   RAW_RETENTION_EXTRACTED_DAYS,
   RAW_RETENTION_UNRESOLVED_DAYS,
 } from "../../../src/shared/email-retention.js";
+import pkg from "../../../package.json" with { type: "json" };
 
 const SETTINGS = {
   forwardAddress: "trips@badgerops.foo",
@@ -256,6 +257,35 @@ describe("Settings", () => {
     const section = screen.getByRole("region", { name: /recent ingest activity/i });
     expect(section).toBeInTheDocument();
     expect(screen.getByText(/nothing ingested yet/i)).toBeInTheDocument();
+  });
+
+  /**
+   * The build string only earns its place if it is the real one. Comparing
+   * against package.json (rather than a literal, or against __APP_VERSION__
+   * itself — which would pass even if the define were echoing nothing) is what
+   * makes this catch the likely failure: the constant is injected by a `define`
+   * that the client config has to repeat, and a missing one renders
+   * "vundefined" while every other test still passes.
+   */
+  it("shows the running version so a bug report can name its build", async () => {
+    renderSettings();
+    const about = await screen.findByRole("region", { name: /about this build/i });
+    expect(within(about).getByText(`v${pkg.version}`)).toBeInTheDocument();
+    expect(pkg.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(about).toHaveTextContent(/quote this version/i);
+  });
+
+  it("still shows the version to a viewer who cannot read the settings", async () => {
+    // A viewer sees only the "owners and adults only" card, and is exactly the
+    // person most likely to be reporting a problem to someone else.
+    const api = makeApi({
+      get: vi.fn(async () => {
+        throw new ApiError("/api/settings failed: Forbidden", 403);
+      }),
+    });
+    renderSettings(api, "viewer");
+    const about = await screen.findByRole("region", { name: /about this build/i });
+    expect(within(about).getByText(`v${pkg.version}`)).toBeInTheDocument();
   });
 
   it("configures Anthropic with a write-only key and instruction counter", async () => {
