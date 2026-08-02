@@ -54,6 +54,58 @@ stored document number permanently undecryptable — back it up where you keep
 other production secrets. (To rotate later, prepend a new `server-v2 <base64>`
 line and make it the last line — the active key is the last one listed.)
 
+## 2a. VAPID keypair (Web Push identity)
+
+Push notifications need a P-256 keypair that identifies **this server** to the
+push services (RFC 8292). It authorizes nothing on a user's behalf — it only
+proves that whoever is POSTing to a subscription endpoint is the same server
+the browser subscribed to.
+
+**The public half is a var** (`wrangler.toml`, committed — the browser receives
+it anyway as `applicationServerKey`). **The private half is a secret.** Both are
+base64url, and the encodings are not interchangeable with every tool's output:
+public is the 65-byte *uncompressed* point (`0x04 || X || Y`), private is the
+raw 32-byte scalar — the JWK `d` value, not PKCS#8 and not a PEM. This matches
+what `web-push generate-vapid-keys` prints, so a pair generated elsewhere pastes
+in cleanly.
+
+Generate one with Node ≥ 18 and no dependencies:
+
+```bash
+node -e 'const {webcrypto:w}=require("crypto");(async()=>{ \
+  const kp=await w.subtle.generateKey({name:"ECDSA",namedCurve:"P-256"},true,["sign","verify"]); \
+  const jwk=await w.subtle.exportKey("jwk",kp.privateKey); \
+  const pub=Buffer.from(await w.subtle.exportKey("raw",kp.publicKey)); \
+  console.log("VAPID_PUBLIC_KEY =",pub.toString("base64url")); \
+  console.log("VAPID_PRIVATE_KEY=",jwk.d);})()'
+```
+
+Then put the public half in **both** `[vars]` and `[env.production.vars]` in
+`wrangler.toml` (an environment's `vars` replaces the top-level table wholesale
+rather than merging into it), and the private half in the secret store:
+
+```bash
+printf '%s' '<the VAPID_PRIVATE_KEY value>' | wrangler secret put VAPID_PRIVATE_KEY --env production
+```
+
+`VAPID_SUBJECT` is already set to `mailto:trips@badgerops.foo` — a contact the
+push service operator can reach if our traffic causes them a problem.
+
+**The two halves must stay the same pair forever.** The browser pins the public
+key at `pushManager.subscribe()` time; rotating it makes every stored
+subscription fail with a 403 and they all have to be re-created. If a pair is
+ever mismatched, VAPID JWTs still *sign* fine and are rejected only by the push
+service, so validate a new pair by signing and verifying a probe before
+installing it (`verifyVapidKeys()` in `src/server/push/vapid.ts` exists for
+exactly this).
+
+Until all three values are present the five-minute sweep does nothing and logs
+`notification_sweep_unconfigured` once per tick. That is a supported state, not
+a broken one: it deliberately takes no claims it cannot honour, because a claim
+is permanent and claiming-then-failing would mean those reminders never re-arm.
+
+For local development the same two values go in `.dev.vars` (gitignored).
+
 ## 2b. Cloudflare Access (human auth) — REQUIRED or `/api` 500s
 
 The Worker validates a Cloudflare Access JWT on every `/api` request. Without
