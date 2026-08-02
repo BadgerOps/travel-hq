@@ -33,6 +33,15 @@ migrations_dir = "migrations"
 [ai]
 binding = "AI"
 
+# Trip cover photos. Present in testing and production but missing here until
+# now, which made `wrangler dev` -- the target vite proxies /api to -- the one
+# place where c.env.TRIP_PHOTOS is undefined: GET /api/trips/:id/photo threw a
+# TypeError and 500d, so every uploaded cover photo was a broken image locally.
+# wrangler dev simulates the bucket on disk, so no real bucket is needed.
+[[r2_buckets]]
+binding = "TRIP_PHOTOS"
+bucket_name = "travel-hq-dev-photos"
+
 # --- testing (PR preview target; its own D1) --------------------------------
 [env.testing]
 [env.testing.assets]
