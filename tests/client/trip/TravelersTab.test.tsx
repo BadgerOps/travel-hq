@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { TravelersTab } from "../../../src/client/trip/TravelersTab.js";
 
 function person(over: Record<string, unknown> = {}) {
@@ -48,5 +49,48 @@ describe("TravelersTab", () => {
   it("falls back to today when the trip has no dates", () => {
     renderTab([person({ passportExpiry: "2026-08-01" })], null);
     expect(screen.getByText(/under six months' validity at arrival/i)).toBeInTheDocument();
+  });
+});
+
+/**
+ * `ensureMe()` links a pre-seeded row or answers with nothing; it stopped
+ * creating one. An account invited to a single shared trip has no person row
+ * at all, so "Add myself" has to have an answer for that.
+ */
+describe("TravelersTab — add myself with no profile", () => {
+  function renderAddable(ensureMe: () => Promise<unknown>) {
+    const onAdded = vi.fn();
+    const tripApi = {
+      people: { reveal: vi.fn(async () => ({ value: "X" })), ensureMe: vi.fn(ensureMe) },
+      trips: { addTraveler: vi.fn(async () => undefined) },
+    };
+    render(
+      <TravelersTab
+        people={[] as never}
+        arrivalOn={null}
+        today="2026-07-21"
+        api={tripApi as never}
+        tripId="t1"
+        onAdded={onAdded}
+      />,
+    );
+    return { api: tripApi, onAdded };
+  }
+
+  it("says why, and adds nobody, when the account has no person row", async () => {
+    const { api: tripApi, onAdded } = renderAddable(async () => undefined);
+    await userEvent.click(screen.getByRole("button", { name: /add myself/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/not on this household's list/i);
+    // Emphatically not "add the first person we can find": the wrong traveller
+    // on a trip is worse than no traveller.
+    expect(tripApi.trips.addTraveler).not.toHaveBeenCalled();
+    expect(onAdded).not.toHaveBeenCalled();
+  });
+
+  it("still adds the linked row when there is one", async () => {
+    const { api: tripApi, onAdded } = renderAddable(async () => person({ id: "p9" }));
+    await userEvent.click(screen.getByRole("button", { name: /add myself/i }));
+    expect(tripApi.trips.addTraveler).toHaveBeenCalledWith("t1", "p9");
+    expect(onAdded).toHaveBeenCalled();
   });
 });

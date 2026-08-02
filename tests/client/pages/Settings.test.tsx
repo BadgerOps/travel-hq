@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { ReactNode } from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Settings } from "../../../src/client/pages/Settings.js";
 import { ApiError } from "../../../src/client/api/client.js";
@@ -48,45 +48,16 @@ function makeApi(over: Record<string, unknown> = {}) {
     audit: {
       reveals: vi.fn(async (): Promise<AuditEntry[]> => []),
     },
-    notifications: makeNotificationsApi(),
-  };
-}
-
-const NOTIFICATION_STATE = {
-  preferences: {
-    digestEnabled: false,
-    digestSendTime: null as string | null,
-    remindersEnabled: true,
-    reminderLeadMinutes: 60,
-  },
-  timezone: { timezone: null as string | null, source: null, updatedAt: null as string | null },
-  vapidPublicKey: "test-key",
-};
-
-/**
- * The per-user notification group. Split out of makeApi so a test can hand it
- * its own devices or its own test-notification results without restating the
- * whole client.
- */
-function makeNotificationsApi(over: Record<string, unknown> = {}) {
-  return {
-    preferences: vi.fn(async () => NOTIFICATION_STATE),
-    update: vi.fn(async (input: Record<string, unknown>) => ({
-      ...NOTIFICATION_STATE,
-      preferences: { ...NOTIFICATION_STATE.preferences, ...input },
-    })),
-    setTimezone: vi.fn(async (timezone: string | null, source: string) => ({
-      ...NOTIFICATION_STATE,
-      timezone: { timezone, source, updatedAt: "2026-08-01T00:00:00.000Z" },
-    })),
-    devices: vi.fn(async () => ({ devices: [] as unknown[] })),
-    registerDevice: vi.fn(),
-    removeDevice: vi.fn(async () => undefined),
-    test: vi.fn(async () => ({ results: [] as unknown[] })),
-    forBooking: vi.fn(),
-    setBooking: vi.fn(),
-    setTrip: vi.fn(),
-    ...over,
+    // The members section reads the roster as soon as it mounts. Nothing in
+    // this file asserts against it — HouseholdMembers has its own suite — but
+    // an unmocked group here would be a TypeError inside a child's effect,
+    // which surfaces as an unrelated settings test failing for no visible
+    // reason.
+    household: {
+      members: vi.fn(async () => []),
+      invite: vi.fn(),
+      setRole: vi.fn(),
+    },
   };
 }
 
@@ -514,193 +485,30 @@ describe("Settings", () => {
 });
 
 /**
- * The Notifications card. It is the one section of this page that belongs to
- * the PERSON rather than the household, and the one that has to be honest
- * about a platform it cannot control.
+ * Notification settings are no longer here. They are per-user, and this page
+ * is where the HOUSEHOLD is administered — the card sat beside email-ingest
+ * and extraction-model controls only an owner may touch while itself ignoring
+ * `useCanWrite()`, which was the standing evidence it was in the wrong place.
+ * Its behaviour is now asserted in tests/client/pages/Me.test.tsx.
  */
-describe("Settings — notifications", () => {
-  function iphoneInASafariTab() {
-    Object.defineProperty(navigator, "userAgent", {
-      value: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604",
-      configurable: true,
-    });
-    Object.defineProperty(navigator, "standalone", { value: false, configurable: true });
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
-  }
-
-  function installedPwa() {
-    Object.defineProperty(navigator, "userAgent", {
-      value: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604",
-      configurable: true,
-    });
-    Object.defineProperty(navigator, "standalone", { value: true, configurable: true });
-    Object.defineProperty(navigator, "serviceWorker", {
-      value: { getRegistration: async () => undefined },
-      configurable: true,
-    });
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
-    vi.stubGlobal("PushManager", class {});
-    vi.stubGlobal("Notification", { permission: "default" });
-  }
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    Object.defineProperty(navigator, "userAgent", { value: "vitest", configurable: true });
-    Object.defineProperty(navigator, "standalone", { value: undefined, configurable: true });
-    Object.defineProperty(navigator, "serviceWorker", { value: undefined, configurable: true });
+describe("Settings — what moved to /me", () => {
+  it("no longer renders notification settings", async () => {
+    renderSettings();
+    // Waited for, not merely queried: an assertion that something is absent
+    // passes trivially against a page that has not finished loading.
+    await screen.findByLabelText(/forward address/i);
+    expect(screen.queryByRole("region", { name: /notifications/i })).toBeNull();
+    expect(screen.queryByLabelText(/reminder lead time/i)).toBeNull();
+    expect(screen.queryByLabelText(/digest send time/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /enable notifications/i })).toBeNull();
   });
 
   /**
-   * The explicit acceptance criterion. An "Enable notifications" button in an
-   * iOS Safari tab cannot work — the API is absent, not merely restricted — so
-   * showing one would be a button that silently does nothing.
+   * A household viewer is refused /api/settings, which is correct. There is
+   * now genuinely nothing on this page for them, so the refusal has to point
+   * at where their own settings went rather than stopping at "not for you".
    */
-  it("shows install instructions, and NO enable button, on an iPhone in a Safari tab", async () => {
-    iphoneInASafariTab();
-    renderSettings();
-    expect(await screen.findByTestId("push-install-instructions")).toHaveTextContent(
-      /add to home screen/i,
-    );
-    expect(screen.queryByRole("button", { name: /enable notifications/i })).toBeNull();
-  });
-
-  it("offers the enable button once the PWA is installed to the home screen", async () => {
-    installedPwa();
-    renderSettings();
-    expect(
-      await screen.findByRole("button", { name: /enable notifications on this device/i }),
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId("push-install-instructions")).toBeNull();
-  });
-
-  it("explains how to undo a denied permission instead of offering a button that fails", async () => {
-    installedPwa();
-    vi.stubGlobal("Notification", { permission: "denied" });
-    renderSettings();
-    expect(await screen.findByTestId("push-denied")).toHaveTextContent(/settings/i);
-    expect(screen.queryByRole("button", { name: /enable notifications/i })).toBeNull();
-  });
-
-  it("says the SERVER is unconfigured when there is no VAPID key, rather than blaming the device", async () => {
-    installedPwa();
-    const api = makeApi();
-    api.notifications.preferences = vi.fn(async () => ({
-      ...NOTIFICATION_STATE,
-      vapidPublicKey: null,
-      error: "Push notifications are not configured on this server",
-    })) as never;
-    renderSettings(api);
-    expect(await screen.findByText(/not configured on this server/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /enable notifications/i })).toBeNull();
-  });
-
-  it("saves the digest time and the lead time together", async () => {
-    const api = makeApi();
-    renderSettings(api);
-
-    // fireEvent.change, never userEvent.type: jsdom leaves a type="time" value
-    // empty for typed keystrokes (see tests/client/trip/BookingDialog.test.tsx).
-    const time = await screen.findByLabelText(/digest send time/i);
-    fireEvent.change(time, { target: { value: "06:45" } });
-    await userEvent.click(screen.getByLabelText(/send me a daily digest/i));
-    const lead = screen.getByLabelText(/reminder lead time/i);
-    fireEvent.change(lead, { target: { value: "0" } });
-    await userEvent.click(screen.getByRole("button", { name: /save notification settings/i }));
-
-    // 0 minutes is "right when it starts" — a real lead time, and it must
-    // survive as the number 0 rather than being read as "nothing chosen".
-    expect(api.notifications.update).toHaveBeenCalledWith({
-      digestEnabled: true,
-      digestSendTime: "06:45",
-      remindersEnabled: true,
-      reminderLeadMinutes: 0,
-    });
-  });
-
-  it("refuses a lead time outside the allowed range without calling the API", async () => {
-    const api = makeApi();
-    renderSettings(api);
-    const lead = await screen.findByLabelText(/reminder lead time/i);
-    fireEvent.change(lead, { target: { value: "-5" } });
-    await userEvent.click(screen.getByRole("button", { name: /save notification settings/i }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/whole number of minutes/i);
-    expect(api.notifications.update).not.toHaveBeenCalled();
-  });
-
-  it("clears the pin before reporting the device zone, so 'use my device's timezone' actually resets", async () => {
-    const api = makeApi();
-    api.notifications.preferences = vi.fn(async () => ({
-      ...NOTIFICATION_STATE,
-      timezone: { timezone: "America/Boise", source: "manual", updatedAt: "2026-07-01T00:00:00.000Z" },
-    })) as never;
-    renderSettings(api);
-    expect(await screen.findByText(/pinned by you/i)).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: /use my device's timezone/i }));
-    // The first call is the clear. Without it, a `device` report cannot
-    // displace the pin and the button would appear to do nothing.
-    expect(api.notifications.setTimezone).toHaveBeenNthCalledWith(1, null, "device");
-    expect(api.notifications.setTimezone).toHaveBeenNthCalledWith(2, expect.any(String), "device");
-  });
-
-  it("pins a manually entered zone", async () => {
-    const api = makeApi();
-    renderSettings(api);
-    const field = await screen.findByLabelText(/^timezone$/i);
-    await userEvent.type(field, "Asia/Tokyo");
-    await userEvent.click(screen.getByRole("button", { name: /pin this timezone/i }));
-    expect(api.notifications.setTimezone).toHaveBeenCalledWith("Asia/Tokyo", "manual");
-  });
-
-  it("reports the test notification per device, and re-reads the list when one was pruned", async () => {
-    const api = makeApi();
-    api.notifications.devices = vi
-      .fn()
-      .mockResolvedValueOnce({
-        devices: [
-          { id: "d1", endpoint: "https://push.example.com/d1", host: "push.example.com", createdAt: "2026-07-01T00:00:00.000Z", lastSuccessAt: null, failureCount: 0 },
-        ],
-      })
-      .mockResolvedValue({ devices: [] }) as never;
-    api.notifications.test = vi.fn(async () => ({
-      results: [
-        { id: "d1", host: "push.example.com", outcome: "gone" as const, status: 410, reason: null, pruned: true },
-      ],
-    })) as never;
-
-    renderSettings(api);
-    await userEvent.click(await screen.findByRole("button", { name: /send me a test notification/i }));
-
-    const results = await screen.findByRole("list", { name: /test notification results/i });
-    expect(results).toHaveTextContent(/no longer reachable/i);
-    // The row it just pruned must not still be sitting in "Registered devices".
-    expect(api.notifications.devices).toHaveBeenCalledTimes(2);
-    expect(await screen.findByText(/no devices registered yet/i)).toBeInTheDocument();
-  });
-
-  it("does not offer the test button with nothing registered", async () => {
-    renderSettings();
-    expect(await screen.findByRole("button", { name: /send me a test notification/i })).toBeDisabled();
-  });
-
-  it("removes a registered device", async () => {
-    const api = makeApi();
-    api.notifications.devices = vi.fn(async () => ({
-      devices: [
-        { id: "d1", endpoint: "https://push.example.com/d1", host: "push.example.com", createdAt: "2026-07-01T00:00:00.000Z", lastSuccessAt: null, failureCount: 0 },
-      ],
-    })) as never;
-    renderSettings(api);
-    await userEvent.click(await screen.findByRole("button", { name: /remove push\.example\.com/i }));
-    expect(api.notifications.removeDevice).toHaveBeenCalledWith("d1");
-  });
-
-  /**
-   * A household viewer is refused /api/settings, which is correct — and is
-   * exactly the account this feature exists for. Stopping at "not for you"
-   * would leave a shared-trip parent no way to register their phone.
-   */
-  it("still renders for a viewer who is refused the household settings", async () => {
+  it("points a refused viewer at their own profile instead of showing them a notifications card", async () => {
     const api = makeApi({
       get: vi.fn(async () => {
         throw new ApiError("/api/settings failed", 403);
@@ -708,9 +516,21 @@ describe("Settings — notifications", () => {
     });
     renderSettings(api, "viewer");
     expect(await screen.findByText(/owners and admins only/i)).toBeInTheDocument();
-    expect(
-      await screen.findByRole("region", { name: /notifications/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText(/reminder lead time/i)).toBeInTheDocument();
+    expect(screen.getByText(/your profile page/i)).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /notifications/i })).toBeNull();
+  });
+});
+
+/**
+ * The members section takes the place `/people` used to hold. This file owns
+ * only its PLACEMENT — the section itself is tested in the household suite.
+ */
+describe("Settings — members", () => {
+  it("renders the members section above the email-ingest settings", async () => {
+    renderSettings();
+    const members = await screen.findByRole("region", { name: /household members/i });
+    const ingest = await screen.findByLabelText(/forward address/i);
+    // DOCUMENT_POSITION_FOLLOWING: the ingest form comes after the roster.
+    expect(members.compareDocumentPosition(ingest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

@@ -320,3 +320,44 @@ describe("BookingDetailDialog — notifications", () => {
     expect(screen.queryByRole("button", { name: /notify me/i })).toBeNull();
   });
 });
+
+/**
+ * `ensureMe()` links a pre-seeded person row or answers with nothing; it
+ * stopped creating one. An account invited to a single shared trip has no row
+ * at all, and "Add myself" used to assume a `Person` came back.
+ */
+describe("BookingDetailDialog — add myself with no profile", () => {
+  function renderWithEnsureMe(ensureMe: () => Promise<unknown>) {
+    const assignPerson = vi.fn(async () => undefined);
+    const onPeopleChanged = vi.fn();
+    render(
+      <BookingDetailDialog
+        booking={{ ...tour, personIds: [] }}
+        people={[{ id: "p1", displayName: "Badger" }] as never}
+        api={{
+          bookings: { ...noArtifact.bookings, assignPerson },
+          people: { ensureMe: vi.fn(ensureMe) },
+        } as never}
+        onPeopleChanged={onPeopleChanged}
+        onClose={vi.fn()}
+      />,
+    );
+    return { assignPerson, onPeopleChanged };
+  }
+
+  it("reports the missing profile rather than throwing or assigning somebody else", async () => {
+    const { assignPerson, onPeopleChanged } = renderWithEnsureMe(async () => undefined);
+    await userEvent.click(await screen.findByRole("button", { name: /add myself/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/not on this household's list/i);
+    // The dangerous alternative is silently linking whichever row happened to
+    // be to hand — the wrong traveller on a booking, with a 200.
+    expect(assignPerson).not.toHaveBeenCalled();
+    expect(onPeopleChanged).not.toHaveBeenCalled();
+  });
+
+  it("still assigns the linked row when there is one", async () => {
+    const { assignPerson } = renderWithEnsureMe(async () => ({ id: "p9", displayName: "Ava" }));
+    await userEvent.click(await screen.findByRole("button", { name: /add myself/i }));
+    expect(assignPerson).toHaveBeenCalledWith("booking-tour", "p9");
+  });
+});
