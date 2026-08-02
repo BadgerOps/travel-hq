@@ -147,7 +147,7 @@ export function Home({
       <>
         <h3>{greeting(now, name)}</h3>
         <p className="text-muted">
-          No trips yet. Add the family under People, then create your first trip.
+          No trips yet. Add the family in Settings, then create your first trip.
         </p>
         {pendingImports}
       </>

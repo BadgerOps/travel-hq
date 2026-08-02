@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { z } from "zod";
 import { PersonRepo, DOCUMENT_FIELDS } from "../repos/person.js";
 import type { DocumentField, UpdatePersonInput } from "../repos/person.js";
@@ -67,11 +68,36 @@ people.get("/", async (c) => {
   return c.json(await repo.list());
 });
 
-people.post("/me", async (c) => {
+/**
+ * "Which traveler am I?" -- the person row linked to the signed-in account.
+ *
+ * 204 NO CONTENT WHEN THERE IS NONE, and this is the interesting part.
+ * `ensureCurrentUser` used to create a row on demand, so this endpoint could
+ * not fail to answer; it no longer creates, because an owner pre-seeding a
+ * person row is what constitutes household membership and a trip guest
+ * (provisioned as a `viewer` by TripAccessRepo.invite) must not get a passport
+ * field out of merely signing in. See PersonRepo.ensureCurrentUser.
+ *
+ * A 204 rather than `200 {"person": null}` because "no profile" is genuinely
+ * the absence of a resource rather than a resource whose contents are empty,
+ * and because api/client.ts already turns a 204 into `undefined` for every
+ * caller -- the two existing ones (BookingDetailDialog, TravelersTab) need to
+ * handle absence either way, and this makes it impossible for them not to.
+ *
+ * Both verbs answer identically. GET is the honest spelling now that nothing
+ * is created; POST is kept because it is what the shipped client calls, and
+ * breaking a client that is already in someone's browser cache to rename a
+ * verb is not a trade worth making.
+ */
+async function currentPerson(c: Context<AppEnv>) {
   const identity = c.get("identity");
   const repo = new PersonRepo(c.get("db"), identity, c.get("ring"));
-  return c.json(await repo.ensureCurrentUser(identity.email));
-});
+  const person = await repo.ensureCurrentUser(identity.email);
+  return person ? c.json(person) : c.body(null, 204);
+}
+
+people.get("/me", currentPerson);
+people.post("/me", currentPerson);
 
 people.post("/", async (c) => {
   let body: unknown;
@@ -133,11 +159,17 @@ people.post("/:id/reveal/:field", async (c) => {
   const db = c.get("db");
   const personId = c.req.param("id");
   const repo = new PersonRepo(db, identity, c.get("ring"));
-  // A viewer role (ForbiddenError, I3) or an unknown/cross-household person
+  // A denied reveal (ForbiddenError, I3) or an unknown/cross-household person
   // id (NotFoundError, I5) throw here and are mapped by app.onError before
   // anything below ever runs -- a denied or nonexistent reveal is not a
   // reveal to record.
-  const value = await repo.revealDocument(personId, field as DocumentField);
+  //
+  // `selfService` comes back from the repo rather than being worked out here:
+  // it is the repo that saw `person.user_id`, and the audit row has to record
+  // which kind of reveal this was at the moment it happened. A route cannot
+  // invent the flag, which is what makes it safe for AuditRepo to treat it as
+  // authorization for a viewer's own audit row.
+  const { value, selfService } = await repo.revealDocument(personId, field as DocumentField);
 
   // The durable half of the audit trail (issue #8): an owner-readable row
   // naming WHICH person's WHICH document was unmasked, by whom and when --
@@ -150,6 +182,7 @@ people.post("/:id/reveal/:field", async (c) => {
     subjectType: "person",
     subjectId: personId,
     field,
+    selfService,
   });
 
   // The ephemeral half, correlated to the row by auditId and to the request by
@@ -159,6 +192,7 @@ people.post("/:id/reveal/:field", async (c) => {
     auditId: entry.id,
     personId,
     field,
+    selfService,
     householdId: identity.householdId,
     userId: identity.userId,
   });

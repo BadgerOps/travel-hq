@@ -185,7 +185,7 @@ beforeEach(async () => {
     "INSERT INTO household_member (household_id,user_id,role) VALUES (?,?,?)",
   );
   await member.bind("hh-a", "u-ava", "owner").run();
-  await member.bind("hh-a", "u-bo", "adult").run();
+  await member.bind("hh-a", "u-bo", "admin").run();
   await member.bind("hh-b", "u-zed", "owner").run();
 
   const trip = env.DB.prepare(

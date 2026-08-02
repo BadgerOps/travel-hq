@@ -19,6 +19,64 @@ one this file records.
 
 ## Unreleased
 
+## 0.9.0 — 2026-08-02
+
+- **Your data is yours.** A new **You** section (`/me`) holds your own name,
+  date of birth, email and phone, your passport, known traveler and redress
+  numbers, and your notification settings — three things that were previously
+  split between a roster of everybody and a page of household admin. Everyone
+  can edit their own record whatever their role, including a `viewer`: a
+  teenager can now fix their own phone number without asking, and can read back
+  a passport number they stored instead of only ever seeing `••••2119`. A field
+  you can write but never read is a trap — you cannot tell a typo from a
+  correct entry.
+- **Nothing was taken away to do it.** Self-editing is purely additive: an
+  admin still edits every other row in the household. An earlier draft made
+  onboarding a handover, so a linked row could only be edited by its owner and
+  the household owner. It was dropped because it would have revoked something
+  households already use every week — in a family with two adults where only
+  one is the owner, the other would have lost the ability to fix their
+  partner's details.
+- **A pre-seeded person row is now what household membership means.** Signing
+  in no longer creates a profile out of thin air; it links you to the row an
+  owner made for you. That distinction matters because a shared-trip guest and
+  a family teenager have always shared the `viewer` role, and without it
+  "viewers may edit their own person" would have handed a weekend guest a
+  passport field in a household they barely belong to. If nobody has added you
+  yet, `/me` says so plainly instead of showing an empty form that saves
+  nowhere.
+- **The middle role is renamed from `adult` to `admin`,** because it is now
+  something an owner grants and revokes rather than a fact about age. What is
+  handed out is the ability to edit everyone: a teenager can be the one who
+  keeps the passports current, and a grandparent along for a single trip should
+  not be. Two things an owner cannot do, both because they cannot be undone:
+  promote somebody to owner, and change their **own** role — checking "am I the
+  last owner?" races, and two owners demoting each other would leave a
+  household nobody can administer.
+- **Household members moved into Settings,** replacing the standalone People
+  page, and gained invitations. The list distinguishes *onboarded*, *invited
+  but never signed in*, *added but with no account* (a child), and *trip guest*
+  — the second is the state an owner most needs to see, and the last is the
+  population most easily forgotten. **Inviting does not send anything:**
+  Cloudflare Access decides who may sign in at all, and an address it does not
+  admit reaches a login wall rather than the app. The invite form says so.
+- **Every change is now recorded, not just reveals,** and readable at `/audit`.
+  The log names records and fields — never values. There is no column and no
+  argument that can carry a passport number into it, deliberately: it is
+  append-only, long-lived and unencrypted, and writing values would rebuild in
+  the clear exactly what the envelope encryption exists to keep out of the
+  database. Self-actions are marked and can be filtered out, because "who
+  looked at someone *else's* documents" is what the log exists to answer, and a
+  household checking its own passports before a trip would bury it. An owner
+  reads the whole household's history; everyone else reads only what they did
+  or what was done to them, so "who edited my passport number?" stays
+  answerable about your own record.
+- Adds `GET /api/people/me`, `GET/POST /api/household/members`,
+  `PUT /api/household/members/:userId/role`, `GET /api/audit/activity`, and two
+  migrations — one rebuilding `audit_log` for the activity events, one
+  rebuilding `household_member` for the role rename. `/people` redirects to the
+  members section.
+
 - The `/import` review queue now says how each draft was extracted — **from
   calendar** for an `.ics` attachment the airline wrote, **from AI** for a model
   reading prose. The server had always sent it; the card dropped it. It is the

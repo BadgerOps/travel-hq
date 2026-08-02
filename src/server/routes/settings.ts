@@ -48,8 +48,8 @@ const extractionTestSchema = z
 
 export const settings = new Hono<AppEnv>();
 
-// Owner/adult only in both directions: the repo throws ForbiddenError for a
-// viewer on the GET as well as the PUT (see requireOwnerOrAdult in
+// Owner/admin only in both directions: the repo throws ForbiddenError for a
+// viewer on the GET as well as the PUT (see requireOwnerOrAdmin in
 // repos/household-settings.ts), and app.onError maps it to 403.
 settings.get("/", async (c) =>
   c.json(
@@ -82,7 +82,7 @@ settings.put("/", async (c) => {
 });
 
 // Any household member may list the catalog -- it is public Cloudflare model
-// metadata, not household data, so it skips the repo's owner/adult gate.
+// metadata, not household data, so it skips the repo's owner/admin gate.
 // Failures use the extraction-test soft-error envelope (200 + error field):
 // the dropdown falls back to its built-in presets rather than surfacing a 5xx.
 settings.get("/ai-models", async (c) => {

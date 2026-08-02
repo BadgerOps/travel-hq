@@ -109,8 +109,8 @@ export function Trips({
         <div className="card" style={{ alignItems: "flex-start", gap: 10 }}>
           <span className="card-title">No trips yet</span>
           <p className="card-body" style={{ margin: 0 }}>
-            Create one and add flights, lodging, and a car to it. Add the family under People
-            first if you have not — a trip with no travellers has no day view.
+            Create one and add flights, lodging, and a car to it. Add the family in
+            Settings first if you have not — a trip with no travellers has no day view.
           </p>
           {canWrite && (
             <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>

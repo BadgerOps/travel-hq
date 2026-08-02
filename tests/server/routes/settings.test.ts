@@ -97,10 +97,10 @@ describe("/api/settings", () => {
     expect(await res.json()).toEqual({ error: "Forbidden" });
   });
 
-  it("allows an adult (not just the owner) to read and write", async () => {
-    const adultApp = appAs({ ...identity, userId: "u2", role: "adult" });
-    expect((await request(adultApp, "/api/settings")).status).toBe(200);
-    expect((await putJson(adultApp, JSON.stringify({ senderAllowlist: ["a@b.com"] }))).status).toBe(200);
+  it("allows an admin (not just the owner) to read and write", async () => {
+    const adminApp = appAs({ ...identity, userId: "u2", role: "admin" });
+    expect((await request(adminApp, "/api/settings")).status).toBe(200);
+    expect((await putJson(adminApp, JSON.stringify({ senderAllowlist: ["a@b.com"] }))).status).toBe(200);
   });
 
   it("rejects a malformed JSON body with 400", async () => {

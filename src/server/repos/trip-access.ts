@@ -42,7 +42,7 @@ export class TripAccessRepo extends TenantRepo {
     );
     if (!trip) return undefined;
     if (this.ctx.role === "owner") return "owner";
-    if (this.ctx.role === "adult") return "editor";
+    if (this.ctx.role === "admin") return "editor";
 
     const rows = await this.unscoped<{ role: TripMemberRole }>(
       "trip_member is a join table; trip ownership was confirmed by the scoped trip query above",

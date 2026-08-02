@@ -1,0 +1,25 @@
+/* The /me page. Deliberately a single column rather than the main/rail split
+   Settings uses: there is no auxiliary panel here — every card is something
+   you edit, so nothing wants to be pushed to one side. Shared primitives
+   (.page-header, .card, .field) live in styles.css, and the card-internal
+   field rhythm comes from .settings-form in settings.css, which is why this
+   file is as short as it is. */
+
+.me-main {
+  display: grid;
+  gap: 24px;
+  align-content: start;
+  max-width: 640px;
+  min-width: 0;
+}
+
+/* The details and documents cards are one form with one Save. The gap matches
+   .me-main so the seam between "inside the form" and "the notifications card
+   after it" is invisible — the grouping that matters is the cards, not the
+   form element wrapped around two of them. */
+.me-form {
+  display: grid;
+  gap: 24px;
+  align-content: start;
+  min-width: 0;
+}

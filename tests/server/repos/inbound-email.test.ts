@@ -5,7 +5,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from "../../../src/ser
 import type { HouseholdContext } from "../../../src/server/repos/base.js";
 
 const ctxA: HouseholdContext = { householdId: "hh-a", userId: "u1", role: "owner" };
-const ctxB: HouseholdContext = { householdId: "hh-b", userId: "u2", role: "adult" };
+const ctxB: HouseholdContext = { householdId: "hh-b", userId: "u2", role: "admin" };
 
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM inbound_email");

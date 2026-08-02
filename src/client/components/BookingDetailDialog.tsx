@@ -157,6 +157,17 @@ export function BookingDetailDialog({
     setPeopleError(null);
     try {
       const me = await api.people.ensureMe();
+      // Link-or-nothing since the profile work: a person row is what makes
+      // somebody part of the household, and an account invited to one shared
+      // trip has none. There is no safe fallback — assigning any other row
+      // would put the WRONG traveller on this booking — so report it.
+      if (!me) {
+        setPeopleError(
+          "You are not on this household's list of people, so there is nobody to add. " +
+            "Ask a household owner to add you, then try again.",
+        );
+        return;
+      }
       if (!personIds.includes(me.id)) {
         await api.bookings.assignPerson(booking.id, me.id);
         setPersonIds((current) => [...current, me.id]);

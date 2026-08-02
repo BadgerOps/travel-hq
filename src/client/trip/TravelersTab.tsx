@@ -116,6 +116,17 @@ export function TravelersTab({
     setBusy(true);
     try {
       const me = await api.people.ensureMe();
+      // Link-or-nothing since the profile work: a person row is what makes
+      // somebody part of the household, and an account that was invited to
+      // one shared trip has none. Guessing a row to add here would put the
+      // WRONG traveller on the trip, so say what happened and stop.
+      if (!me) {
+        setError(
+          "You are not on this household's list of people, so there is nobody to add. " +
+            "Ask a household owner to add you, then try again.",
+        );
+        return;
+      }
       await api.trips.addTraveler(tripId, me.id);
       setError(null);
       onAdded?.();

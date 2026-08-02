@@ -10,7 +10,7 @@ import type { HouseholdContext } from "../../../src/server/repos/base.js";
 import { Keyring } from "../../../src/server/crypto/envelope.js";
 
 const ctxA: HouseholdContext = { householdId: "hh-a", userId: "u1", role: "owner" };
-const ctxB: HouseholdContext = { householdId: "hh-b", userId: "u2", role: "adult" };
+const ctxB: HouseholdContext = { householdId: "hh-b", userId: "u2", role: "admin" };
 const ring = new Keyring("test-v1", { "test-v1": crypto.getRandomValues(new Uint8Array(32)) });
 
 beforeEach(async () => {

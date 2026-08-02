@@ -20,7 +20,7 @@ import type { HouseholdContext } from "../../../src/server/repos/base.js";
  * suite with one household could not tell whether it works.
  */
 const ctxAva: HouseholdContext = { householdId: "hh-a", userId: "u-ava", role: "owner" };
-const ctxBo: HouseholdContext = { householdId: "hh-a", userId: "u-bo", role: "adult" };
+const ctxBo: HouseholdContext = { householdId: "hh-a", userId: "u-bo", role: "admin" };
 const ctxZed: HouseholdContext = { householdId: "hh-b", userId: "u-zed", role: "owner" };
 
 /** Departs Tokyo; the recipients live in Boise. The two never coincide. */
@@ -59,7 +59,7 @@ beforeEach(async () => {
     "INSERT INTO household_member (household_id,user_id,role) VALUES (?,?,?)",
   );
   await member.bind("hh-a", "u-ava", "owner").run();
-  await member.bind("hh-a", "u-bo", "adult").run();
+  await member.bind("hh-a", "u-bo", "admin").run();
   await member.bind("hh-b", "u-zed", "owner").run();
 
   const trip = env.DB.prepare("INSERT INTO trip (id,household_id,title,created_at) VALUES (?,?,?,?)");

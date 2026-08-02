@@ -40,6 +40,11 @@ export type {
 } from "../../server/repos/household-settings.js";
 export type { InboundEmailMetadata } from "../../server/repos/inbound-email.js";
 export type { AuditEntry, AuditEvent } from "../../server/repos/audit.js";
+export type {
+  HouseholdMember,
+  HouseholdMemberStatus,
+  InvitableRole,
+} from "../../server/repos/household-member.js";
 export type { InboundEmailDetail } from "../../server/routes/inbound-emails.js";
 export type {
   DraftBooking,

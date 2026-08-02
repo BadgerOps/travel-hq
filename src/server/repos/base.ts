@@ -1,6 +1,6 @@
 import { log } from "../logging.js";
 
-export type Role = "owner" | "adult" | "viewer";
+export type Role = "owner" | "admin" | "viewer";
 
 export type HouseholdContext = {
   householdId: string;
@@ -9,12 +9,12 @@ export type HouseholdContext = {
   /**
    * Set only after a trip-scoped request has passed TripAccessRepo. It lets
    * an invited editor use ordinary repositories without turning that account
-   * into a household-wide adult.
+   * into a household-wide admin.
    */
   tripRole?: "viewer" | "editor";
 };
 
-const ROLES: readonly Role[] = ["owner", "adult", "viewer"];
+const ROLES: readonly Role[] = ["owner", "admin", "viewer"];
 
 /** Shared base for every error the repository layer throws. */
 export abstract class RepoError extends Error {}
@@ -321,6 +321,17 @@ export abstract class TenantRepo {
    */
   protected async insert(table: string, values: Record<string, unknown>): Promise<void> {
     this.requireWrite();
+    await this.insertRow(table, values);
+  }
+
+  /**
+   * insert()'s body, minus the role gate, so `roleExemptInsert()` cannot drift
+   * from it. Everything that makes an insert tenant-safe — the household id
+   * coming from context rather than the caller, and both identifier checks —
+   * lives here and is therefore shared by both entry points. Private: the
+   * choice about the role gate belongs to the two callers above.
+   */
+  private async insertRow(table: string, values: Record<string, unknown>): Promise<void> {
     if (!IDENTIFIER_RE.test(table)) {
       scopeBug("insert(): invalid table identifier", `table=${table}`);
     }
@@ -374,6 +385,55 @@ export abstract class TenantRepo {
       this.ctx.userId,
     );
     if (!person) throw new NotFoundError("Person not found in an accessible trip");
+  }
+
+  /**
+   * A scoped write whose authority comes from the ROW, not from the role.
+   *
+   * `requireWrite()` answers "may this role change household data?", and for
+   * almost everything that is the right question. It is the wrong question for
+   * a person editing their OWN record: since #7's profile work a `viewer` owns
+   * the row linked to their `user_id` and may edit it, and may reveal their own
+   * document numbers — which in turn has to write its own audit row, or the
+   * reveal 500s on the log entry that proves it happened.
+   *
+   * The `unscoped*` family is NOT the hatch for this. It escapes SCOPE, and
+   * scope is not what is in the way — `unscopedRun()` applies `requireWrite()`
+   * itself and refuses a viewer for exactly the same reason `run()` does.
+   *
+   * So this skips the role gate and NOTHING ELSE. Scope expansion, the ?1
+   * reservation, the OR/UNION depth guard and the single-token check all still
+   * apply, because they are what keeps one household out of another's rows —
+   * and a caller who has proved the row is theirs has said nothing about which
+   * household it lives in. The `reason` is mandatory for the same purpose it
+   * serves on `unscoped*`: every bypass is greppable and explains itself.
+   *
+   * CALLERS MUST PROVE OWNERSHIP FIRST. This helper checks nothing about who
+   * the row belongs to; it only declines to ask about the role. Establish that
+   * `person.user_id === ctx.userId` (or that the row records this caller's own
+   * action) BEFORE calling, or this is simply a hole in the write gate.
+   */
+  protected async roleExemptRun(
+    reason: string,
+    sql: string,
+    ...params: unknown[]
+  ): Promise<void> {
+    this.requireReason(reason);
+    const scoped = this.scopeQuery(sql);
+    await this.db
+      .prepare(scoped)
+      .bind(this.ctx.householdId, ...(params as never[]))
+      .run();
+  }
+
+  /** The insert counterpart of roleExemptRun(). Same contract, same warning. */
+  protected async roleExemptInsert(
+    reason: string,
+    table: string,
+    values: Record<string, unknown>,
+  ): Promise<void> {
+    this.requireReason(reason);
+    await this.insertRow(table, values);
   }
 
   private requireReason(reason: string): void {

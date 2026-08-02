@@ -29,7 +29,7 @@ export function Import({ api = defaultApi }: { api?: typeof defaultApi }) {
   useEffect(() => {
     if (!canWrite) return;
     let cancelled = false;
-    // The forward chip is informational. Reading settings can 403 for adults
+    // The forward chip is informational. Reading settings can 403 for admins
     // (owner-only), and test harnesses stub a partial api — fall back to the
     // static chip in both cases.
     api.settings
@@ -132,9 +132,9 @@ export function Import({ api = defaultApi }: { api?: typeof defaultApi }) {
 
       {!canWrite ? (
         <div className="card import-viewer-card">
-          <span className="card-title">Owners and adults only</span>
+          <span className="card-title">Owners and admins only</span>
           <p className="card-body" style={{ margin: 0 }}>
-            Viewers can see trips, but only owners and adults can import new draft bookings.
+            Viewers can see trips, but only owners and admins can import new draft bookings.
           </p>
         </div>
       ) : (
