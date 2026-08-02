@@ -106,4 +106,28 @@ describe("OverviewTab", () => {
     );
     expect(onBookingClick).toHaveBeenCalledWith(expect.objectContaining({ id: "b1" }));
   });
+
+  // Every strip row knows its own date, but the click handler used to drop it
+  // and ask only for the "days" tab -- so the day view picked a day for
+  // itself and a future trip opened on its first day whichever row you hit.
+  it("names the clicked row's date when opening the day view", async () => {
+    const onOpenTab = vi.fn();
+    render(
+      <OverviewTab
+        trip={TRIP}
+        bookings={[booking()] as never}
+        people={PEOPLE as never}
+        api={{
+          trips: { revealConfirmation: vi.fn(), itinerary: vi.fn(async () => []) },
+        } as never}
+        onOpenTab={onOpenTab}
+      />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Sunday, October 11 in the day-by-day view",
+      }),
+    );
+    expect(onOpenTab).toHaveBeenCalledWith("days", "2026-10-11");
+  });
 });

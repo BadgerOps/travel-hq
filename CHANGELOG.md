@@ -1,5 +1,22 @@
 # Changelog
 
+Versions here follow [semantic versioning](https://semver.org/): the last
+number moves when something that already existed stops being wrong, the middle
+one when the app can do something it could not do before, and the first is
+held back for the day a change breaks a caller or a stored shape rather than
+just adding to it. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — newest release
+first, with `Unreleased` at the top collecting what has merged but not yet
+shipped. Entries are written for whoever is trying to work out what changed
+underneath them, so they say why as well as what, and they name the endpoints
+and migrations a release added.
+
+The running version is shown in Settings, under **About this build**, and is
+read from `package.json` at build time rather than typed in by hand. That is
+the whole point of showing it: a bug report can name the build it came from
+instead of describing it, and the number it names cannot have drifted from the
+one this file records.
+
 ## Unreleased
 
 - Added push notifications, so Travel HQ can say what the day holds without
@@ -66,6 +83,9 @@
   keypair: `VAPID_PUBLIC_KEY` and `VAPID_SUBJECT` as vars, `VAPID_PRIVATE_KEY`
   as a Worker secret. Until they are set the sweep logs that it is unconfigured
   and takes no claims, so nothing is silently consumed.
+
+## 0.8.0 — 2026-08-01
+
 - Added booking editing. Every field a booking has — kind, title, location,
   both timestamps and their timezones, cost, confirmation number, status,
   travellers, and the per-kind details — can now be changed from an Edit
@@ -181,6 +201,20 @@
   signal at all and keeps comparing on title, time and location, so the row
   cannot hide a real duplicate either; a duplicate group that cannot be
   rendered is dropped with a logged warning rather than shown half-built.
+- Fixed a trip's "Day by day" summary rows opening the day view on the wrong
+  day. Clicking Saturday took you to the day-by-day tab, but the tab then
+  picked a day for itself — the trip's first day with anything on it for a
+  past or future trip, today for one in progress — so the day you clicked was
+  thrown away, and for a future trip every row led to the same place. The
+  clicked date now comes along, and it comes along in the URL, as
+  `#days:2026-10-08` beside the existing `#overview` and `#checklist`: the day
+  survives a reload, Back returns to Overview rather than to whichever day the
+  view had guessed, and the link can be sent to someone as "here's the wedding
+  day". Paging with the arrows keeps the URL current without adding a history
+  entry per day. A plain `#days` still means "you decide", exactly as before,
+  and a date that this trip no longer has — a stale link, or a booking deleted
+  since — quietly falls back to that same choice instead of showing an empty
+  day.
 
 ## 0.7.0 - 2026-07-27
 

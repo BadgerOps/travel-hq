@@ -13,5 +13,11 @@
     "noEmit": true,
     "types": ["node", "vitest/globals", "@testing-library/jest-dom", "@cloudflare/workers-types"]
   },
-  "include": ["tests/client/**/*.ts", "tests/client/**/*.tsx", "vitest.client.config.ts"]
+  "//": "src/client/vite-env.d.ts is listed explicitly because nothing imports it: it declares the build-time globals (__APP_VERSION__) as ambient, and the client components pulled into this program by the tests reference them.",
+  "include": [
+    "tests/client/**/*.ts",
+    "tests/client/**/*.tsx",
+    "vitest.client.config.ts",
+    "src/client/vite-env.d.ts"
+  ]
 }
