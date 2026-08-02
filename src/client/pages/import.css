@@ -79,7 +79,14 @@ button.import-chip--muted:hover {
 .draft-titles { min-width: 0; display: grid; gap: 2px; }
 .draft-title { font-size: 15px; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }
 .draft-location { font-size: 12px; color: var(--color-neutral-400); }
-.draft-tag { margin-left: auto; flex: none; }
+/* The chip stack sits hard right; the tags inside it never shrink. Wrapping is
+   allowed so a narrow card stacks "from AI" above "Draft" instead of squeezing
+   the title. */
+.draft-tags {
+  margin-left: auto; flex: none;
+  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px;
+}
+.draft-tag { flex: none; }
 .draft-rule { margin: 13px 0; }
 .draft-fields {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -123,7 +130,14 @@ button.import-chip--muted:hover {
   gap: 10px; align-items: start;
 }
 .import-draft-row > input[type="checkbox"] { margin-top: 21px; }
+/* No checkbox means no bulk bar to feed, so the card takes the whole row
+   rather than sitting in the narrow column the checkbox left behind. */
+.import-draft-row > div:only-child { grid-column: 1 / -1; }
 .import-draft-row-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+/* The armed dismiss and its escape hatch stay on one line so "Keep" can never
+   wrap away from the confirm it cancels. */
+.import-dismiss-confirm { display: inline-flex; align-items: center; gap: 4px; }
+.import-dismiss-confirm .btn-secondary { color: #d9b98a; border-color: #d9b98a; }
 
 /* Dashed waiting-queue hint row — 2b's "more emails waiting" shape doubles
    as the caught-up empty state (all pending drafts render at once here, so

@@ -170,10 +170,18 @@ describe("ImportReviewQueue — correcting an import before accepting it", () =>
     expect(pending).toHaveBeenCalledTimes(1);
   });
 
-  it("offers no edit affordance to a viewer", async () => {
+  /**
+   * Not one affordance — every one of them. A viewer cannot reach this
+   * component in the running app (pages/Import.tsx replaces the page, and
+   * GET /api/imports/pending is a 403), so the only thing keeping the queue
+   * honest about "all actions are useCanWrite()-gated" is this test. It is
+   * written against the whole set on purpose: gating them one at a time is how
+   * three of the four came to be ungated in the first place.
+   */
+  it("offers a viewer no way to act on the queue", async () => {
     const api = {
       imports: {
-        pending: vi.fn(async () => [draft()]),
+        pending: vi.fn(async () => [draft({ suggestedTrip: EUROPE })]),
         accept: vi.fn(),
         createTrip: vi.fn(),
         dismiss: vi.fn(),
@@ -201,6 +209,22 @@ describe("ImportReviewQueue — correcting an import before accepting it", () =>
       expect(screen.queryByRole("button", { name: "Edit Flight DL2586" }))
         .not.toBeInTheDocument(),
     );
+    for (const name of [
+      "Dismiss Flight DL2586",
+      "Create new trip",
+      "Dismiss selected imports",
+      "Add to trip",
+      "Accept all into Europe",
+    ]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByLabelText("Existing trip for selected imports"))
+      .not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Select Flight DL2586")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Select all pending imports")).not.toBeInTheDocument();
+
+    // What a viewer DOES still get: the draft itself, and where it came from.
+    expect(screen.getByText("from AI")).toBeInTheDocument();
   });
 });
 

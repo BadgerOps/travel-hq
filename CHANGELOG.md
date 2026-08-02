@@ -19,6 +19,47 @@ one this file records.
 
 ## Unreleased
 
+- The `/import` review queue now says how each draft was extracted — **from
+  calendar** for an `.ics` attachment the airline wrote, **from AI** for a model
+  reading prose. The server had always sent it; the card dropped it. It is the
+  fastest signal for how carefully to read the fields underneath, in the same
+  wording the inbound-email detail view already used.
+- Dismissing an import is now a two-click confirmation on the row itself, and
+  works on one draft as well as on a selection. It replaces a native
+  `confirm()` dialog that blocked the tab, could name only a count, and made a
+  deliberate action look like a browser malfunction. The armed button names what
+  is about to go ("Dismiss Flight DL 162?") and the row stays readable while you
+  decide.
+- The empty queue now links to Settings. "Forwarded emails will appear here" is
+  no help to a household that has never set forwarding up, which is exactly the
+  household most likely to be looking at an empty queue.
+- Every action in the queue is gated on write permission, not just Edit. A
+  viewer could not reach any of them in practice — the page swaps out and the
+  endpoint is a 403 — but three of the four were relying on that rather than
+  saying so.
+- **Fixed:** pending drafts from one email are now ordered by the ordinal the
+  extraction recorded, so a round trip reads outbound-then-return. It looked
+  correct only because UUIDv7 ids happen to ascend within the millisecond that
+  an email's drafts all share — a property of the id generator, not of the
+  query, and one that stops holding the moment two emails are ingested together.
+- **Fixed:** a validation refusal now shows the server's own sentence. "Pending
+  imports cannot be added to a cancelled trip" was being replaced with "the app
+  sent something the server could not accept — this is a bug", which told a
+  reviewer whose action had been correctly refused that the app was broken.
+  Schema rejections, which carry a Zod issue list and really are this client's
+  bug, still show the generic sentence.
+- Pinned two behaviours issue #7 asked for that nothing had been forcing: a
+  dismissed draft is kept on file with its status and timestamp rather than
+  deleted, and an accept whose draft is resolved by someone else mid-flight
+  rolls the *entire* batch back — no orphaned booking, not even for the other
+  drafts in the same accept, and a plain retry succeeds. The queue also refuses
+  an already-accepted or already-dismissed draft with a 400 that says so.
+- Recorded a deliberate departure from issue #7 in the code: viewers are refused
+  the pending queue outright rather than given read-only access. A draft has no
+  verb a viewer can use, and `draft_booking` stores confirmation numbers in the
+  clear — encryption happens at accept — so opening the read would hand a viewer
+  plaintext that `requireReveal()` denies them one table over.
+
 - Added push notifications, so Travel HQ can say what the day holds without
   being opened. Two kinds, both per-person rather than per-household, because
   whether and when *I* want to be nudged is not a setting the household shares:

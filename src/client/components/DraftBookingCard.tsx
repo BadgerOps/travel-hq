@@ -1,5 +1,5 @@
 import { AirplaneTakeoff, Bed, Car, Confetti, Suitcase } from "@phosphor-icons/react";
-import type { ExtractedBooking } from "../api/types.js";
+import type { ExtractedBooking, PendingImportDraft } from "../api/types.js";
 import { formatMoney } from "../lib/money.js";
 // The draft-card styles live with the Import page (2b anatomy), but this card
 // also renders inside Settings' "Test extraction" preview — import the sheet
@@ -19,7 +19,31 @@ const KIND_META: Record<
   other: { Icon: Suitcase, start: "Starts", end: "Ends" },
 };
 
-export function DraftBookingCard({ booking }: { booking: ExtractedBooking }) {
+/**
+ * How a draft came to exist, in the words the rest of the app already uses for
+ * it (see `InboundEmailDetailDialog`). It matters to a reviewer because it says
+ * how much to trust the fields underneath: a calendar attachment was written by
+ * the airline, while an AI reading of prose is a suggestion that might have put
+ * the gate time in the wrong zone. Same distinction, same wording, so the two
+ * screens cannot drift apart.
+ */
+const SOURCE_LABEL: Record<PendingImportDraft["extractionSource"], string> = {
+  ics: "from calendar",
+  ai: "from AI",
+};
+
+export function DraftBookingCard({
+  booking,
+  /**
+   * Optional because the freshly-uploaded preview on `/import` and Settings'
+   * "Test extraction" render extractions that are not draft rows yet and have
+   * no recorded source. The chip is simply absent there rather than guessed at.
+   */
+  source,
+}: {
+  booking: ExtractedBooking;
+  source?: PendingImportDraft["extractionSource"];
+}) {
   const { Icon, start, end } = KIND_META[booking.kind] ?? KIND_META.other;
   const starts = formatStamp(booking.startsAt, booking.startsAtTz);
   const ends = formatStamp(booking.endsAt, booking.endsAtTz);
@@ -37,7 +61,12 @@ export function DraftBookingCard({ booking }: { booking: ExtractedBooking }) {
           <strong className="draft-title">{booking.title}</strong>
           {booking.location && <span className="draft-location">{booking.location}</span>}
         </div>
-        <span className="tag tag-accent draft-tag">Draft</span>
+        <span className="draft-tags">
+          {source && (
+            <span className="tag tag-neutral draft-tag">{SOURCE_LABEL[source]}</span>
+          )}
+          <span className="tag tag-accent draft-tag">Draft</span>
+        </span>
       </header>
       {hasFields && (
         <>

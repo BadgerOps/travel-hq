@@ -215,12 +215,29 @@ export class DraftBookingRepo extends TenantRepo {
     return rows.map(toDraftBooking);
   }
 
+  /**
+   * Oldest email first, and within an email the drafts in the order they were
+   * extracted — the outbound leg above the return leg, not whichever row the
+   * database felt like handing back first.
+   *
+   * `inbound_email_id, ordinal` is doing real work here, not decoration.
+   * `createMany` stamps every draft from one email with the same `created_at`,
+   * so `created_at` alone leaves a whole email's drafts tied; the review queue
+   * then groups them under one heading and shows them in whatever order the
+   * tiebreak produced. It looked correct only because ids are UUIDv7 and
+   * ascend within the millisecond they share — a property of the id generator,
+   * not of this query, and one that stops holding the moment two emails are
+   * ingested together or an id scheme changes. The ordinal is the column that
+   * actually records the answer, so it is the column that sorts.
+   */
   async listByStatus(status: DraftBookingStatus): Promise<DraftBooking[]> {
     if (!DRAFT_BOOKING_STATUSES.includes(status)) {
       throw new ValidationError(`Unknown draft booking status "${String(status)}"`);
     }
     const rows = await this.all<Row>(
-      "SELECT * FROM draft_booking WHERE {scope} AND status = ?2 ORDER BY created_at, id",
+      `SELECT * FROM draft_booking
+         WHERE {scope} AND status = ?2
+         ORDER BY created_at, inbound_email_id, ordinal, id`,
       status,
     );
     return rows.map(toDraftBooking);
