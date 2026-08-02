@@ -82,8 +82,11 @@ export function OverviewTab({
   travelers?: Person[];
   /** The same rollup the Costs tab renders, fetched once by TripDetail. */
   rollup?: TripRollup | null;
-  /** Switches the trip-detail tab the same way the seg control does. */
-  onOpenTab?: (tab: RailTab) => void;
+  /** Switches the trip-detail tab the same way the seg control does. The
+   * optional `date` (YYYY-MM-DD) is the day a strip row stands for — without
+   * it the day view falls back to picking a day for itself, which is never
+   * the day the reader just clicked. */
+  onOpenTab?: (tab: RailTab, date?: string) => void;
   today?: string;
 }) {
   // Cancelled bookings are not part of the trip. Keep this event-focused
@@ -175,7 +178,7 @@ export function OverviewTab({
                 key={date}
                 date={date}
                 bookings={dayBookings}
-                onOpen={onOpenTab && (() => onOpenTab("days"))}
+                onOpen={onOpenTab && (() => onOpenTab("days", date))}
               />
             ))}
           </div>
@@ -521,8 +524,8 @@ function BookingRow({
 }
 
 /** One strip row: "Fri 9" gutter, then the day's items (planned/draft in
- * warning amber) or a muted "nothing planned". Clicking jumps to the
- * Day by day tab when the page wires `onOpenTab`. */
+ * warning amber) or a muted "nothing planned". Clicking opens the Day by day
+ * tab on *this* row's date when the page wires `onOpenTab`. */
 function DayRow({
   date,
   bookings,

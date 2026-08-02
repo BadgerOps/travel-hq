@@ -20,6 +20,8 @@ export function DayView({
   api,
   onBookingClick,
   tripTitle,
+  requestedDate = null,
+  onDateChange,
   today = new Intl.DateTimeFormat("en-CA").format(new Date()),
 }: {
   tripId: string;
@@ -30,6 +32,18 @@ export function DayView({
    * that only have an id still render — the kicker falls back to plain
    * "Day by day". */
   tripTitle?: string;
+  /** YYYY-MM-DD, from the caller's URL: the day someone asked for by
+   * clicking an Overview row or opening a shared link. Null means "no
+   * request", which is the pre-deep-link behaviour — `today` wins, then the
+   * first day. A date this trip doesn't have degrades to that same rule
+   * rather than to an empty view. */
+  requestedDate?: string | null;
+  /** Fired when the *viewer* moves the day (the pager), so the caller can put
+   * it back in the URL. Deliberately not fired for the fallbacks below: those
+   * are this component's own guess, and pinning a guess into a shareable URL
+   * would turn "today, whenever you open it" into "the day I happened to
+   * open it". */
+  onDateChange?: (date: string) => void;
   /** YYYY-MM-DD; injectable so the first-load day is deterministic under
    * test. Mid-trip, "Open day view" must land on the current day, not the
    * trip's first day with entries. */
@@ -67,7 +81,18 @@ export function DayView({
           // available day rather than always snapping to the first. YYYY-MM-DD
           // strings sort chronologically, so plain string comparison works.
           if (current) return nearestDate(d, current);
-          // First load: prefer the actual current day — mid-trip, "Open day
+          // First load (`current` is still null), in falling order of
+          // authority. A date the caller asked for wins outright: someone
+          // clicked that row or was sent that link, and second-guessing them
+          // is the bug this ordering exists to fix. It is checked for
+          // membership rather than trusted, so a stale link or a booking
+          // deleted since simply falls through — deliberately to the
+          // no-request rule below, not to nearestDate, because an unknown
+          // date carries no real intent to be near.
+          if (requestedDate && d.some((day) => day.date === requestedDate)) {
+            return requestedDate;
+          }
+          // No request: prefer the actual current day — mid-trip, "Open day
           // view" means "what's happening today", not the trip's first
           // scheduled day. For a future/past trip today isn't in the set and
           // this falls through to the first day as before.
@@ -85,6 +110,21 @@ export function DayView({
       cancelled = true;
     };
   }, [api, tripId, personId]);
+
+  // A date that arrives *after* the first load has settled — a hand-edited
+  // hash, or a history entry that lands here without remounting — has to move
+  // the view too; the fallback above runs once and never again.
+  //
+  // Keyed on `requestedDate` alone, on purpose. Adding `days` would re-run
+  // this on every person-filter refetch and snap the viewer back to the
+  // originally-linked day, overriding exactly the nearestDate rule that
+  // filtering depends on. An unknown date is ignored rather than falling
+  // back: a real day is already on screen, and yanking someone to day one
+  // because a hash was mistyped is worse than doing nothing.
+  useEffect(() => {
+    if (!requestedDate || days === null) return;
+    if (days.some((d) => d.date === requestedDate)) setDate(requestedDate);
+  }, [requestedDate]);
 
   // Failed load ≠ empty state: an itinerary that errored must say so
   // (role="alert"), never masquerade as "nothing scheduled".
@@ -112,7 +152,11 @@ export function DayView({
         <DatePager
           dates={days.map((d) => d.date)}
           index={index}
-          onChange={(i) => setDate(days[i]?.date ?? null)}
+          onChange={(i) => {
+            const next = days[i]?.date ?? null;
+            setDate(next);
+            if (next) onDateChange?.(next);
+          }}
         />
       </div>
 

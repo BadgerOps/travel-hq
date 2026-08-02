@@ -117,6 +117,20 @@
   signal at all and keeps comparing on title, time and location, so the row
   cannot hide a real duplicate either; a duplicate group that cannot be
   rendered is dropped with a logged warning rather than shown half-built.
+- Fixed a trip's "Day by day" summary rows opening the day view on the wrong
+  day. Clicking Saturday took you to the day-by-day tab, but the tab then
+  picked a day for itself — the trip's first day with anything on it for a
+  past or future trip, today for one in progress — so the day you clicked was
+  thrown away, and for a future trip every row led to the same place. The
+  clicked date now comes along, and it comes along in the URL, as
+  `#days:2026-10-08` beside the existing `#overview` and `#checklist`: the day
+  survives a reload, Back returns to Overview rather than to whichever day the
+  view had guessed, and the link can be sent to someone as "here's the wedding
+  day". Paging with the arrows keeps the URL current without adding a history
+  entry per day. A plain `#days` still means "you decide", exactly as before,
+  and a date that this trip no longer has — a stale link, or a booking deleted
+  since — quietly falls back to that same choice instead of showing an empty
+  day.
 
 ## 0.7.0 - 2026-07-27
 

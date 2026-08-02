@@ -162,6 +162,124 @@ describe("DayView", () => {
     expect(await screen.findByText("Day eleven thing")).toBeInTheDocument();
   });
 
+  // Issue #60: Overview's day rows deep-link into this view. The requested
+  // date only ever seeds the *first* load -- once the viewer is here, paging
+  // and the person filter own the selection.
+  it("opens on the requested date rather than the first day", async () => {
+    render(
+      <DayView
+        tripId="t1"
+        people={PEOPLE as never}
+        api={makeApi() as never}
+        requestedDate="2026-10-10"
+      />,
+    );
+    expect(await screen.findByText("Wedding")).toBeInTheDocument();
+    expect(screen.queryByText("Shared flight")).not.toBeInTheDocument();
+  });
+
+  // A stale link, or a booking deleted since it was sent. Landing on nothing
+  // (or throwing) would be worse than landing on the day this view would have
+  // picked with no date at all.
+  it("falls back to the usual first-load rule when the requested date isn't in the itinerary", async () => {
+    render(
+      <DayView
+        tripId="t1"
+        people={PEOPLE as never}
+        api={makeApi() as never}
+        requestedDate="2026-12-25"
+      />,
+    );
+    expect(await screen.findByText("Shared flight")).toBeInTheDocument();
+  });
+
+  // With no date requested, mid-trip still means "today", not day one.
+  it("prefers today over the first day when no date is requested", async () => {
+    render(
+      <DayView
+        tripId="t1"
+        people={PEOPLE as never}
+        api={makeApi() as never}
+        today="2026-10-10"
+      />,
+    );
+    expect(await screen.findByText("Wedding")).toBeInTheDocument();
+  });
+
+  // A deep-linked date is not privileged over the filter: once adopted it is
+  // just the current date, so filtering to a traveller who isn't on that day
+  // must take the same nearest-day path as any other selection -- and must
+  // not snap back to the URL's date.
+  it("sends a filtered-out requested date through the nearest-day rule", async () => {
+    const threeDays = [
+      { date: "2026-10-09", bookings: [booking("b1", "Day nine thing", ["p-badger"])] },
+      { date: "2026-10-10", bookings: [booking("b2", "Day ten thing", ["p-badger"])] },
+      { date: "2026-10-11", bookings: [booking("b3", "Day eleven thing", ["p-badger"])] },
+    ];
+    const filteredToAva = [
+      { date: "2026-10-09", bookings: [booking("b4", "Ava's day nine", ["p-ava"])] },
+      { date: "2026-10-10", bookings: [booking("b5", "Ava's day ten", ["p-ava"])] },
+    ];
+    const api = {
+      trips: {
+        itinerary: vi.fn(async (_tripId: string, personId?: string) =>
+          personId ? filteredToAva : threeDays,
+        ),
+      },
+    };
+    render(
+      <DayView
+        tripId="t1"
+        people={PEOPLE as never}
+        api={api as never}
+        requestedDate="2026-10-11"
+      />,
+    );
+
+    await screen.findByText("Day eleven thing");
+    await userEvent.click(screen.getByRole("button", { name: /Ava/ }));
+
+    expect(await screen.findByText("Ava's day ten")).toBeInTheDocument();
+    expect(screen.queryByText("Ava's day nine")).not.toBeInTheDocument();
+  });
+
+  // The URL has to follow the pager, otherwise a reload throws away the day
+  // the viewer walked to.
+  it("reports the day the pager moves to", async () => {
+    const onDateChange = vi.fn();
+    render(
+      <DayView
+        tripId="t1"
+        people={PEOPLE as never}
+        api={makeApi() as never}
+        onDateChange={onDateChange}
+      />,
+    );
+    await screen.findByText("Shared flight");
+    await userEvent.click(screen.getByRole("button", { name: /next day/i }));
+    expect(onDateChange).toHaveBeenCalledWith("2026-10-10");
+  });
+
+  // A hand-edited hash (or a forward-button entry that leaves this component
+  // mounted) changes the requested date after the first load has already
+  // settled, and the view has to follow it.
+  it("adopts a date that arrives after mount", async () => {
+    const api = makeApi();
+    const { rerender } = render(
+      <DayView tripId="t1" people={PEOPLE as never} api={api as never} />,
+    );
+    await screen.findByText("Shared flight");
+    rerender(
+      <DayView
+        tripId="t1"
+        people={PEOPLE as never}
+        api={api as never}
+        requestedDate="2026-10-10"
+      />,
+    );
+    expect(await screen.findByText("Wedding")).toBeInTheDocument();
+  });
+
   it("reports a failed itinerary load rather than spinning forever", async () => {
     const api = { trips: { itinerary: vi.fn(async () => { throw new Error("404"); }) } };
     renderDayView(api as never);
