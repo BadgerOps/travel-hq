@@ -2,6 +2,70 @@
 
 ## Unreleased
 
+- Added push notifications, so Travel HQ can say what the day holds without
+  being opened. Two kinds, both per-person rather than per-household, because
+  whether and when *I* want to be nudged is not a setting the household shares:
+  a **daily digest** at a time you choose, summarising that day's flights,
+  check-ins and check-outs, activities and anything on the checklist that is
+  due; and a **pre-event reminder** a configurable lead time before anything
+  with a real start instant, defaulting to 60 minutes.
+- Reminder lead times are a tri-state per booking — inherit, a specific lead,
+  or off — edited in the same dialog that already edits every other field.
+  `0` means "at start" and is deliberately not the same as "off", so the two
+  are separate settings rather than one number with a magic value.
+- You are subscribed by default to bookings you are travelling on, can
+  subscribe to or unsubscribe from any individual booking, and can follow every
+  timed event on a trip in one go — stored as a single trip-scoped row, so
+  bookings added to that trip later are covered without revisiting the setting.
+  An explicit choice always beats the default, in both directions: unsubscribing
+  from a flight you are on stays unsubscribed.
+- Reminder send times are computed from the stored instant alone, so no device
+  clock or reader's timezone can move them; a booking's own zone affects only
+  the wording ("Departs 10:15 AM GMT+9" beats the same moment rendered in a home
+  zone you are not in). Only the digest needs a wall clock, so `user.timezone`
+  now exists: it holds an IANA name rather than an offset (the name carries DST),
+  is refreshed from the device when the app is opened and on returning to the
+  foreground, and can be pinned by hand in Settings — a pinned zone is never
+  silently overwritten by the next refresh, and there is a one-click reset back
+  to the device's.
+- **There are no quiet hours, on purpose.** A 05:00 reminder before a 06:00
+  flight is the most valuable notification this app can send, and a rule that
+  swallowed it would be a bug with a friendly name. The real worry — that 05:00
+  is the first you hear of it — is answered by adding rather than suppressing:
+  an event firing before about 07:00 local also appears in the previous
+  evening's digest.
+- Nothing is sent twice, including across overlapping or retried scheduled runs:
+  a notification is claimed in a log table before it is sent, and a losing claim
+  simply means another run already owns it. The claim is keyed on the event's
+  instant rather than the booking id, which is what makes a rescheduled
+  departure correctly re-arm instead of silently never notifying again.
+- Notification payloads carry titles and times only — never confirmation or
+  document numbers. A push payload is stored on a third-party push service and
+  shows on a lock screen, so it is held to the same rules as the log stream.
+  Tapping one opens the relevant day.
+- Settings gained a Notifications section: enable or disable this device, the
+  digest and its time, the global lead time, the timezone, the list of
+  registered devices, and a **"send me a test notification"** button that stays
+  as a permanent diagnostic. On iOS it degrades honestly rather than offering a
+  button that cannot work — web push there needs iOS 16.4+ and the app installed
+  to the home screen, so a Safari tab is shown the install steps instead, and a
+  previously denied permission is explained rather than silently re-requested.
+- This is the Worker's first scheduled trigger — a five-minute cron and a
+  `scheduled()` handler. It sweeps a *window* rather than looking for "now",
+  bounds how far it will catch up after a missed run (an overdue reminder sends;
+  a much staler one is dropped with a log line, because a reminder for a flight
+  that left forty minutes ago is worse than silence), and prunes subscriptions
+  the push service reports as gone, which iOS relies on. The raw-email retention
+  purge from #22, which until now had to ride along on request paths for want of
+  a timer, runs there too. Adds `GET/PUT /api/notifications/preferences`,
+  `PUT /api/notifications/timezone`,
+  `GET/POST/DELETE /api/notifications/subscriptions`,
+  `POST /api/notifications/test`,
+  `GET/PUT /api/bookings/:bookingId/notification`,
+  `PUT /api/trips/:tripId/notification`, and a D1 migration. Requires a VAPID
+  keypair: `VAPID_PUBLIC_KEY` and `VAPID_SUBJECT` as vars, `VAPID_PRIVATE_KEY`
+  as a Worker secret. Until they are set the sweep logs that it is unconfigured
+  and takes no claims, so nothing is silently consumed.
 - Added booking editing. Every field a booking has — kind, title, location,
   both timestamps and their timezones, cost, confirmation number, status,
   travellers, and the per-kind details — can now be changed from an Edit
