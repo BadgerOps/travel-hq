@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { CreatePersonInput, DocumentField, Person, UpdatePersonInput } from "../api/types.js";
+import { MaskedValue } from "./MaskedValue.js";
 
 /**
  * The three encrypted columns, in the order they appear on the form. Keyed by
@@ -301,9 +302,10 @@ export function PersonDocumentFields({
                 <span>
                   currently{" "}
                   {onReveal ? (
-                    <OwnDocumentValue
+                    <MaskedValue
+                      own
                       masked={stored}
-                      label={label}
+                      label={`your ${label.toLowerCase()}`}
                       onReveal={() => onReveal(field)}
                     />
                   ) : (
@@ -342,73 +344,3 @@ export function PersonDocumentFields({
   );
 }
 
-/**
- * A masked number on your OWN record, with a button that unmasks it.
- *
- * Not `components/MaskedValue`, and the difference is the permission model
- * rather than the markup. MaskedValue hides its button behind
- * `useCanReveal()`, which is a ROLE check — correct everywhere it is used,
- * because revealing somebody else's number is refused for a viewer and a
- * button that can only 403 is a false offer. Self-reveal is not role-based:
- * `PersonRepo.revealDocument` allows your own row at any role precisely so
- * that a stored number is never write-only, and routing this through
- * MaskedValue would leave a viewer looking at `••••2119` with no way to check
- * whether the passport number they typed was the one that got saved.
- *
- * The two should converge once MaskedValue can be told that the row is the
- * caller's own; until then this is deliberately the smaller, dumber one — it
- * never has to decide anything, because the only caller is `/me`.
- */
-function OwnDocumentValue({
-  masked,
-  label,
-  onReveal,
-}: {
-  masked: string;
-  label: string;
-  onReveal: () => Promise<string | null>;
-}) {
-  const [revealed, setRevealed] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  if (revealed !== null) return <strong>{revealed}</strong>;
-  if (failed) {
-    return (
-      <span className="warning">
-        <strong>{masked}</strong> · could not be revealed
-      </span>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      className="masked"
-      disabled={busy}
-      aria-label={`Reveal your ${label.toLowerCase()}`}
-      title="Click to reveal — access is logged"
-      onClick={async () => {
-        setBusy(true);
-        try {
-          const value = await onReveal();
-          // A stored mask implies a stored value, so null here means the row
-          // changed under us. Treated as a failure rather than rendered as an
-          // empty string, which would read as "your passport number is blank".
-          if (value === null) setFailed(true);
-          else setRevealed(value);
-        } catch {
-          // The reveal endpoint returns a deliberately generic body, so there
-          // is no detail worth surfacing — only the fact that it did not
-          // happen. Saying nothing is what leaves a button that visibly does
-          // nothing.
-          setFailed(true);
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      {masked}
-    </button>
-  );
-}
