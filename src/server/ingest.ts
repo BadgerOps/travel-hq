@@ -106,7 +106,20 @@ export async function handleInboundEmail(
     return;
   }
 
-  const repo = InboundEmailRepo.forIngest(env.DB, match.householdId);
+  // Loaded before the row is written, not after: `raw` is sealed by the
+  // repository at insert time, so the ring has to be in hand for create() —
+  // storing plaintext first and encrypting later would leave exactly the
+  // window this change exists to close. Extraction reuses the same ring
+  // below. A missing or malformed secret is still fail-soft: the message is
+  // stored as legacy plaintext rather than being lost.
+  let ring;
+  try {
+    if (env.ENCRYPTION_KEY) ring = loadKeyring(env.ENCRYPTION_KEY);
+  } catch (err) {
+    console.warn("[email-ingest] encryption keyring unavailable", err);
+  }
+
+  const repo = InboundEmailRepo.forIngest(env.DB, match.householdId, ring);
   const meta = {
     from: message.from,
     to: message.to,
@@ -192,12 +205,6 @@ export async function handleInboundEmail(
   // Extraction owns its own fail-soft status transitions. Keep it outside the
   // ingest catch so an unexpected extractor bug cannot create a second row for
   // a message that was already stored successfully.
-  let ring;
-  try {
-    if (env.ENCRYPTION_KEY) ring = loadKeyring(env.ENCRYPTION_KEY);
-  } catch (err) {
-    console.warn("[extract] encryption keyring unavailable", err);
-  }
   const provider = await resolveExtractionProvider({
     settings: match.settings,
     ai: env.AI,
@@ -214,6 +221,20 @@ export async function handleInboundEmail(
     },
     stored,
   );
+
+  // Delivery is finished; everything past here is housekeeping. This Worker
+  // has no cron trigger, so arrival of new mail is one of the two moments the
+  // retention sweep gets to run (the other is import review). Last, and
+  // swallowed: an expired row that survives one more day is a triviality
+  // compared with bouncing a real confirmation because a DELETE failed.
+  try {
+    const purged = await repo.purgeExpiredRaw();
+    if (purged.length > 0) {
+      console.info(`[email-ingest] purged raw from ${purged.length} expired inbound email(s)`);
+    }
+  } catch (err) {
+    console.error("[email-ingest] retention sweep failed", err);
+  }
 }
 
 /**

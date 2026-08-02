@@ -36,16 +36,58 @@ function request(
   app: ReturnType<typeof createApp>,
   path: string,
   init?: RequestInit,
+  db: D1Database = env.DB,
 ) {
-  return app.request(path, init, { DB: env.DB } as unknown as AppBindings);
+  return app.request(path, init, { DB: db } as unknown as AppBindings);
 }
 
-function postJson(app: ReturnType<typeof createApp>, path: string, body: unknown) {
+function postJson(
+  app: ReturnType<typeof createApp>,
+  path: string,
+  body: unknown,
+  db: D1Database = env.DB,
+) {
   return request(app, path, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-  });
+  }, db);
+}
+
+/**
+ * A D1 handle that runs `hook` immediately before the FIRST `batch()` and then
+ * delegates everything unchanged.
+ *
+ * This is how the accept path's race gets tested without racing. The window
+ * being simulated is real and narrow: `acceptIntoTrip` reads the drafts and
+ * proves they are pending, then builds its INSERT/UPDATE statements (encrypting
+ * confirmation numbers, matching travellers) and only then executes them as one
+ * batch. Another reviewer accepting or dismissing the same draft inside that
+ * window is exactly what the `SELECT title ... WHERE status = 'pending'`
+ * subquery in `draftAcceptanceStatements` exists to catch.
+ *
+ * Intercepting `batch` rather than stubbing some internal is deliberate: it is
+ * the one point that is unambiguously "statements built, nothing executed yet",
+ * so the test does not encode any assumption about the order of awaits inside
+ * the repository, and it stays honest if that order changes.
+ */
+function dbInterceptingFirstBatch(hook: () => Promise<void>): D1Database {
+  let fired = false;
+  return new Proxy(env.DB, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop) as unknown;
+      if (prop !== "batch") {
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+      return async (statements: D1PreparedStatement[]) => {
+        if (!fired) {
+          fired = true;
+          await hook();
+        }
+        return await target.batch(statements);
+      };
+    },
+  }) as D1Database;
 }
 
 async function seedDelta(householdId = "hh-a") {
@@ -313,5 +355,205 @@ describe("import review routes", () => {
       draftIds: [drafts[1]!.id],
       tripId: "anything",
     })).status).toBe(403);
+  });
+
+  /**
+   * "Leaves the pending queue" is the weaker half of what dismiss promises. A
+   * hard DELETE would satisfy it just as well, and the audit trail — which
+   * import was rejected, and when someone decided that — would be gone with no
+   * test noticing. So this asserts on the ROW: still there, still this
+   * household's, marked dismissed, stamped with when, and attached to no
+   * booking.
+   */
+  it("keeps a dismissed draft on file rather than deleting it", async () => {
+    const drafts = await seedDelta();
+    const before = new Date().toISOString();
+
+    expect((await postJson(appAs(), "/api/imports/dismiss", {
+      draftIds: [drafts[0]!.id],
+    })).status).toBe(200);
+
+    const row = await env.DB.prepare(
+      "SELECT household_id, title, status, booking_id, resolved_at FROM draft_booking WHERE id = ?",
+    ).bind(drafts[0]!.id).first<{
+      household_id: string;
+      title: string;
+      status: string;
+      booking_id: string | null;
+      resolved_at: string | null;
+    }>();
+    expect(row).toMatchObject({
+      household_id: "hh-a",
+      title: drafts[0]!.title,
+      status: "dismissed",
+      booking_id: null,
+    });
+    expect(row!.resolved_at! >= before).toBe(true);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM draft_booking").first())
+      .toEqual({ count: 3 });
+  });
+
+  /**
+   * The already-resolved 400 the issue asked for, from both directions a draft
+   * can leave the queue. Two reviewers open /import at the same time; one
+   * accepts, the other's stale row is still on screen and they click it too.
+   * The second click must be refused, and — the part worth pinning — refused
+   * with the sentence that says WHY, since the client now shows a 400's
+   * message verbatim (see client/lib/errors.ts).
+   */
+  it("refuses to review a draft that is already accepted or dismissed", async () => {
+    const trip = await new TripRepo(env.DB, ctx).create({
+      title: "Europe",
+      startsOn: "2026-10-21",
+      endsOn: "2026-10-30",
+    });
+    const drafts = await seedDelta();
+
+    expect((await postJson(appAs(), "/api/imports/accept", {
+      draftIds: [drafts[0]!.id],
+      tripId: trip.id,
+    })).status).toBe(200);
+    expect((await postJson(appAs(), "/api/imports/dismiss", {
+      draftIds: [drafts[1]!.id],
+    })).status).toBe(200);
+
+    const reaccepted = await postJson(appAs(), "/api/imports/accept", {
+      draftIds: [drafts[0]!.id],
+      tripId: trip.id,
+    });
+    expect(reaccepted.status).toBe(400);
+    expect(await reaccepted.json()).toEqual({ error: "Only pending imports can be reviewed" });
+
+    const redismissed = await postJson(appAs(), "/api/imports/dismiss", {
+      draftIds: [drafts[1]!.id],
+    });
+    expect(redismissed.status).toBe(400);
+    expect(await redismissed.json()).toEqual({ error: "Only pending imports can be reviewed" });
+
+    const intoNewTrip = await postJson(appAs(), "/api/imports/create-trip", {
+      draftIds: [drafts[1]!.id, drafts[2]!.id],
+      title: "Should not exist",
+    });
+    expect(intoNewTrip.status).toBe(400);
+
+    // The refusals changed nothing: one booking from the one accept, and the
+    // untouched draft still waiting.
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM booking").first())
+      .toEqual({ count: 1 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM trip WHERE title = 'Should not exist'").first())
+      .toEqual({ count: 0 });
+    expect(
+      (await DraftBookingRepo.forIngest(env.DB, "hh-a").listByStatus("pending"))
+        .map((draft) => draft.id),
+    ).toEqual([drafts[2]!.id]);
+  });
+
+  /**
+   * The transition failure, forced rather than hoped for.
+   *
+   * Issue #7 specified create-then-compensate: write the booking, mark the
+   * draft accepted, and delete the booking again if that second step failed.
+   * What shipped is stronger — both writes go out as ONE D1 batch, so there is
+   * no window in which a booking exists without its draft resolved, and nothing
+   * to compensate for. But "stronger" is a claim, and until now nothing made
+   * the batch fail, so the rollback was never observed.
+   *
+   * This makes it fail the only way it can: the draft stops being pending after
+   * prevalidation, so the INSERT's title subquery finds no row, returns NULL,
+   * and violates booking.title NOT NULL. The whole batch must go — including
+   * the OTHER draft in the same accept, which was perfectly valid. That is the
+   * property the issue actually cared about: no orphaned booking, and a draft
+   * you can simply retry.
+   */
+  it("rolls back the entire accept when a draft is resolved mid-batch", async () => {
+    const trip = await new TripRepo(env.DB, ctx).create({
+      title: "Europe",
+      startsOn: "2026-10-21",
+      endsOn: "2026-10-30",
+    });
+    const drafts = await seedDelta();
+    const raced = drafts[0]!;
+    const bystander = drafts[1]!;
+
+    const db = dbInterceptingFirstBatch(async () => {
+      await env.DB.prepare(
+        "UPDATE draft_booking SET status = 'dismissed', resolved_at = ? WHERE id = ?",
+      ).bind(new Date().toISOString(), raced.id).run();
+    });
+
+    const res = await postJson(appAs(), "/api/imports/accept", {
+      draftIds: [raced.id, bystander.id],
+      tripId: trip.id,
+    }, db);
+    expect(res.status).toBe(500);
+    // Contentless on purpose — a 500 says nothing about internals (mapError).
+    expect(await res.json()).toEqual({ error: "Internal error" });
+
+    // No orphan: not the racing draft's booking, and not the bystander's
+    // either. Half a batch is the failure mode this design exists to prevent.
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM booking").first())
+      .toEqual({ count: 0 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM booking_person").first())
+      .toEqual({ count: 0 });
+
+    // The draft the other reviewer resolved keeps THEIR outcome; ours did not
+    // half-apply on top of it.
+    expect(
+      await env.DB.prepare("SELECT status, booking_id FROM draft_booking WHERE id = ?")
+        .bind(raced.id).first(),
+    ).toEqual({ status: "dismissed", booking_id: null });
+
+    // And the bystander is exactly where it was, so a plain retry is safe.
+    expect(
+      (await DraftBookingRepo.forIngest(env.DB, "hh-a").listByStatus("pending"))
+        .map((draft) => draft.id),
+    ).toEqual([bystander.id, drafts[2]!.id]);
+
+    const retry = await postJson(appAs(), "/api/imports/accept", {
+      draftIds: [bystander.id],
+      tripId: trip.id,
+    });
+    expect(retry.status).toBe(200);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM booking").first())
+      .toEqual({ count: 1 });
+  });
+
+  /**
+   * Multi-booking emails must stay in extraction order — a round trip reads
+   * outbound-then-return, not whichever row SQLite handed back first. Two
+   * emails ingested in the same millisecond is the case that used to rely on
+   * UUIDv7 ids happening to ascend; `ordinal` is what actually records the
+   * answer, so the drafts here are deliberately inserted BACKWARDS.
+   */
+  it("orders a source's drafts by their extraction ordinal, not their insert order", async () => {
+    const email = await InboundEmailRepo.forIngest(env.DB, "hh-a").create({
+      from: "receipts@delta.example",
+      to: "trips@example.com",
+      subject: "Delta.com Trip Information",
+      raw: "raw message",
+    });
+    const now = new Date().toISOString();
+    // Every row shares one created_at — exactly the shape createMany produces
+    // for one email — and the ids run BACKWARDS against the ordinal, so the
+    // old `created_at, id` tiebreak returns them in exactly the wrong order.
+    // (It looked right in production only because UUIDv7 ids happen to ascend
+    // with insert order; that coincidence is what this test removes.)
+    const rows = [
+      { id: "d-z", ordinal: 0, title: "first" },
+      { id: "d-m", ordinal: 1, title: "second" },
+      { id: "d-a", ordinal: 2, title: "third" },
+    ];
+    for (const row of rows) {
+      await env.DB.prepare(
+        `INSERT INTO draft_booking
+           (id, household_id, inbound_email_id, ordinal, kind, title, status, source, extracted_json, created_at)
+         VALUES (?, 'hh-a', ?, ?, 'flight', ?, 'pending', 'ai', '{}', ?)`,
+      ).bind(row.id, email.id, row.ordinal, row.title, now).run();
+    }
+
+    const pending = await (await request(appAs(), "/api/imports/pending")).json() as Array<{
+      title: string;
+    }>;
+    expect(pending.map((draft) => draft.title)).toEqual(["first", "second", "third"]);
   });
 });

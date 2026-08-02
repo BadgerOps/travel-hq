@@ -36,7 +36,12 @@ const PEOPLE = [
 function makeApi() {
   return {
     trips: { createBooking: vi.fn(async () => ({ id: "b1" })) },
-    bookings: { assignPerson: vi.fn(async () => undefined) },
+    bookings: {
+      assignPerson: vi.fn(async () => undefined),
+      // Reached on the create path only when a reminder override was chosen —
+      // the create route cannot carry one. See the reminder tests below.
+      update: vi.fn(async () => ({ id: "b1" })),
+    },
   };
 }
 
@@ -174,5 +179,151 @@ describe("BookingDialog", () => {
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(onSaved).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The per-booking reminder override (#61).
+ *
+ * The property under test throughout is that `off` and a lead of `0` stay
+ * different things. They are the same shape — "no positive number of minutes"
+ * — and a form that let them blur is how someone who asked to be told at
+ * departure ends up told nothing at all.
+ */
+const BOOKING = {
+  id: "b1",
+  tripId: "t1",
+  kind: "flight",
+  title: "DL2214 BOI → STS",
+  location: null,
+  startsAt: null,
+  startsAtTz: null,
+  endsAt: null,
+  endsAtTz: null,
+  confirmationNumberMasked: null,
+  costCents: null,
+  pointsUsed: null,
+  pointsProgram: null,
+  status: "booked" as const,
+  details: { carrier: "Delta", flightNumber: "2214", originIata: "BOI", destinationIata: "STS" },
+  personIds: [],
+  sourceInboundEmailId: null,
+  reminderMode: "inherit" as const,
+  reminderLeadMinutes: null,
+};
+
+function renderEdit(booking: Record<string, unknown> = {}) {
+  const api = {
+    trips: { createBooking: vi.fn(async () => ({ id: "b1" })) },
+    bookings: {
+      assignPerson: vi.fn(async () => undefined),
+      unassignPerson: vi.fn(async () => undefined),
+      update: vi.fn(async () => ({ ...BOOKING, ...booking })),
+    },
+  };
+  render(
+    <BookingDialog
+      booking={{ ...BOOKING, ...booking } as never}
+      people={PEOPLE as never}
+      api={api as never}
+      onSaved={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  return api;
+}
+
+describe("BookingDialog — reminder override", () => {
+  it("opens on 'My default' for a booking that has no opinion", () => {
+    renderEdit();
+    expect(screen.getByRole("radio", { name: "My default" })).toBeChecked();
+    // No number field until one is actually being overridden: an empty box
+    // labelled "minutes" beside "use my default" invites exactly the confusion
+    // this control exists to prevent.
+    expect(screen.queryByLabelText(/minutes before it starts/i)).toBeNull();
+  });
+
+  it("seeds a stored custom override, including a lead of 0", () => {
+    renderEdit({ reminderMode: "custom", reminderLeadMinutes: 0 });
+    expect(screen.getByRole("radio", { name: "Custom" })).toBeChecked();
+    expect(screen.getByLabelText(/minutes before it starts/i)).toHaveValue("0");
+    expect(screen.getByText(/0 means right when it starts/i)).toBeInTheDocument();
+  });
+
+  it("saves 0 as the number 0, not as 'off' and not as blank", async () => {
+    const api = renderEdit();
+    await userEvent.click(screen.getByRole("radio", { name: "Custom" }));
+    await userEvent.type(screen.getByLabelText(/minutes before it starts/i), "0");
+    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    expect(api.bookings.update).toHaveBeenCalledWith(
+      "b1",
+      expect.objectContaining({ reminderMode: "custom", reminderLeadMinutes: 0 }),
+    );
+  });
+
+  it("saves 'off' as a mode with no minutes, which is a different thing entirely", async () => {
+    const api = renderEdit({ reminderMode: "custom", reminderLeadMinutes: 90 });
+    await userEvent.click(screen.getByRole("radio", { name: "No reminder" }));
+    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    expect(api.bookings.update).toHaveBeenCalledWith(
+      "b1",
+      expect.objectContaining({ reminderMode: "off", reminderLeadMinutes: null }),
+    );
+  });
+
+  it("returns to the account default, clearing the stored minutes with it", async () => {
+    const api = renderEdit({ reminderMode: "custom", reminderLeadMinutes: 90 });
+    await userEvent.click(screen.getByRole("radio", { name: "My default" }));
+    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    expect(api.bookings.update).toHaveBeenCalledWith(
+      "b1",
+      expect.objectContaining({ reminderMode: "inherit", reminderLeadMinutes: null }),
+    );
+  });
+
+  it("refuses a negative lead time rather than sending it", async () => {
+    const api = renderEdit();
+    await userEvent.click(screen.getByRole("radio", { name: "Custom" }));
+    await userEvent.type(screen.getByLabelText(/minutes before it starts/i), "-5");
+    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/whole number of minutes/i);
+    expect(api.bookings.update).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The create route's schema does not accept the reminder columns and, being
+   * a non-strict Zod object, would silently DROP them. So a new booking with
+   * an override is created and then patched — and one with no override sends
+   * no patch at all, keeping the ordinary create byte-identical to what it was.
+   */
+  it("patches a new booking's override in rather than posting it to create", async () => {
+    const { api } = renderDialog();
+    await userEvent.type(screen.getByLabelText("Title"), "DL2214");
+    await userEvent.type(screen.getByLabelText(/Airline/), "Delta");
+    await userEvent.type(screen.getByLabelText(/Flight number/), "2214");
+    await userEvent.type(screen.getByLabelText("From"), "BOI");
+    await userEvent.type(screen.getByLabelText("To"), "STS");
+    await userEvent.click(screen.getByRole("radio", { name: "No reminder" }));
+    await userEvent.click(screen.getByRole("button", { name: /save booking/i }));
+
+    expect(api.trips.createBooking).toHaveBeenCalledWith(
+      "t1",
+      expect.not.objectContaining({ reminderMode: expect.anything() }),
+    );
+    expect(api.bookings.update).toHaveBeenCalledWith("b1", {
+      reminderMode: "off",
+      reminderLeadMinutes: null,
+    });
+  });
+
+  it("sends no patch at all when the new booking keeps the default", async () => {
+    const { api } = renderDialog();
+    await userEvent.type(screen.getByLabelText("Title"), "DL2214");
+    await userEvent.type(screen.getByLabelText(/Airline/), "Delta");
+    await userEvent.type(screen.getByLabelText(/Flight number/), "2214");
+    await userEvent.type(screen.getByLabelText("From"), "BOI");
+    await userEvent.type(screen.getByLabelText("To"), "STS");
+    await userEvent.click(screen.getByRole("button", { name: /save booking/i }));
+    expect(api.bookings.update).not.toHaveBeenCalled();
   });
 });

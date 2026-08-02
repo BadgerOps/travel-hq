@@ -42,6 +42,46 @@ binding = "AI"
 binding = "TRIP_PHOTOS"
 bucket_name = "travel-hq-dev-photos"
 
+# The scheduled() handler in src/server/worker.ts: the push-notification sweep
+# (#61) and the raw-email retention purge (#22, which asked for exactly this).
+#
+# EVERY FIVE MINUTES, NOT EVERY MINUTE. Cloudflare's minimum is one minute and
+# this is deliberately not it. Five costs 288 invocations a day instead of
+# 1,440, against a database that changes a handful of times an hour -- and buys
+# nothing anybody can feel: reminder leads are measured in tens of minutes, so
+# +-5 minutes on a 60-minute lead is well inside the noise of when someone
+# actually looks at their phone. The sweep is written to make that trade safe:
+# it queries a WINDOW rather than an instant (src/server/notifications/window.ts
+# -- a 5-minute cron asking for what is due "now" would find nothing, forever,
+# silently) and claims each notification before sending it, so the deliberately
+# overlapping windows can never send anything twice.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Web Push identity (VAPID, RFC 8292). The keypair identifies THIS SERVER to
+# the push services; it does not authorize anything on a user's behalf.
+#
+# VAPID_PRIVATE_KEY IS NOT HERE, AND MUST NEVER BE. It is a secret, handled the
+# way ENCRYPTION_KEY is:
+#
+#     npx wrangler secret put VAPID_PRIVATE_KEY --env production
+#
+# ...and for local development it goes in .dev.vars, which is gitignored.
+# Generate a pair with `generateVapidKeys()` from src/server/push/vapid.ts
+# (base64url, P-256); the PUBLIC half is also what the client passes to
+# pushManager.subscribe(), so the two must be from the same pair or every
+# subscription silently fails to decrypt.
+#
+# The public key below is empty until an operator fills it in. That is a
+# supported state, not a broken one: resolveVapid() in
+# src/server/notifications/sweep.ts refuses to run the sweep unless all three
+# values are present, and logs `notification_sweep_unconfigured` once per tick.
+# It deliberately does NOT take claims it cannot honour -- a claim is permanent,
+# so claiming and failing would mean those reminders never re-arm.
+[vars]
+VAPID_PUBLIC_KEY = ""
+VAPID_SUBJECT = "mailto:trips@badgerops.foo"
+
 # --- testing (PR preview target; its own D1) --------------------------------
 [env.testing]
 [env.testing.assets]
@@ -56,6 +96,24 @@ run_worker_first = ["/api/*", "/healthz"]
 # [env.testing.vars]
 # CF_ACCESS_TEAM_DOMAIN = "https://badgerops.cloudflareaccess.com"
 # CF_ACCESS_AUD = "<the testing Access app's AUD tag>"
+
+# NO CRON ON TESTING, on purpose -- `crons = []` clears the inherited trigger
+# rather than leaving it to be inherited by accident.
+#
+# testing is a PR preview target. A preview Worker with a cron would sweep its
+# own database on its own schedule, and every deployed preview branch would do
+# so simultaneously -- racing each other for the same claims and sending real
+# pushes to real phones from whatever half-finished branch happened to deploy
+# last. The claim ledger would make those sends correct-once, which is the
+# problem: "correct" here means a traveller's phone rings from a preview build
+# nobody meant to ship. Testing exists to be looked at, not to page people.
+#
+# The sweep is exercised in tests (tests/server/notifications/) and can be run
+# by hand against a preview with:
+#     npx wrangler dev --env testing --test-scheduled
+#     curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"
+[env.testing.triggers]
+crons = []
 
 [[env.testing.d1_databases]]
 binding = "DB"
@@ -112,6 +170,20 @@ bucket_name = "travel-hq-production-photos"
 # (Zero Trust -> Access -> Applications -> travel-hq-production ->
 # Additional settings -> AUD tag) -- 64 hex chars, NOT the application's
 # UUID id from the dashboard URL.
+#
+# The VAPID pair is repeated here for the same reason the AI and D1 bindings
+# are: an environment's `vars` REPLACES the top-level table wholesale rather
+# than merging into it, so omitting these would leave production with the
+# Access vars and no push identity at all.
 [env.production.vars]
 CF_ACCESS_TEAM_DOMAIN = "https://badgerops.cloudflareaccess.com"
 CF_ACCESS_AUD = "8827163cf52568219746a23c957628c4fc3b284d5383b4a78d12abc71f38d8ce"
+VAPID_PUBLIC_KEY = ""
+VAPID_SUBJECT = "mailto:trips@badgerops.foo"
+
+# Repeated per environment for the same reason: [triggers] does not inherit
+# into a named environment. Without this block, `wrangler deploy --env
+# production` would deploy the scheduled() handler and never call it.
+# See the top-level [triggers] for why five minutes rather than one.
+[env.production.triggers]
+crons = ["*/5 * * * *"]

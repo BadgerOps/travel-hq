@@ -1,6 +1,131 @@
 # Changelog
 
+Versions here follow [semantic versioning](https://semver.org/): the last
+number moves when something that already existed stops being wrong, the middle
+one when the app can do something it could not do before, and the first is
+held back for the day a change breaks a caller or a stored shape rather than
+just adding to it. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — newest release
+first, with `Unreleased` at the top collecting what has merged but not yet
+shipped. Entries are written for whoever is trying to work out what changed
+underneath them, so they say why as well as what, and they name the endpoints
+and migrations a release added.
+
+The running version is shown in Settings, under **About this build**, and is
+read from `package.json` at build time rather than typed in by hand. That is
+the whole point of showing it: a bug report can name the build it came from
+instead of describing it, and the number it names cannot have drifted from the
+one this file records.
+
 ## Unreleased
+
+- The `/import` review queue now says how each draft was extracted — **from
+  calendar** for an `.ics` attachment the airline wrote, **from AI** for a model
+  reading prose. The server had always sent it; the card dropped it. It is the
+  fastest signal for how carefully to read the fields underneath, in the same
+  wording the inbound-email detail view already used.
+- Dismissing an import is now a two-click confirmation on the row itself, and
+  works on one draft as well as on a selection. It replaces a native
+  `confirm()` dialog that blocked the tab, could name only a count, and made a
+  deliberate action look like a browser malfunction. The armed button names what
+  is about to go ("Dismiss Flight DL 162?") and the row stays readable while you
+  decide.
+- The empty queue now links to Settings. "Forwarded emails will appear here" is
+  no help to a household that has never set forwarding up, which is exactly the
+  household most likely to be looking at an empty queue.
+- Every action in the queue is gated on write permission, not just Edit. A
+  viewer could not reach any of them in practice — the page swaps out and the
+  endpoint is a 403 — but three of the four were relying on that rather than
+  saying so.
+- **Fixed:** pending drafts from one email are now ordered by the ordinal the
+  extraction recorded, so a round trip reads outbound-then-return. It looked
+  correct only because UUIDv7 ids happen to ascend within the millisecond that
+  an email's drafts all share — a property of the id generator, not of the
+  query, and one that stops holding the moment two emails are ingested together.
+- **Fixed:** a validation refusal now shows the server's own sentence. "Pending
+  imports cannot be added to a cancelled trip" was being replaced with "the app
+  sent something the server could not accept — this is a bug", which told a
+  reviewer whose action had been correctly refused that the app was broken.
+  Schema rejections, which carry a Zod issue list and really are this client's
+  bug, still show the generic sentence.
+- Pinned two behaviours issue #7 asked for that nothing had been forcing: a
+  dismissed draft is kept on file with its status and timestamp rather than
+  deleted, and an accept whose draft is resolved by someone else mid-flight
+  rolls the *entire* batch back — no orphaned booking, not even for the other
+  drafts in the same accept, and a plain retry succeeds. The queue also refuses
+  an already-accepted or already-dismissed draft with a 400 that says so.
+- Recorded a deliberate departure from issue #7 in the code: viewers are refused
+  the pending queue outright rather than given read-only access. A draft has no
+  verb a viewer can use, and `draft_booking` stores confirmation numbers in the
+  clear — encryption happens at accept — so opening the read would hand a viewer
+  plaintext that `requireReveal()` denies them one table over.
+
+- Added push notifications, so Travel HQ can say what the day holds without
+  being opened. Two kinds, both per-person rather than per-household, because
+  whether and when *I* want to be nudged is not a setting the household shares:
+  a **daily digest** at a time you choose, summarising that day's flights,
+  check-ins and check-outs, activities and anything on the checklist that is
+  due; and a **pre-event reminder** a configurable lead time before anything
+  with a real start instant, defaulting to 60 minutes.
+- Reminder lead times are a tri-state per booking — inherit, a specific lead,
+  or off — edited in the same dialog that already edits every other field.
+  `0` means "at start" and is deliberately not the same as "off", so the two
+  are separate settings rather than one number with a magic value.
+- You are subscribed by default to bookings you are travelling on, can
+  subscribe to or unsubscribe from any individual booking, and can follow every
+  timed event on a trip in one go — stored as a single trip-scoped row, so
+  bookings added to that trip later are covered without revisiting the setting.
+  An explicit choice always beats the default, in both directions: unsubscribing
+  from a flight you are on stays unsubscribed.
+- Reminder send times are computed from the stored instant alone, so no device
+  clock or reader's timezone can move them; a booking's own zone affects only
+  the wording ("Departs 10:15 AM GMT+9" beats the same moment rendered in a home
+  zone you are not in). Only the digest needs a wall clock, so `user.timezone`
+  now exists: it holds an IANA name rather than an offset (the name carries DST),
+  is refreshed from the device when the app is opened and on returning to the
+  foreground, and can be pinned by hand in Settings — a pinned zone is never
+  silently overwritten by the next refresh, and there is a one-click reset back
+  to the device's.
+- **There are no quiet hours, on purpose.** A 05:00 reminder before a 06:00
+  flight is the most valuable notification this app can send, and a rule that
+  swallowed it would be a bug with a friendly name. The real worry — that 05:00
+  is the first you hear of it — is answered by adding rather than suppressing:
+  an event firing before about 07:00 local also appears in the previous
+  evening's digest.
+- Nothing is sent twice, including across overlapping or retried scheduled runs:
+  a notification is claimed in a log table before it is sent, and a losing claim
+  simply means another run already owns it. The claim is keyed on the event's
+  instant rather than the booking id, which is what makes a rescheduled
+  departure correctly re-arm instead of silently never notifying again.
+- Notification payloads carry titles and times only — never confirmation or
+  document numbers. A push payload is stored on a third-party push service and
+  shows on a lock screen, so it is held to the same rules as the log stream.
+  Tapping one opens the relevant day.
+- Settings gained a Notifications section: enable or disable this device, the
+  digest and its time, the global lead time, the timezone, the list of
+  registered devices, and a **"send me a test notification"** button that stays
+  as a permanent diagnostic. On iOS it degrades honestly rather than offering a
+  button that cannot work — web push there needs iOS 16.4+ and the app installed
+  to the home screen, so a Safari tab is shown the install steps instead, and a
+  previously denied permission is explained rather than silently re-requested.
+- This is the Worker's first scheduled trigger — a five-minute cron and a
+  `scheduled()` handler. It sweeps a *window* rather than looking for "now",
+  bounds how far it will catch up after a missed run (an overdue reminder sends;
+  a much staler one is dropped with a log line, because a reminder for a flight
+  that left forty minutes ago is worse than silence), and prunes subscriptions
+  the push service reports as gone, which iOS relies on. The raw-email retention
+  purge from #22, which until now had to ride along on request paths for want of
+  a timer, runs there too. Adds `GET/PUT /api/notifications/preferences`,
+  `PUT /api/notifications/timezone`,
+  `GET/POST/DELETE /api/notifications/subscriptions`,
+  `POST /api/notifications/test`,
+  `GET/PUT /api/bookings/:bookingId/notification`,
+  `PUT /api/trips/:tripId/notification`, and a D1 migration. Requires a VAPID
+  keypair: `VAPID_PUBLIC_KEY` and `VAPID_SUBJECT` as vars, `VAPID_PRIVATE_KEY`
+  as a Worker secret. Until they are set the sweep logs that it is unconfigured
+  and takes no claims, so nothing is silently consumed.
+
+## 0.8.0 — 2026-08-01
 
 - Added booking editing. Every field a booking has — kind, title, location,
   both timestamps and their timezones, cost, confirmation number, status,
@@ -43,6 +168,94 @@
   close control pinned above it, it clears the notch and home-indicator safe
   areas, it paints over the bottom tab bar, and the page behind it no longer
   scrolls while it is open.
+- Added observability, so a failure is something you can look up rather than
+  guess at. Every request now emits one JSON log line carrying a request id,
+  the route pattern, the household and user ids, the status and how long it
+  took — and returns that id as `X-Request-Id`, so a reported problem can be
+  traced from the header alone. A 500 writes the real cause (class, message,
+  stack) to the log while the client still gets only `Internal error`;
+  previously it left no trace anywhere. Tenancy-scope bugs are logged in
+  production too, instead of being silenced in the one environment that
+  needed them. Emails, document numbers, confirmation values and raw message
+  bodies are kept out of the log stream by a redacting logger with a test
+  that asserts it. Reveals of a passport, Known Traveler, redress or
+  confirmation number are now recorded in a new `audit_log` table and shown
+  to household owners in Settings — who unmasked which record, and when,
+  never the value itself. Adds `GET /api/audit/reveals` and a D1 migration.
+- Fixed two nested trip routes that did not check the parent in their URL.
+  Revealing a booking's confirmation number under a *different* trip's URL now
+  answers 404 instead of succeeding (and the audit entry records the validated
+  trip), and asking for the travellers of an unknown or other-household trip
+  answers 404 instead of an empty list, matching the sibling bookings,
+  itinerary and rollup routes.
+- Fixed three places where a failure or a second writer could leave the
+  database half-changed. Assigning a person to a booking now writes the
+  booking and the trip roster in one transaction, so the two can no longer
+  disagree about who is on a trip. Marking a forwarded email extracted or
+  failed now confirms it actually changed the row, so two overlapping
+  extractor runs can no longer both be told they won. And a forward address
+  claimed by two households at the same instant now answers the loser with
+  the same "already in use" message the ordinary check gives, instead of a
+  server error.
+- Fixed dates and amounts being validated differently depending on which write
+  path you used. Creating a trip accepted "next tuesday", February 30th, or a
+  range that ended before it began — all of which updating the same trip had
+  always refused — and checklist due dates, dates of birth and passport
+  expiries were never checked at all. A booking could be saved with a
+  timestamp carrying no timezone, or one landing before it took off, and both
+  a cost and a points total could be negative, which quietly subtracted from
+  the trip's spend and points rollups. All of these are now the same 400 on
+  every path, enforced in the repositories so the email-import path is covered
+  too, and an imported booking whose extracted times or price cannot be
+  trusted now arrives without them rather than not at all.
+- Gave forwarded email an encryption and retention lifecycle. The raw message
+  is now sealed at rest with the same envelope crypto and rotatable key ring
+  that protect passport and confirmation numbers, and it no longer lives
+  forever: the full text is kept for 7 days after a successful extraction and
+  up to 30 days while an extraction is still queued or has failed, then
+  redacted automatically — the sender, subject, status and the bookings
+  extracted from it are kept. Purging is opportunistic (it rides on ingest and
+  on import review, since the Worker has no cron trigger), rows written before
+  this change stay readable as plaintext, Settings and the ingest activity
+  dialog state the policy, and re-running extraction over a message whose
+  window has passed answers 410 with the reason instead of silently finding
+  nothing. Adds `POST /api/imports/:inboundEmailId/reextract` and a D1
+  migration.
+- Added editing to the import review queue, so an extraction can be corrected
+  before it becomes a booking rather than after: an Edit button on every
+  pending import opens the same form as Add booking, pre-filled from the
+  draft, and every field it draws — kind, title, location, both timestamps and
+  their timezones, confirmation number, cost and the per-kind details — is
+  saved onto the draft and committed by the later accept. The queue's
+  "Existing trip" picker is now ordered by how well each trip fits the imports
+  currently selected — date containment first, then overlap, then the nearest
+  gap in days, with a conservative destination match as a tie-break — and each
+  option says why it is ranked where it is ("covers these dates · same
+  destination"). Adds `PATCH /api/imports/drafts/:draftId`.
+- Fixed a booking whose confirmation number can no longer be decrypted taking
+  down far more than itself. Duplicate detection reads every booking on a trip
+  at once, so one unreadable row — an envelope sealed under a key a rotation
+  has since retired, or a value written before envelope encryption existed —
+  turned both the trip's duplicates card and the whole import review queue into
+  an Internal error, even though every other view of that same booking already
+  degrades gracefully. Matching now treats an unreadable confirmation as no
+  signal at all and keeps comparing on title, time and location, so the row
+  cannot hide a real duplicate either; a duplicate group that cannot be
+  rendered is dropped with a logged warning rather than shown half-built.
+- Fixed a trip's "Day by day" summary rows opening the day view on the wrong
+  day. Clicking Saturday took you to the day-by-day tab, but the tab then
+  picked a day for itself — the trip's first day with anything on it for a
+  past or future trip, today for one in progress — so the day you clicked was
+  thrown away, and for a future trip every row led to the same place. The
+  clicked date now comes along, and it comes along in the URL, as
+  `#days:2026-10-08` beside the existing `#overview` and `#checklist`: the day
+  survives a reload, Back returns to Overview rather than to whichever day the
+  view had guessed, and the link can be sent to someone as "here's the wedding
+  day". Paging with the arrows keeps the URL current without adding a history
+  entry per day. A plain `#days` still means "you decide", exactly as before,
+  and a date that this trip no longer has — a stale link, or a booking deleted
+  since — quietly falls back to that same choice instead of showing an empty
+  day.
 
 ## 0.7.0 - 2026-07-27
 

@@ -96,6 +96,31 @@ describe("ImportReviewQueue", () => {
     expect(screen.getByText("1896")).toBeInTheDocument();
   });
 
+  /**
+   * How much to trust the fields above it. A calendar attachment was written by
+   * the airline; an AI reading of prose is a suggestion that may have put the
+   * gate time in the wrong zone — and the reviewer deciding whether to correct
+   * a draft before accepting it needs to know which one they are looking at.
+   * The server has always sent `extractionSource`; the card used to drop it.
+   */
+  it("says how each draft was extracted", async () => {
+    setup([
+      draft("DL2586", { extractionSource: "ai" }),
+      draft("DL0162", { extractionSource: "ics" }),
+    ]);
+
+    expect(await screen.findByText("from AI")).toBeInTheDocument();
+    expect(screen.getByText("from calendar")).toBeInTheDocument();
+  });
+
+  it("tells an empty queue where mail comes from and where to set it up", async () => {
+    setup([]);
+
+    expect(await screen.findByText("All caught up")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Settings/ }))
+      .toHaveAttribute("href", "/settings");
+  });
+
   it("groups one source and accepts all uniquely matched drafts into its suggested trip", async () => {
     const first = draft("DL2586", { suggestedTrip: trip });
     const second = draft("DL162", { suggestedTrip: trip });
@@ -174,17 +199,50 @@ describe("ImportReviewQueue", () => {
       },
       trips: { list: vi.fn(async () => [trip]) },
     };
-    vi.stubGlobal("confirm", vi.fn(() => true));
     render(<ImportReviewQueue api={api as never} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong");
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await screen.findByText("Flight DL2586");
     await userEvent.click(screen.getByLabelText("Select Flight DL2586"));
-    await userEvent.click(screen.getByRole("button", { name: "Dismiss selected" }));
+    // Arm, then commit. Nothing is sent on the first click.
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss selected import" }));
+    expect(dismiss).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss 1 import?" }));
 
     await waitFor(() => expect(dismiss).toHaveBeenCalledWith(["DL2586"]));
     expect(await screen.findByText("All caught up")).toBeInTheDocument();
+  });
+
+  it("dismisses one import from its own row, and lets Keep call it off", async () => {
+    const dismiss = vi.fn(async (draftIds: string[]) => ({
+      dismissedDraftIds: draftIds,
+    }));
+    const api = {
+      imports: {
+        pending: vi.fn(async () => [draft("DL2586"), draft("DL0162")]),
+        accept: vi.fn(),
+        createTrip: vi.fn(),
+        dismiss,
+      },
+      trips: { list: vi.fn(async () => [trip]) },
+    };
+    render(<ImportReviewQueue api={api as never} />);
+
+    await screen.findByText("Flight DL2586");
+    // Backing out leaves the row exactly as it was — no request, no selection.
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss Flight DL2586" }));
+    await userEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(dismiss).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Dismiss Flight DL2586" })).toBeInTheDocument();
+
+    // A per-row dismiss sends that draft alone, with nothing ticked.
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss Flight DL2586" }));
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss Flight DL2586?" }));
+
+    await waitFor(() => expect(dismiss).toHaveBeenCalledWith(["DL2586"]));
+    expect(screen.queryByText("Flight DL2586")).not.toBeInTheDocument();
+    expect(screen.getByText("Flight DL0162")).toBeInTheDocument();
   });
 
   it("keeps the review queue usable when the optional trip picker cannot load", async () => {

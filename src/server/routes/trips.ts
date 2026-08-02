@@ -6,8 +6,9 @@ import { BookingRepo } from "../repos/booking.js";
 import { DuplicateRepo } from "../repos/duplicates.js";
 import { PersonRepo } from "../repos/person.js";
 import { RollupRepo } from "../repos/rollup.js";
+import { AuditRepo } from "../repos/audit.js";
 import { BOOKING_KINDS } from "../schemas/booking-kinds.js";
-import { isValidTimestamp, isValidTimezone } from "../time.js";
+import { isValidCalendarDate, isValidInstant, isValidTimezone } from "../time.js";
 import { ForbiddenError, NotFoundError } from "../repos/base.js";
 import type { AppEnv } from "../index.js";
 import { isJsonAction } from "./request.js";
@@ -41,14 +42,35 @@ const photoUrlSchema = z
     message: "photoUrl must be an http(s) URL or an uploaded trip photo",
   });
 
-const createTripSchema = z.object({
-  title: z.string().min(1),
-  destination: z.string().optional(),
-  startsOn: z.string().optional(),
-  endsOn: z.string().optional(),
-  notes: z.string().optional(),
-  photoUrl: photoUrlSchema.optional(),
-});
+/**
+ * A calendar date at the HTTP boundary: `<input type="date">`'s own format,
+ * and a day the calendar contains.
+ *
+ * Mirrors `assertCalendarDate` in repos/validation.ts, which is the actual
+ * enforcement point — this exists so a mistyped date fails as a field-level
+ * 400 naming the field, rather than as the repository's message. The
+ * repository check stays regardless: the email-import path writes trips
+ * without passing through any route.
+ */
+const calendarDateSchema = z
+  .string()
+  .refine(isValidCalendarDate, { message: "must be a well-formed YYYY-MM-DD date" });
+
+const createTripSchema = z
+  .object({
+    title: z.string().min(1),
+    destination: z.string().optional(),
+    startsOn: calendarDateSchema.optional(),
+    endsOn: calendarDateSchema.optional(),
+    notes: z.string().optional(),
+    photoUrl: photoUrlSchema.optional(),
+  })
+  // Cheap here because create sees both halves in one body; the equivalent
+  // check on update needs the stored row and so can only live in the repo.
+  .refine((v) => !v.startsOn || !v.endsOn || v.startsOn <= v.endsOn, {
+    message: "startsOn must be on or before endsOn",
+    path: ["endsOn"],
+  });
 
 /**
  * `.nullable().optional()` is the tri-state at the HTTP boundary, exactly as
@@ -62,16 +84,18 @@ const createTripSchema = z.object({
  * misspelled key), which a permissive schema would silently drop, leaving
  * the operator believing they had edited a field they had not.
  *
- * Date well-formedness and the startsOn <= endsOn ordering are validated in
- * TripRepo.update — the ordering check must see the EFFECTIVE post-patch
- * pair, which only the repo (holding the stored row) can compute.
+ * Date well-formedness is checked here as well as in TripRepo.update, so a
+ * mistyped date names its own field. The startsOn <= endsOn ORDERING is not:
+ * it must see the EFFECTIVE post-patch pair, which only the repo (holding the
+ * stored row) can compute — patching only endsOn below a stored startsOn is
+ * just as inverted a range as sending both.
  */
 const updateTripSchema = z
   .object({
     title: z.string().min(1).optional(),
     destination: z.string().nullable().optional(),
-    startsOn: z.string().nullable().optional(),
-    endsOn: z.string().nullable().optional(),
+    startsOn: calendarDateSchema.nullable().optional(),
+    endsOn: calendarDateSchema.nullable().optional(),
     status: z.enum(TRIP_STATUSES).optional(),
     notes: z.string().nullable().optional(),
     photoUrl: photoUrlSchema.nullable().optional(),
@@ -99,7 +123,9 @@ const createBookingSchema = z
     location: z.string().optional(),
     startsAt: z
       .string()
-      .refine(isValidTimestamp, { message: "startsAt must be a parseable timestamp" })
+      .refine(isValidInstant, {
+        message: "startsAt must be an ISO-8601 instant with an explicit offset or Z",
+      })
       .optional(),
     startsAtTz: z
       .string()
@@ -107,15 +133,20 @@ const createBookingSchema = z
       .optional(),
     endsAt: z
       .string()
-      .refine(isValidTimestamp, { message: "endsAt must be a parseable timestamp" })
+      .refine(isValidInstant, {
+        message: "endsAt must be an ISO-8601 instant with an explicit offset or Z",
+      })
       .optional(),
     endsAtTz: z
       .string()
       .refine(isValidTimezone, { message: "endsAtTz must be a valid IANA timezone" })
       .optional(),
     confirmationNumber: z.string().optional(),
-    costCents: z.number().int().optional(),
-    pointsUsed: z.number().int().optional(),
+    // `.nonnegative()`: a booking's cost and points are spend and usage, not a
+    // signed ledger — see assertNonNegativeAmount in repos/validation.ts for
+    // the decision and why there is no repair path for a negative rollup.
+    costCents: z.number().int().nonnegative().optional(),
+    pointsUsed: z.number().int().nonnegative().optional(),
     pointsProgram: z.string().optional(),
     status: z.enum(["draft", "planned", "booked", "cancelled"]).optional(),
     details: z.unknown(),
@@ -131,7 +162,16 @@ const createBookingSchema = z
   .refine((v) => !v.endsAt || v.endsAtTz, {
     message: "endsAt requires endsAtTz (an IANA timezone)",
     path: ["endsAtTz"],
-  });
+  })
+  // Compared as parsed instants, not as strings: the same moment can be
+  // written with different offsets, and a red-eye landing at 06:00+09:00 after
+  // departing at 23:00-08:00 is perfectly ordered despite sorting backwards as
+  // text. The repo makes this same comparison against the effective post-patch
+  // pair — this one only spares a whole-body create the round trip.
+  .refine(
+    (v) => !v.startsAt || !v.endsAt || Date.parse(v.startsAt) <= Date.parse(v.endsAt),
+    { message: "startsAt must be at or before endsAt", path: ["endsAt"] },
+  );
 
 // `.strict()` on both: a client that posts `bookingIds` to /merge (or
 // `mergeIds` to /dismiss) has confused the two resolutions, and the two do
@@ -369,23 +409,43 @@ trips.post("/:tripId/bookings/:bookingId/reveal", async (c) => {
     return c.json({ error: "Reveal actions require application/json" }, 415);
   }
   const identity = c.get("identity");
-  const repo = new BookingRepo(c.get("db"), identity, c.get("ring"));
-  // A viewer role (ForbiddenError, I3) or an unknown/cross-household
-  // bookingId (NotFoundError, I5) throw here and are mapped by app.onError
-  // before the log line below ever runs -- a denied or nonexistent reveal is
-  // not a reveal to log.
-  const value = await repo.revealConfirmation(c.req.param("bookingId"));
+  const db = c.get("db");
+  const tripId = c.req.param("tripId");
+  const bookingId = c.req.param("bookingId");
+  const repo = new BookingRepo(db, identity, c.get("ring"));
+  // A viewer role (ForbiddenError, I3), an unknown/cross-household bookingId,
+  // or -- since issue #19 -- a booking that exists but belongs to a DIFFERENT
+  // trip than the :tripId in the path (NotFoundError, I5) all throw here and
+  // are mapped by app.onError before anything below runs. A denied,
+  // nonexistent, or wrong-parent reveal is not a reveal to record.
+  const value = await repo.revealConfirmation(bookingId, tripId);
 
-  // The spec requires reveals to be logged.
-  console.info(
-    JSON.stringify({
-      event: "confirmation_reveal",
-      at: new Date().toISOString(),
-      user: identity.email,
-      household: identity.householdId,
-      booking: c.req.param("bookingId"),
-    }),
-  );
+  // The durable half of the audit trail (issue #8): a row an owner can read
+  // back months later from Settings, carrying WHICH booking was revealed,
+  // under WHICH trip, by WHOM, and WHEN -- never the confirmation number
+  // itself. Not wrapped in a try/catch on purpose: a reveal this household
+  // cannot account for is worse than a reveal that failed, so an audit write
+  // that fails takes the request down with it (500) rather than handing back
+  // plaintext off the record.
+  const entry = await new AuditRepo(db, identity).recordReveal({
+    event: "confirmation_reveal",
+    subjectType: "booking",
+    subjectId: bookingId,
+    field: "confirmation_number",
+    tripId,
+  });
+
+  // The ephemeral half: the same event in the structured log stream, joined to
+  // the row by auditId and to the request by the logger's own requestId. Ids
+  // only -- the actor is a user id here, while the audit ROW carries the email
+  // (a human-readable audit trail needs a name; a log stream does not).
+  c.get("logger").info("confirmation_reveal", {
+    auditId: entry.id,
+    bookingId,
+    tripId,
+    householdId: identity.householdId,
+    userId: identity.userId,
+  });
 
   return c.json({ value });
 });
@@ -470,9 +530,23 @@ trips.delete("/:tripId/people/:personId", async (c) => {
 trips.get("/:tripId/travelers", async (c) => {
   const identity = c.get("identity");
   const db = c.get("db");
-  // Both calls are household-scoped by TenantRepo, so a cross-household
-  // tripId simply yields no person ids -- it cannot leak a foreign roster.
-  const ids = new Set(await new TripRepo(db, identity).travelers(c.req.param("tripId")));
+  const tripRepo = new TripRepo(db, identity);
+  // Issue #19: existence-check the parent FIRST. Both calls below are
+  // household-scoped by TenantRepo, so an unknown or cross-household tripId
+  // could never leak a foreign roster -- but it answered `200 []`, i.e. "this
+  // trip exists and nobody is on it", while every sibling route
+  // (/bookings, /itinerary, /rollup) answers 404 for the same input. A client
+  // cannot distinguish an empty trip from an absent one, and a nested route
+  // that reports success for a parent that does not exist is a bug waiting to
+  // be built on.
+  //
+  // Belt and braces with the authorizeTrip middleware in index.ts, which
+  // resolves the same trip and 404s when it cannot: this route must not depend
+  // on a middleware REGISTRATION staying in place to keep its own contract.
+  if (!(await tripRepo.findById(c.req.param("tripId")))) {
+    throw new NotFoundError("Trip not found in this household");
+  }
+  const ids = new Set(await tripRepo.travelers(c.req.param("tripId")));
   const people = await new PersonRepo(db, identity, c.get("ring")).list();
   return c.json(people.filter((p) => ids.has(p.id)));
 });

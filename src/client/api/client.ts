@@ -1,4 +1,5 @@
 import type {
+  AuditEntry,
   Booking,
   BookingStatus,
   Card,
@@ -11,6 +12,8 @@ import type {
   CreatePerkInput,
   CreateTripInput,
   DocumentField,
+  DraftBooking,
+  UpdateDraftBookingInput,
   HouseholdSettings,
   Identity,
   InboundEmailDetail,
@@ -35,6 +38,12 @@ import type {
   TripDuplicateGroup,
   TripMember,
   TripMemberRole,
+  BookingSubscriptionState,
+  NotificationSettingsResponse,
+  PushDeviceView,
+  TestNotificationResult,
+  TimezoneSource,
+  UpdateNotificationPreferencesInput,
 } from "./types.js";
 
 export class ApiError extends Error {
@@ -49,6 +58,19 @@ export class ApiError extends Error {
      * the client cannot phrase for itself.
      */
     readonly detail?: string,
+    /**
+     * The body's `details` field, present only when the server rejected the
+     * SHAPE of the request rather than its meaning — a Zod issue list from a
+     * route's `safeParse`, or `mapError`'s ZodError branch.
+     *
+     * Kept as the raw value rather than a boolean so this class stays a
+     * faithful mirror of the body it came from; what the difference MEANS is
+     * lib/errors.ts's decision, and it is a sharp one: a 400 carrying issues
+     * is this app sending the wrong shape (a bug the user cannot act on),
+     * while a 400 without them is a repository ValidationError, whose message
+     * routes/errors.ts surfaces verbatim precisely so a human can read it.
+     */
+    readonly details?: unknown,
   ) {
     super(message);
   }
@@ -71,16 +93,18 @@ export function createApi(config: ApiConfig = {}) {
     if (!res.ok) {
       let detail = res.statusText;
       let fromBody: string | undefined;
+      let issues: unknown;
       try {
-        const body = (await res.json()) as { error?: string };
+        const body = (await res.json()) as { error?: string; details?: unknown };
         if (body.error) {
           detail = body.error;
           fromBody = body.error;
         }
+        issues = body.details;
       } catch {
         // Non-JSON error body; the status line is all we have.
       }
-      throw new ApiError(`${path} failed: ${detail}`, res.status, fromBody);
+      throw new ApiError(`${path} failed: ${detail}`, res.status, fromBody, issues);
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
@@ -93,7 +117,7 @@ export function createApi(config: ApiConfig = {}) {
    * per method is how one of them ends up missing its content-type and being
    * parsed as an empty body by Hono.
    */
-  const jsonBody = (method: "POST" | "PUT", body: unknown): RequestInit => ({
+  const jsonBody = (method: "POST" | "PUT" | "PATCH", body: unknown): RequestInit => ({
     method,
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -269,6 +293,76 @@ export function createApi(config: ApiConfig = {}) {
       list: () => request<InboundEmailMetadata[]>("/api/inbound-emails"),
       get: (id: string) => request<InboundEmailDetail>(`/api/inbound-emails/${seg(id)}`),
     },
+    /**
+     * Per-user notification settings (issue #61). Not household settings: none
+     * of this is behind the household-writer gate, because every row it
+     * touches is keyed by the authenticated user, and a shared-trip account —
+     * a household viewer — must be able to register its own phone.
+     */
+    notifications: {
+      /** Preferences, stored timezone, and the VAPID applicationServerKey. */
+      preferences: () =>
+        request<NotificationSettingsResponse>("/api/notifications/preferences"),
+      /** Partial: send only the keys being changed. Returns the whole state. */
+      update: (input: UpdateNotificationPreferencesInput) =>
+        request<NotificationSettingsResponse>(
+          "/api/notifications/preferences",
+          jsonBody("PUT", input),
+        ),
+      /**
+       * `source: "device"` is the automatic report and is IGNORED by the
+       * server when a manual pin is set — the response carries the pin that
+       * won, so the caller should use what comes back rather than what it
+       * sent. `timezone: null` clears the zone and the pin together, which is
+       * how "use my device's timezone" resets.
+       */
+      setTimezone: (timezone: string | null, source: TimezoneSource) =>
+        request<NotificationSettingsResponse>(
+          "/api/notifications/timezone",
+          jsonBody("PUT", { timezone, source }),
+        ),
+      devices: () =>
+        request<{ devices: PushDeviceView[] }>("/api/notifications/subscriptions"),
+      /** Takes `PushSubscription.toJSON()` verbatim. Upserted on the endpoint. */
+      registerDevice: (subscription: unknown) =>
+        request<{ device: PushDeviceView }>(
+          "/api/notifications/subscriptions",
+          jsonBody("POST", subscription),
+        ),
+      removeDevice: (id: string) =>
+        // No body: the route reads the id from the path and never calls
+        // c.req.json(). Sending a content-type here would be a lie.
+        request<void>(`/api/notifications/subscriptions/${seg(id)}`, { method: "DELETE" }),
+      /**
+       * Sends one push to every registered device, right now, and answers per
+       * device. `error` (with no results) is the honest 200 for "push is not
+       * configured on this server" or "no device is registered".
+       */
+      test: () =>
+        request<{ results: TestNotificationResult[]; error?: string }>(
+          "/api/notifications/test",
+          jsonBody("POST", {}),
+        ),
+      /** Whether this account hears about one booking, and why. */
+      forBooking: (bookingId: string) =>
+        request<BookingSubscriptionState>(`/api/bookings/${seg(bookingId)}/notification`),
+      /** `null` clears the explicit choice and falls back to the implicit one. */
+      setBooking: (bookingId: string, subscribed: boolean | null) =>
+        request<BookingSubscriptionState>(
+          `/api/bookings/${seg(bookingId)}/notification`,
+          jsonBody("PUT", { subscribed }),
+        ),
+      setTrip: (tripId: string, subscribed: boolean | null) =>
+        request<void>(`/api/trips/${seg(tripId)}/notification`, jsonBody("PUT", { subscribed })),
+    },
+    audit: {
+      /**
+       * Owner-only; 403 for everyone else, which Settings treats as "this
+       * panel isn't for you" rather than an error. Returns the identifiers of
+       * what was revealed — never the revealed values.
+       */
+      reveals: () => request<AuditEntry[]>("/api/audit/reveals"),
+    },
     imports: {
       pending: () => request<PendingImportDraft[]>("/api/imports/pending"),
       accept: (draftIds: string[], tripId: string, allowDuplicates = false) =>
@@ -291,6 +385,17 @@ export function createApi(config: ApiConfig = {}) {
         request<{ dismissedDraftIds: string[] }>(
           "/api/imports/dismiss",
           jsonBody("POST", { draftIds }),
+        ),
+      /**
+       * Correct a draft in the queue, before it becomes a booking. The
+       * response is the stored draft; the caller reloads the queue, because
+       * an edit can change which trip is suggested and what the draft looks
+       * like a duplicate of — see the route's own note.
+       */
+      updateDraft: (draftId: string, patch: UpdateDraftBookingInput) =>
+        request<DraftBooking>(
+          `/api/imports/drafts/${seg(draftId)}`,
+          jsonBody("PATCH", patch),
         ),
       file: (file: File) => {
         const form = new FormData();

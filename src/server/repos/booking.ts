@@ -4,7 +4,7 @@ import { Keyring, mask, assertNotMasked } from "../crypto/envelope.js";
 import { openConfirmation } from "./confirmation.js";
 import { newId } from "../ids.js";
 import { BOOKING_KINDS, parseDetails } from "../schemas/booking-kinds.js";
-import { isValidTimestamp, isValidTimezone } from "../time.js";
+import { assertBookingTiming, assertNonNegativeAmount } from "./validation.js";
 
 /**
  * Exported as a value, not only a type: the status route's Zod enum and the
@@ -15,6 +15,53 @@ import { isValidTimestamp, isValidTimezone } from "../time.js";
 export const BOOKING_STATUSES = ["draft", "planned", "booked", "cancelled"] as const;
 
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
+
+/**
+ * Kept in sync by hand with the CHECK on `booking.reminder_mode`
+ * (migrations/0017_notifications.sql). THREE states, not two: `0` is a
+ * legitimate lead time meaning "remind me at the start", so it cannot double
+ * as "never remind me" — `off` has to be its own word. `inherit` means the
+ * booking has no opinion and follows the account's default, so changing that
+ * default keeps moving every booking that was never customised.
+ *
+ * Declared here, next to BOOKING_STATUSES, rather than in
+ * repos/notification.ts (which re-exports it): it is a column of `booking`,
+ * and putting it there would make booking.ts import notification.ts, which
+ * imports itinerary.ts, which imports booking.ts.
+ */
+export const REMINDER_MODES = ["inherit", "custom", "off"] as const;
+
+export type ReminderMode = (typeof REMINDER_MODES)[number];
+
+/**
+ * Ceiling on a custom lead time: a week. Not arbitrary — it is what bounds
+ * the candidate window the reminder sweep has to scan
+ * (NotificationRepo.findDueReminders), so an unbounded lead here would be an
+ * unbounded query there.
+ */
+export const MAX_REMINDER_LEAD_MINUTES = 7 * 24 * 60;
+
+function assertReminderMode(mode: string): ReminderMode {
+  if (!(REMINDER_MODES as readonly string[]).includes(mode)) {
+    throw new ValidationError(`reminderMode must be one of ${REMINDER_MODES.join(", ")}`);
+  }
+  return mode as ReminderMode;
+}
+
+/**
+ * 0 is legal and means "at the start" — the whole reason `off` is a separate
+ * mode rather than a sentinel number. Negative is not: a reminder AFTER
+ * departure is a bug in the caller, not a feature.
+ */
+function assertReminderLeadMinutes(value: number | null): number | null {
+  if (value === null) return null;
+  if (!Number.isInteger(value) || value < 0 || value > MAX_REMINDER_LEAD_MINUTES) {
+    throw new ValidationError(
+      `reminderLeadMinutes must be a whole number of minutes from 0 to ${MAX_REMINDER_LEAD_MINUTES}`,
+    );
+  }
+  return value;
+}
 
 export type Booking = {
   id: string;
@@ -32,6 +79,19 @@ export type Booking = {
   pointsUsed: number | null;
   pointsProgram: string | null;
   status: BookingStatus;
+  /**
+   * Per-booking override of the account's reminder lead time (#61).
+   *
+   * Optional in the TYPE, always present in anything `toBooking` produced.
+   * `Booking` is re-exported to the client (src/client/api/types.ts) and is
+   * therefore also the shape an optimistic update or a test fixture builds by
+   * hand, and such a caller has no opinion about reminders. Absent means
+   * exactly what 'inherit' means — follow the account default — so the two
+   * spellings agree rather than the type forcing a fabricated answer.
+   */
+  reminderMode?: ReminderMode;
+  /** Minutes before `startsAt`; meaningful only when reminderMode is 'custom'. */
+  reminderLeadMinutes?: number | null;
   details: unknown;
   personIds: string[];
   /** Present only in itinerary responses when a booking spans several days. */
@@ -53,6 +113,8 @@ export type CreateBookingInput = {
   pointsUsed?: number;
   pointsProgram?: string;
   status?: BookingStatus;
+  reminderMode?: ReminderMode;
+  reminderLeadMinutes?: number | null;
   details: unknown;
 };
 
@@ -88,6 +150,10 @@ export type UpdateBookingInput = {
   pointsUsed?: number | null;
   pointsProgram?: string | null;
   status?: BookingStatus;
+  /** Non-nullable: "no reminder opinion" is spelled 'inherit', never NULL. */
+  reminderMode?: ReminderMode;
+  /** Tri-state as usual; null clears the custom lead back to unset. */
+  reminderLeadMinutes?: number | null;
   details?: unknown;
 };
 
@@ -112,6 +178,8 @@ const UPDATE_COLUMNS = {
   pointsUsed: "points_used",
   pointsProgram: "points_program",
   status: "status",
+  reminderMode: "reminder_mode",
+  reminderLeadMinutes: "reminder_lead_minutes",
 } as const;
 
 /**
@@ -136,6 +204,8 @@ export type BookingRow = {
   points_used: number | null;
   points_program: string | null;
   status: BookingStatus;
+  reminder_mode: ReminderMode;
+  reminder_lead_minutes: number | null;
   details: string;
 };
 
@@ -172,6 +242,14 @@ export async function toBooking(
     pointsUsed: row.points_used,
     pointsProgram: row.points_program,
     status: row.status,
+    // A stored mode the CHECK constraint could not have produced (a
+    // hand-edited row, a future value read by an older deploy) falls back to
+    // 'inherit' rather than throwing: an unreadable reminder preference must
+    // degrade to the account default, never break the booking list.
+    reminderMode: (REMINDER_MODES as readonly string[]).includes(row.reminder_mode)
+      ? row.reminder_mode
+      : "inherit",
+    reminderLeadMinutes: row.reminder_lead_minutes,
     details: JSON.parse(row.details),
     personIds,
   };
@@ -237,7 +315,13 @@ export class BookingRepo extends BookingAwareRepo {
     // kept as explicit, belt-and-braces intent at the top of every mutating
     // method, not as the sole enforcement.
     this.requireWrite();
-    assertTimezonePaired(input);
+    assertBookingTiming(input);
+    // create() previously checked neither of these, while update() checked
+    // that they were whole numbers — so the API accepted on POST exactly the
+    // rows it refused on PUT. See assertNonNegativeAmount for why a negative
+    // amount is a 400 rather than an adjustment.
+    assertNonNegativeAmount("costCents", input.costCents);
+    assertNonNegativeAmount("pointsUsed", input.pointsUsed);
 
     const trip = await this.get<{ id: string }>(
       "SELECT id FROM trip WHERE {scope} AND id = ?2",
@@ -287,6 +371,8 @@ export class BookingRepo extends BookingAwareRepo {
       points_used: input.pointsUsed ?? null,
       points_program: input.pointsProgram ?? null,
       status: input.status ?? "planned",
+      reminder_mode: assertReminderMode(input.reminderMode ?? "inherit"),
+      reminder_lead_minutes: assertReminderLeadMinutes(input.reminderLeadMinutes ?? null),
       details: JSON.stringify(details),
       created_at: new Date().toISOString(),
     });
@@ -333,7 +419,7 @@ export class BookingRepo extends BookingAwareRepo {
       throw new ValidationError(`kind must be one of ${BOOKING_KINDS.join(", ")}`);
     }
 
-    assertTimezonePaired({
+    assertBookingTiming({
       startsAt: patch.startsAt === undefined ? existing.startsAt : patch.startsAt,
       startsAtTz: patch.startsAtTz === undefined ? existing.startsAtTz : patch.startsAtTz,
       endsAt: patch.endsAt === undefined ? existing.endsAt : patch.endsAt,
@@ -390,12 +476,12 @@ export class BookingRepo extends BookingAwareRepo {
       if (key === "status" && !(BOOKING_STATUSES as readonly string[]).includes(value as string)) {
         throw new ValidationError(`status must be one of ${BOOKING_STATUSES.join(", ")}`);
       }
-      if (
-        (key === "costCents" || key === "pointsUsed") &&
-        value !== null &&
-        !Number.isInteger(value)
-      ) {
-        throw new ValidationError(`${key} must be a whole number`);
+      if (key === "costCents" || key === "pointsUsed") {
+        assertNonNegativeAmount(key, value as number | null);
+      }
+      if (key === "reminderMode") assertReminderMode(value as string);
+      if (key === "reminderLeadMinutes") {
+        assertReminderLeadMinutes(value as number | null);
       }
       sets.push(`${column} = ?${next++}`);
       params.push(value ?? null);
@@ -490,30 +576,33 @@ export class BookingRepo extends BookingAwareRepo {
     );
     if (!person) throw new NotFoundError("Person not found in this household");
 
-    // Unscoped by design: booking_person carries no household_id of its own,
-    // but both ids above were already confirmed to be in this household by
-    // the scoped get() calls immediately above — that's what makes this
-    // write safe despite bypassing {scope}.
-    await this.unscopedRun(
-      "join-table write; both bookingId and personId already confirmed in-household by get() above",
-      "INSERT OR IGNORE INTO booking_person (booking_id, person_id) VALUES (?, ?)",
-      bookingId,
-      personId,
-    );
-
-    // Being on a booking for a trip means being on that trip — the data
-    // model must not allow the two to diverge. Without this, a person can be
-    // assigned to a booking without ever being added via PUT
-    // /api/trips/:tripId/people/:personId, which leaves them visible in
-    // Overview (which reads bookings.personIds) but invisible in the day
-    // view and Travelers tab (which both read trip_person via
-    // TripRepo.travelers()) — see TripRepo.addTraveler for the identical
-    // idempotent-insert pattern this mirrors.
-    await this.unscopedRun(
-      "join-table write; both tripId (from the scoped booking row above) and personId already confirmed in-household",
-      "INSERT OR IGNORE INTO trip_person (trip_id, person_id) VALUES (?, ?)",
-      booking.trip_id,
-      personId,
+    // Both rows in ONE batch, not two sequential writes. Being on a booking
+    // for a trip means being on that trip — the data model must not allow the
+    // two to diverge. Without the trip_person row a person is visible in
+    // Overview (which reads bookings.personIds) but invisible in the day view
+    // and Travelers tab (which both read trip_person via TripRepo.travelers()),
+    // and two separate calls leave exactly that split behind whenever the
+    // second one fails: a request that returned an error having still half
+    // happened. D1's batch is a single implicit transaction, so the pair now
+    // either both land or neither does. See TripRepo.addTraveler for the
+    // idempotent-insert pattern each statement mirrors.
+    //
+    // Unscoped by design: neither join table carries a household_id of its
+    // own, but the booking (and therefore its trip_id) and the person were
+    // both confirmed in-household by the scoped get() calls above — that is
+    // what makes these writes safe despite bypassing {scope}.
+    await this.unscopedBatchRun(
+      "join-table writes that must not diverge; bookingId, its trip_id, and personId all confirmed in-household by the get() calls above",
+      [
+        {
+          sql: "INSERT OR IGNORE INTO booking_person (booking_id, person_id) VALUES (?, ?)",
+          params: [bookingId, personId],
+        },
+        {
+          sql: "INSERT OR IGNORE INTO trip_person (trip_id, person_id) VALUES (?, ?)",
+          params: [booking.trip_id, personId],
+        },
+      ],
     );
   }
 
@@ -589,70 +678,43 @@ export class BookingRepo extends BookingAwareRepo {
    * I5: a bookingId that doesn't exist (or belongs to another household) now
    * throws NotFoundError, distinct from "this booking exists but has no
    * confirmation number", which still resolves to `null`.
+   *
+   * Issue #19: `tripId` is the PARENT the reveal is being performed under, and
+   * it is part of the lookup, not a decoration. The HTTP surface is a nested
+   * resource (POST /api/trips/:tripId/bookings/:bookingId/reveal); before this
+   * argument existed the :tripId segment was read and discarded, so any
+   * booking in the household could be revealed under any other trip's URL. The
+   * disclosure boundary was never crossed (household scoping saw to that), but
+   * the audit record that reveal now writes would have named a trip that had
+   * nothing to do with the booking -- a wrong answer to "where did this
+   * happen", which is worse than no answer.
+   *
+   * Optional so a non-nested caller (a repo-level test, a future job with no
+   * trip in hand) is not forced to invent one; passing it is what the nested
+   * route does, and a mismatch is a 404 -- the same answer as a booking that
+   * genuinely is not there, disclosing nothing about which trips exist.
    */
-  async revealConfirmation(bookingId: string): Promise<string | null> {
+  async revealConfirmation(bookingId: string, tripId?: string): Promise<string | null> {
     this.requireReveal();
-    const row = await this.get<{ value: string | null }>(
-      "SELECT confirmation_number AS value FROM booking WHERE {scope} AND id = ?2",
-      bookingId,
-    );
-    if (!row) throw new NotFoundError("Booking not found in this household");
+    const row = tripId
+      ? await this.get<{ value: string | null }>(
+          "SELECT confirmation_number AS value FROM booking WHERE {scope} AND id = ?2 AND trip_id = ?3",
+          bookingId,
+          tripId,
+        )
+      : await this.get<{ value: string | null }>(
+          "SELECT confirmation_number AS value FROM booking WHERE {scope} AND id = ?2",
+          bookingId,
+        );
+    if (!row) throw new NotFoundError("Booking not found on this trip in this household");
     return openConfirmation(this.ring, row.value);
   }
 }
 
-/**
- * A timestamp without its IANA zone renders every cross-timezone itinerary
- * wrong, which is most flights. Reject the unpaired case at the boundary rather
- * than discovering it in the UI.
- *
- * C1: also rejects a timestamp `Date.parse` can't understand and a
- * timezone `Intl.DateTimeFormat` doesn't recognize. This mirrors
- * `createBookingSchema`'s refinements in routes/trips.ts at the repo level,
- * so a non-HTTP caller (e.g. a future email-ingestion job constructing
- * bookings directly) gets the same guarantee the HTTP boundary gives an API
- * client — an unparseable timestamp must never reach `localDateOf()` in
- * ItineraryRepo, where it would throw on every future read of that trip's
- * day view.
- *
- * Structurally typed rather than taking `CreateBookingInput`, so `update()`
- * can hand it the EFFECTIVE post-patch pair (stored value where the patch is
- * silent, patched value where it is not) and get the identical guarantee.
- * `null` and `undefined` both mean "not set" here — the tri-state distinction
- * matters to the SET clause, not to this check.
- */
-type BookingTiming = {
-  startsAt?: string | null;
-  startsAtTz?: string | null;
-  endsAt?: string | null;
-  endsAtTz?: string | null;
-};
-
-function assertTimezonePaired(input: BookingTiming): void {
-  if (input.startsAt) {
-    if (!input.startsAtTz) {
-      throw new ValidationError("startsAt requires startsAtTz (an IANA timezone)");
-    }
-    if (!isValidTimestamp(input.startsAt)) {
-      throw new ValidationError("startsAt must be a parseable timestamp");
-    }
-    if (!isValidTimezone(input.startsAtTz)) {
-      throw new ValidationError("startsAtTz must be a valid IANA timezone");
-    }
-  }
-  if (input.endsAt) {
-    if (!input.endsAtTz) {
-      throw new ValidationError("endsAt requires endsAtTz (an IANA timezone)");
-    }
-    if (!isValidTimestamp(input.endsAt)) {
-      throw new ValidationError("endsAt must be a parseable timestamp");
-    }
-    if (!isValidTimezone(input.endsAtTz)) {
-      throw new ValidationError("endsAtTz must be a valid IANA timezone");
-    }
-  }
-}
-
-// isValidTimestamp/isValidTimezone live in ../time.js, shared with
-// routes/trips.ts and ingest/extracted.ts -- see that module's doc comment
-// for why the three must never drift apart.
+// `assertBookingTiming` (the timestamp/zone pairing and the start-before-end
+// ordering) used to live here as two private functions. It moved to
+// ./validation.js the day `DraftBookingRepo.update` needed the identical rule:
+// a reviewer correcting an extracted time before accepting it must be held to
+// exactly what BookingRepo.create would accept, or the accept silently drops
+// the value they just typed. Same rules, same messages, one implementation —
+// see that module's doc comment, and ../time.js beneath it.

@@ -98,6 +98,39 @@ const _schemasAreKinds: Record<keyof typeof SCHEMAS, BookingKind> = {
 };
 void _schemasAreKinds;
 
+/**
+ * The `details` an imported draft is committed with — the extractor's record
+ * plus the one repair the import path has always made for it.
+ *
+ * `lodgingDetails.propertyName` is required, and a confirmation email that
+ * says "St. Mary / East Glacier KOA Holiday" in its subject and nowhere else
+ * frequently produces a draft whose title is the property and whose details
+ * are not. Refusing the import over that would be absurd, so the title stands
+ * in — spread FIRST so a propertyName the extractor (or a reviewer) did supply
+ * always wins.
+ *
+ * It lives in this module, beside the schemas it feeds, because two callers
+ * now need to agree about it: `ImportReviewRepo` applies it at commit time,
+ * and `DraftBookingRepo.update` applies it when validating an edited draft. If
+ * the edit validated the raw record while the commit validated the repaired
+ * one, a lodging edit that only changed the check-out date would be rejected
+ * for a missing propertyName the accept was about to supply anyway.
+ */
+export function importedDetails(kind: string, title: string, value: unknown): unknown {
+  const details =
+    value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  if (kind !== "lodging") return details;
+  return {
+    propertyName:
+      typeof details.propertyName === "string" && details.propertyName.trim() !== ""
+        ? details.propertyName
+        : title,
+    ...details,
+  };
+}
+
 export function parseDetails(kind: string, details: unknown): unknown {
   const schema = SCHEMAS[kind as keyof typeof SCHEMAS];
   return schema ? schema.parse(withoutNullOptionals(details)) : freeformDetails.parse(details);

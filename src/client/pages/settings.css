@@ -35,6 +35,21 @@
   text-align: right;
 }
 
+/* The raw-email retention policy, stated inside the Email ingest group. Set
+   apart from the fields above it with a rule and a tinted panel because it is
+   a promise about the user's data rather than another control: it should read
+   as the section's terms, not as something else to fill in. */
+.settings-retention {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
 /* ── Recent ingest activity ──
    Each row is ONE interactive element: a button styled as a surface card.
    (Previously the article had an onClick and a nested button doing the same
@@ -93,4 +108,55 @@
 .ingest-from {
   font-size: 13px;
   opacity: 0.8;
+}
+
+/* The rail stacks two independent panels (ingest activity, reveal activity);
+   they need more air between them than the 14px that separates rows inside
+   one panel. */
+.settings-rail {
+  gap: 28px;
+}
+
+/* ── About this build ──
+   The version reads as data, not prose: tabular figures so it can be compared
+   against another report's number at a glance, and it is the only thing on the
+   line anyone is meant to copy. */
+.build-version {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+/* ── Reveal activity ──
+   Read-only rows: nothing here is clickable, because there is nothing to
+   drill into — the audit entry IS the whole record. */
+.reveal-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.reveal-item {
+  display: grid;
+  gap: 3px;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  min-width: 0;
+}
+.reveal-what {
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+/* The record handle reads as data, not prose. */
+.reveal-ref {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+.reveal-who {
+  font-size: 13px;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
 }

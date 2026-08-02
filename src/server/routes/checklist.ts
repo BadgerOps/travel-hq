@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { ChecklistRepo } from "../repos/checklist.js";
+import { isValidCalendarDate } from "../time.js";
 import type { AppEnv } from "../index.js";
 import { authorizeTrip } from "../trip-authorization.js";
 
@@ -8,7 +9,14 @@ const createSchema = z.object({
   tripId: z.string().min(1),
   label: z.string().min(1),
   personId: z.string().optional(),
-  dueOn: z.string().optional(),
+  // Mirrors ChecklistRepo.create's own assertCalendarDate. A due date is sorted
+  // on and compared against today to render the urgency badge, neither of which
+  // survives a free-text date -- and this column has no update path, so a bad
+  // value written here can only be deleted, never corrected.
+  dueOn: z
+    .string()
+    .refine(isValidCalendarDate, { message: "dueOn must be a well-formed YYYY-MM-DD date" })
+    .optional(),
 });
 
 const doneSchema = z.object({ done: z.boolean() });

@@ -37,10 +37,52 @@ describe("api client", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/trips/t1/itinerary", expect.anything());
   });
 
+  it("reads the reveal audit trail", async () => {
+    const fetchMock = mockFetch(200, []);
+    const api = createApi({ fetch: fetchMock, baseUrl: "" });
+    expect(await api.audit.reveals()).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledWith("/api/audit/reveals", expect.anything());
+  });
+
+  it("surfaces the owner-only 403 on the audit trail as an ApiError", async () => {
+    const api = createApi({ fetch: mockFetch(403, { error: "Forbidden" }), baseUrl: "" });
+    await expect(api.audit.reveals()).rejects.toMatchObject({ status: 403 });
+  });
+
   it("throws ApiError carrying the status on a failure", async () => {
     const api = createApi({ fetch: mockFetch(401, { error: "Unauthorized" }), baseUrl: "" });
     await expect(api.trips.list()).rejects.toThrow(ApiError);
     await expect(api.trips.list()).rejects.toMatchObject({ status: 401 });
+  });
+
+  /**
+   * The two 400s that must not look alike. lib/errors.ts shows a repository
+   * ValidationError's message to the reviewer and hides a schema rejection
+   * behind "this is a bug", and `details` is the only thing in the body that
+   * tells them apart — so it has to survive the trip out of the response.
+   */
+  it("carries a schema rejection's issue list, and leaves it absent otherwise", async () => {
+    const schema = createApi({
+      fetch: mockFetch(400, {
+        error: "Invalid import acceptance",
+        details: [{ code: "invalid_type", path: ["tripId"] }],
+      }),
+      baseUrl: "",
+    });
+    await expect(schema.imports.dismiss(["d1"])).rejects.toMatchObject({
+      status: 400,
+      detail: "Invalid import acceptance",
+      details: [{ code: "invalid_type", path: ["tripId"] }],
+    });
+
+    const validation = createApi({
+      fetch: mockFetch(400, { error: "Only pending imports can be reviewed" }),
+      baseUrl: "",
+    });
+    await expect(validation.imports.dismiss(["d1"])).rejects.toSatisfy(
+      (err: ApiError) =>
+        err.detail === "Only pending imports can be reviewed" && err.details === undefined,
+    );
   });
 
   it("reveals a booking confirmation", async () => {

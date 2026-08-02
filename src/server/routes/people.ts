@@ -2,17 +2,31 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { PersonRepo, DOCUMENT_FIELDS } from "../repos/person.js";
 import type { DocumentField, UpdatePersonInput } from "../repos/person.js";
+import { AuditRepo } from "../repos/audit.js";
+import { isValidCalendarDate } from "../time.js";
 import type { AppEnv } from "../index.js";
 import { isJsonAction } from "./request.js";
 
+/**
+ * Mirrors `assertCalendarDate` in repos/validation.ts, which is the actual
+ * enforcement point for both of this route's date fields. Worth stating twice:
+ * `passportExpiry` is compared against a trip's `starts_on` to raise the
+ * "passport expires before this trip" warning, and that comparison is silently
+ * meaningless — not loud, meaningless — unless both sides are exact
+ * YYYY-MM-DD.
+ */
+const calendarDateSchema = z
+  .string()
+  .refine(isValidCalendarDate, { message: "must be a well-formed YYYY-MM-DD date" });
+
 const createPersonSchema = z.object({
   displayName: z.string().min(1),
-  dob: z.string().optional(),
+  dob: calendarDateSchema.optional(),
   email: z.string().trim().email().optional(),
   phone: z.string().trim().min(1).max(40).optional(),
   notes: z.string().optional(),
   passportNumber: z.string().optional(),
-  passportExpiry: z.string().optional(),
+  passportExpiry: calendarDateSchema.optional(),
   passportCountry: z.string().optional(),
   knownTravelerNumber: z.string().optional(),
   redressNumber: z.string().optional(),
@@ -34,11 +48,11 @@ const createPersonSchema = z.object({
 const updatePersonSchema = z
   .object({
     displayName: z.string().min(1).optional(),
-    dob: z.string().nullable().optional(),
+    dob: calendarDateSchema.nullable().optional(),
     email: z.string().trim().email().nullable().optional(),
     phone: z.string().trim().min(1).max(40).nullable().optional(),
     notes: z.string().nullable().optional(),
-    passportExpiry: z.string().nullable().optional(),
+    passportExpiry: calendarDateSchema.nullable().optional(),
     passportCountry: z.string().nullable().optional(),
     passportNumber: z.string().min(1).nullable().optional(),
     knownTravelerNumber: z.string().min(1).nullable().optional(),
@@ -116,24 +130,38 @@ people.post("/:id/reveal/:field", async (c) => {
   }
 
   const identity = c.get("identity");
-  const repo = new PersonRepo(c.get("db"), identity, c.get("ring"));
+  const db = c.get("db");
+  const personId = c.req.param("id");
+  const repo = new PersonRepo(db, identity, c.get("ring"));
   // A viewer role (ForbiddenError, I3) or an unknown/cross-household person
   // id (NotFoundError, I5) throw here and are mapped by app.onError before
-  // the log line below ever runs -- a denied or nonexistent reveal is not a
-  // reveal to log.
-  const value = await repo.revealDocument(c.req.param("id"), field as DocumentField);
+  // anything below ever runs -- a denied or nonexistent reveal is not a
+  // reveal to record.
+  const value = await repo.revealDocument(personId, field as DocumentField);
 
-  // The spec requires document reveals to be logged.
-  console.info(
-    JSON.stringify({
-      event: "document_reveal",
-      at: new Date().toISOString(),
-      user: identity.email,
-      household: identity.householdId,
-      person: c.req.param("id"),
-      field,
-    }),
-  );
+  // The durable half of the audit trail (issue #8): an owner-readable row
+  // naming WHICH person's WHICH document was unmasked, by whom and when --
+  // never the document number. No trip id: a person is household-scoped and
+  // has no trip parent. Not wrapped in a try/catch on purpose; see the
+  // matching comment on the booking reveal in routes/trips.ts for why an
+  // unauditable reveal must fail rather than succeed quietly.
+  const entry = await new AuditRepo(db, identity).recordReveal({
+    event: "document_reveal",
+    subjectType: "person",
+    subjectId: personId,
+    field,
+  });
+
+  // The ephemeral half, correlated to the row by auditId and to the request by
+  // the logger's requestId. `field` is the NAME of the field, which is the
+  // whole point of the entry; the value it held never appears.
+  c.get("logger").info("document_reveal", {
+    auditId: entry.id,
+    personId,
+    field,
+    householdId: identity.householdId,
+    userId: identity.userId,
+  });
 
   return c.json({ value });
 });

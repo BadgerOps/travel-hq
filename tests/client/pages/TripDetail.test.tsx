@@ -34,6 +34,31 @@ function makeApi() {
   };
 }
 
+function dayBooking(id: string, title: string, startsAt: string) {
+  return {
+    id, tripId: "t1", kind: "other" as const, title, location: null,
+    startsAt, startsAtTz: "America/Los_Angeles", endsAt: null, endsAtTz: null,
+    confirmationNumberMasked: null, costCents: null, pointsUsed: null,
+    pointsProgram: null, status: "booked" as const, details: {}, personIds: ["p1"],
+  };
+}
+
+// One booking per trip day, each with a title that appears nowhere else, so a
+// test can say which day the day view actually landed on. `today` above is
+// months before this trip, so DayView's own first-load rule picks Oct 9 —
+// which is exactly what a deep-linked date has to be able to override.
+const ITINERARY = [
+  { date: "2026-10-09", bookings: [dayBooking("b1", "Welcome dinner", "2026-10-09T02:00:00Z")] },
+  { date: "2026-10-10", bookings: [dayBooking("b2", "Ceremony", "2026-10-10T22:00:00Z")] },
+  { date: "2026-10-11", bookings: [dayBooking("b3", "Farewell brunch", "2026-10-11T17:00:00Z")] },
+];
+
+function makeItineraryApi() {
+  const api = makeApi();
+  api.trips.itinerary = vi.fn(async () => ITINERARY) as never;
+  return api;
+}
+
 function renderDetail(api = makeApi()) {
   const { hook } = memoryLocation({ path: "/trips/t1" });
   return render(
@@ -110,6 +135,74 @@ describe("TripDetail", () => {
     renderDetail();
     await userEvent.click(await screen.findByRole("radio", { name: "Checklist" }));
     expect(window.location.hash).toBe("#checklist");
+  });
+
+  it("opens the day view on the date named in the hash", async () => {
+    window.history.replaceState(null, "", "/trips/t1#days:2026-10-11");
+    renderDetail(makeItineraryApi());
+    expect(await screen.findByText("Farewell brunch")).toBeInTheDocument();
+    expect(screen.queryByText("Welcome dinner")).not.toBeInTheDocument();
+  });
+
+  // Issue #60: this is the whole bug. The row knew its date, the hash had
+  // nowhere to put it, and the day view picked Oct 9 for itself every time.
+  it("lands the day view on the day clicked in Overview's strip", async () => {
+    renderDetail(makeItineraryApi());
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Sunday, October 11 in the day-by-day view",
+      }),
+    );
+    expect(screen.getByRole("radio", { name: "Day by day" })).toBeChecked();
+    expect(await screen.findByText("Farewell brunch")).toBeInTheDocument();
+    // In the hash, so the day survives a reload and can be sent to someone.
+    expect(window.location.hash).toBe("#days:2026-10-11");
+  });
+
+  it("pages within the day view without burying Overview under history entries", async () => {
+    // Paging replaces the current entry rather than pushing one, so Back out
+    // of the day view still means "return to Overview" instead of walking
+    // back through every day the viewer flipped past.
+    renderDetail(makeItineraryApi());
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Friday, October 9 in the day-by-day view",
+      }),
+    );
+    await screen.findByText("Welcome dinner");
+    const entries = window.history.length;
+    await userEvent.click(screen.getByRole("button", { name: /next day/i }));
+    await userEvent.click(screen.getByRole("button", { name: /next day/i }));
+    expect(await screen.findByText("Farewell brunch")).toBeInTheDocument();
+    expect(window.location.hash).toBe("#days:2026-10-11");
+    expect(window.history.length).toBe(entries);
+  });
+
+  it("keeps a bare #days on the day view's own choice of day", async () => {
+    // The dashboard's "Open day view" button has linked to `#days` since long
+    // before dates joined the hash, and must keep meaning "you decide".
+    window.history.replaceState(null, "", "/trips/t1#days");
+    renderDetail(makeItineraryApi());
+    expect(await screen.findByText("Welcome dinner")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Day by day" })).toBeChecked();
+  });
+
+  it.each(["#days:", "#days:garbage", "#days:2026-13-45", "#days:2026-02-30"])(
+    "degrades %s to the day view's own choice instead of breaking",
+    async (hash) => {
+      window.history.replaceState(null, "", `/trips/t1${hash}`);
+      renderDetail(makeItineraryApi());
+      expect(await screen.findByText("Welcome dinner")).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Day by day" })).toBeChecked();
+    },
+  );
+
+  it("leaves the other tabs' hashes alone", async () => {
+    window.history.replaceState(null, "", "/trips/t1#checklist:2026-10-11");
+    renderDetail(makeItineraryApi());
+    // A date means nothing outside the day view; the suffix is ignored rather
+    // than disqualifying the tab.
+    expect(await screen.findByRole("radio", { name: "Checklist" })).toBeChecked();
   });
 
   it("reports a missing trip rather than rendering blank", async () => {

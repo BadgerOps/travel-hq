@@ -1,6 +1,8 @@
 import { TenantRepo, ForbiddenError, NotFoundError, ValidationError } from "./base.js";
 import type { HouseholdContext } from "./base.js";
+import type { Keyring } from "../crypto/envelope.js";
 import { newId } from "../ids.js";
+import { rawRetentionCutoffs, rawRetentionExpiresAt } from "../../shared/email-retention.js";
 
 /**
  * The full status vocabulary of an inbound_email row. Kept in sync with the
@@ -23,6 +25,36 @@ export type InboundEmailStatus = (typeof INBOUND_EMAIL_STATUSES)[number];
 /** The statuses ingest may create a row in. `extracted` is a transition only. */
 export type CreateInboundEmailStatus = Exclude<InboundEmailStatus, "extracted">;
 
+/**
+ * How `inbound_email.raw` is physically stored. Read from the row's own
+ * `raw_encryption` column rather than sniffed from the value, because the two
+ * are not reliably distinguishable and guessing wrong in either direction is
+ * a data-loss bug: a legacy plaintext message mistaken for an envelope fails
+ * to decrypt and vanishes from the UI.
+ */
+export type RawEncryption = "plaintext" | "envelope";
+
+/**
+ * Why a row's `raw` reads the way it does. Every state except `retained`
+ * means `raw` is the empty string, and they are kept apart because the
+ * product says different things about each:
+ *
+ * - `retained`     — the message is stored and was decoded successfully.
+ * - `never-stored` — ingest deliberately stored no message: a rejected
+ *                    sender (retaining up to a megabyte of attacker-supplied
+ *                    text would be a free way to fill D1), or a failure that
+ *                    happened before the stream could be read.
+ * - `purged`       — the message WAS stored and the retention sweep redacted
+ *                    it. `rawPurgedAt` says when.
+ * - `unreadable`   — the message is stored as an envelope this key ring
+ *                    cannot open (no ring configured, or the key it was
+ *                    sealed with has been rotated out). The row is still
+ *                    returned: silently dropping rows whose ciphertext will
+ *                    not open is exactly the failure mode that makes a UI
+ *                    look like it lost the user's data.
+ */
+export type RawRetentionState = "retained" | "never-stored" | "purged" | "unreadable";
+
 export type InboundEmail = {
   id: string;
   /** Envelope (SMTP) sender — what the allowlist was checked against. */
@@ -31,13 +63,28 @@ export type InboundEmail = {
   to: string;
   subject: string | null;
   messageId: string | null;
-  /** Raw RFC 5322 message text; "" when the raw stream could not be read. */
+  /**
+   * Raw RFC 5322 message text, already decrypted. "" whenever `rawState` is
+   * anything other than "retained" — read that field, not this one's
+   * emptiness, to tell "never stored" from "kept and then purged".
+   */
   raw: string;
   status: InboundEmailStatus;
   /** Human-readable outcome for failed/rejected rows; null on received. */
   error: string | null;
   /** When the ingest handler stored the row (ISO 8601). */
   receivedAt: string;
+  /** Why `raw` reads the way it does; see RawRetentionState. */
+  rawState: RawRetentionState;
+  /** When the retention sweep redacted `raw` (ISO 8601); null if it never did. */
+  rawPurgedAt: string | null;
+  /**
+   * When `raw` becomes eligible for the sweep (ISO 8601) — what the detail
+   * view shows as "kept until". Null once there is nothing left to expire, so
+   * a purged row does not advertise a future deletion date for a message that
+   * is already gone.
+   */
+  rawExpiresAt: string | null;
 };
 
 export type CreateInboundEmailInput = {
@@ -67,9 +114,31 @@ type Row = {
   status: InboundEmailStatus;
   error: string | null;
   received_at: string;
+  raw_encryption: RawEncryption;
+  raw_purged_at: string | null;
 };
 
 export class InboundEmailRepo extends TenantRepo {
+  /**
+   * The key ring that seals `raw` at rest, when the caller has one.
+   *
+   * Optional rather than required, and deliberately so. Making it mandatory
+   * would force it through ImportReviewRepo and the extractor, neither of
+   * which ever reads or writes raw, and would break every call site that only
+   * moves a status. A repo built without a ring writes plaintext — which is
+   * precisely the shape every pre-0015 row already has, and which reads back
+   * correctly — while every path that actually stores a message (the email
+   * ingest handler, the file import route) passes one. `raw_encryption`
+   * records which of the two happened per row, so the two can coexist
+   * forever without a backfill.
+   */
+  private readonly ring: Keyring | undefined;
+
+  constructor(db: D1Database, ctx: HouseholdContext, ring?: Keyring) {
+    super(db, ctx);
+    this.ring = ring;
+  }
+
   /**
    * The ingest handler's (and the extractor's — #6) way in. Mail arrives with
    * no authenticated user, so there is no real HouseholdContext to bind; the
@@ -79,9 +148,9 @@ export class InboundEmailRepo extends TenantRepo {
    * never inline at call sites. Role "adult" so writes pass requireWrite()
    * without granting owner-only powers.
    */
-  static forIngest(db: D1Database, householdId: string): InboundEmailRepo {
+  static forIngest(db: D1Database, householdId: string, ring?: Keyring): InboundEmailRepo {
     const ctx: HouseholdContext = { householdId, userId: "system:email-ingest", role: "adult" };
-    return new InboundEmailRepo(db, ctx);
+    return new InboundEmailRepo(db, ctx, ring);
   }
 
   async create(input: CreateInboundEmailInput): Promise<InboundEmail> {
@@ -100,16 +169,25 @@ export class InboundEmailRepo extends TenantRepo {
       throw new ValidationError("An inbound email may only be created as received, failed, or rejected");
     }
     const id = newId();
+    // Seal the message before it is bound, not after it is stored: there is
+    // no window in which the plaintext exists in D1. An empty raw (a rejected
+    // sender, or an ingest failure that never read the stream) is left as ""
+    // rather than encrypted to a nonempty envelope, so "" keeps meaning
+    // "nothing here" for the retention sweep and the UI alike.
+    const sealed = input.raw === "" || !this.ring
+      ? { raw: input.raw, raw_encryption: "plaintext" as RawEncryption }
+      : { raw: await this.ring.encrypt(input.raw), raw_encryption: "envelope" as RawEncryption };
     await this.insert("inbound_email", {
       id,
       from_address: input.from,
       to_address: input.to,
       subject: input.subject ?? null,
       message_id: input.messageId ?? null,
-      raw: input.raw,
+      ...sealed,
       status,
       error: input.error ?? null,
       received_at: new Date().toISOString(),
+      raw_purged_at: null,
     });
     const created = await this.findById(id);
     if (!created) throw new Error("Inbound email disappeared immediately after creation");
@@ -121,7 +199,7 @@ export class InboundEmailRepo extends TenantRepo {
     const rows = await this.all<Row>(
       "SELECT * FROM inbound_email WHERE {scope} ORDER BY received_at DESC, id DESC",
     );
-    return rows.map(toInboundEmail);
+    return this.toInboundEmails(rows);
   }
 
   /**
@@ -162,12 +240,12 @@ export class InboundEmailRepo extends TenantRepo {
       "SELECT * FROM inbound_email WHERE {scope} AND status = ?2 ORDER BY received_at, id",
       status,
     );
-    return rows.map(toInboundEmail);
+    return this.toInboundEmails(rows);
   }
 
   async findById(id: string): Promise<InboundEmail | undefined> {
     const row = await this.get<Row>("SELECT * FROM inbound_email WHERE {scope} AND id = ?2", id);
-    return row ? toInboundEmail(row) : undefined;
+    return row ? await this.toInboundEmail(row) : undefined;
   }
 
   async findByMessageId(messageId: string): Promise<InboundEmail | undefined> {
@@ -175,7 +253,89 @@ export class InboundEmailRepo extends TenantRepo {
       "SELECT * FROM inbound_email WHERE {scope} AND message_id = ?2",
       messageId,
     );
-    return row ? toInboundEmail(row) : undefined;
+    return row ? await this.toInboundEmail(row) : undefined;
+  }
+
+  /**
+   * Redact `raw` on every row in this household whose retention window has
+   * elapsed, and return the ids it redacted.
+   *
+   * This is the whole purge mechanism. There is no cron trigger configured
+   * for this Worker, so it runs opportunistically on the paths that already
+   * touch inbound mail — the email ingest handler, the file import, and the
+   * import review accept/dismiss/create-trip endpoints. Every one of those is
+   * already a write, already scoped to one household, and already the moment
+   * at which the household in question is demonstrably active, which is
+   * exactly when its old mail should be aging out. A household that stops
+   * using the product also stops accumulating mail, so no sweep is owed.
+   *
+   * Redaction, not deletion: the row survives with its envelope metadata,
+   * status, error and the drafts it produced, because the activity feed and
+   * every booking's provenance link point at it. Only the message text goes.
+   *
+   * Idempotent and cheap to call on a hot path: the WHERE clause matches
+   * nothing once a row has been swept, and the SELECT that precedes the
+   * UPDATE exists only so the caller can log what went.
+   */
+  async purgeExpiredRaw(now: Date = new Date()): Promise<string[]> {
+    this.requireWrite();
+    const cutoffs = rawRetentionCutoffs(now);
+    // CASE rather than OR: base.ts refuses a query with an OR at or above the
+    // {scope} token's nesting depth, because that is the shape that can
+    // neutralize the tenancy predicate. A CASE expression picks the same two
+    // cutoffs apart without introducing one.
+    const expired = await this.all<{ id: string }>(
+      `SELECT id FROM inbound_email
+        WHERE {scope}
+          AND raw <> ''
+          AND raw_purged_at IS NULL
+          AND received_at <= (CASE WHEN status = 'extracted' THEN ?2 ELSE ?3 END)`,
+      cutoffs.extracted,
+      cutoffs.unresolved,
+    );
+    if (expired.length === 0) return [];
+    await this.run(
+      `UPDATE inbound_email
+          SET raw = '', raw_encryption = 'plaintext', raw_purged_at = ?2
+        WHERE {scope}
+          AND raw <> ''
+          AND raw_purged_at IS NULL
+          AND received_at <= (CASE WHEN status = 'extracted' THEN ?3 ELSE ?4 END)`,
+      now.toISOString(),
+      cutoffs.extracted,
+      cutoffs.unresolved,
+    );
+    return expired.map((row) => row.id);
+  }
+
+  /**
+   * The same sweep across every household at once — the seam a future
+   * `scheduled()` handler calls, so that adding the cron is a wrangler.toml
+   * change plus three lines in the entrypoint rather than a redesign.
+   * Returns the number of rows redacted.
+   *
+   * Deliberately unscoped, and static for that reason: a cron has no
+   * household context to bind, and inventing a synthetic one per household
+   * would mean first listing every household — a cross-tenant read by another
+   * name. It is safe precisely because it can only ever blank a column;
+   * there is no tenant whose data it could disclose to another, and no input
+   * the caller can shape (`now` aside) to widen it. It uses `db.prepare`
+   * directly, which the architecture test permits under repos/ — the tenancy
+   * layer is allowed to be the place that knows how to bypass itself.
+   */
+  static async purgeExpiredRawEverywhere(db: D1Database, now: Date = new Date()): Promise<number> {
+    const cutoffs = rawRetentionCutoffs(now);
+    const result = await db
+      .prepare(
+        `UPDATE inbound_email
+            SET raw = '', raw_encryption = 'plaintext', raw_purged_at = ?
+          WHERE raw <> ''
+            AND raw_purged_at IS NULL
+            AND received_at <= (CASE WHEN status = 'extracted' THEN ? ELSE ? END)`,
+      )
+      .bind(now.toISOString(), cutoffs.extracted, cutoffs.unresolved)
+      .run();
+    return result.meta.changes ?? 0;
   }
 
   /** received → extracted. The extractor (#6) calls this on success. */
@@ -200,6 +360,16 @@ export class InboundEmailRepo extends TenantRepo {
    * The only legal transitions are received → extracted|failed. Terminal
    * states (extracted, failed, rejected) never move again — a re-run of the
    * extractor over an already-processed row is a bug, not a retry.
+   *
+   * Compare-and-set, not read-then-write. The `AND status = 'received'`
+   * predicate has always been the real guard; what was missing was reading
+   * its verdict. The queue is drained by workers that can overlap (a retry, a
+   * second cron tick), so two of them can both pass the pre-check below and
+   * both issue the UPDATE — and the loser's UPDATE matches zero rows. Asking
+   * for exactly one changed row is what turns that into an error instead of a
+   * caller being told its own requested state was persisted when another
+   * worker's was. The row is then re-read rather than synthesized, so the
+   * return value is what the database holds, not what we hoped it would hold.
    */
   private async transition(
     id: string,
@@ -209,29 +379,116 @@ export class InboundEmailRepo extends TenantRepo {
     this.requireWrite();
     const current = await this.findById(id);
     if (!current) throw new NotFoundError("Inbound email not found in this household");
+    // Kept ahead of the UPDATE purely for the error message: the common case
+    // is a plain re-run over a processed row, and naming the state it is
+    // already in is more useful than reporting a race that did not happen.
     if (current.status !== "received") {
       throw new ValidationError(`Only a received inbound email can transition; this one is ${current.status}`);
     }
-    await this.run(
+    const changed = await this.runChanges(
       "UPDATE inbound_email SET status = ?2, error = ?3 WHERE {scope} AND id = ?4 AND status = 'received'",
       status,
       error,
       id,
     );
-    return { ...current, status, error };
+    if (changed !== 1) {
+      // Zero: another worker transitioned it in the window above. More than
+      // one is impossible against a primary key and would mean the predicate
+      // no longer identifies a single row — refuse either way rather than
+      // report a transition this call did not make.
+      const persisted = await this.findById(id);
+      throw new ValidationError(
+        `Inbound email ${id} was transitioned concurrently; it is now ` +
+          `${persisted?.status ?? "gone"} and this ${status} transition did not apply`,
+      );
+    }
+    const updated = await this.findById(id);
+    if (!updated) throw new Error("Inbound email disappeared immediately after transition");
+    return updated;
+  }
+
+  /**
+   * Sequential rather than Promise.all: each row is an independent AES-GCM
+   * decrypt, and a household's activity feed is tens of rows, not thousands.
+   * Fanning them out would import the key once per row concurrently for no
+   * measurable gain.
+   */
+  private async toInboundEmails(rows: Row[]): Promise<InboundEmail[]> {
+    const emails: InboundEmail[] = [];
+    for (const row of rows) emails.push(await this.toInboundEmail(row));
+    return emails;
+  }
+
+  private async toInboundEmail(r: Row): Promise<InboundEmail> {
+    const opened = await this.openRaw(r);
+    return {
+      id: r.id,
+      from: r.from_address,
+      to: r.to_address,
+      subject: r.subject,
+      messageId: r.message_id,
+      raw: opened.raw,
+      status: r.status,
+      error: r.error,
+      receivedAt: r.received_at,
+      rawState: opened.state,
+      rawPurgedAt: r.raw_purged_at,
+      // Only a message that is still there has an expiry worth quoting.
+      rawExpiresAt:
+        opened.state === "retained" ? rawRetentionExpiresAt(r.status, r.received_at) : null,
+    };
+  }
+
+  /**
+   * Turn the stored column back into readable text, and say why when it
+   * cannot. Never throws and never drops the row: the caller asked for an
+   * email, and an email whose body cannot be recovered is still an email with
+   * a sender, a subject, a status and drafts hanging off it. (The precedent
+   * to avoid is a confirmation number that fails to decrypt taking its whole
+   * booking out of the list, which reads to the user as lost data.)
+   */
+  private async openRaw(r: Row): Promise<{ raw: string; state: RawRetentionState }> {
+    if (r.raw === "") {
+      return { raw: "", state: r.raw_purged_at === null ? "never-stored" : "purged" };
+    }
+    if (r.raw_encryption !== "envelope") {
+      // Legacy, and the default for every row written before migration 0015:
+      // the column holds the RFC 5322 message itself. Trusting the column
+      // rather than the value's shape is what keeps these readable — a real
+      // message can be any bytes at all, including bytes that resemble an
+      // envelope.
+      return { raw: r.raw, state: "retained" };
+    }
+    if (!this.ring) {
+      console.warn(`[inbound-email] no key ring available to open sealed raw for ${r.id}`);
+      return { raw: "", state: "unreadable" };
+    }
+    try {
+      return { raw: await this.ring.decrypt(r.raw), state: "retained" };
+    } catch (err) {
+      // A key rotated out of the ring, or a corrupted column. Log it — this
+      // is an operator problem, not a user one — and let the row through.
+      console.error(`[inbound-email] could not open sealed raw for ${r.id}`, err);
+      return { raw: "", state: "unreadable" };
+    }
   }
 }
 
-function toInboundEmail(r: Row): InboundEmail {
-  return {
-    id: r.id,
-    from: r.from_address,
-    to: r.to_address,
-    subject: r.subject,
-    messageId: r.message_id,
-    raw: r.raw,
-    status: r.status,
-    error: r.error,
-    receivedAt: r.received_at,
-  };
+/**
+ * One sentence explaining why a message body is not available, written for
+ * the person who forwarded the mail rather than for the operator. Lives here,
+ * beside the states it switches on, so the API route and the re-extraction
+ * endpoint cannot describe the same row two different ways.
+ */
+export function rawUnavailableReason(email: InboundEmail): string | null {
+  switch (email.rawState) {
+    case "retained":
+      return null;
+    case "purged":
+      return "The forwarded message is no longer retained — its retention window has passed, so only the extracted bookings and this summary remain.";
+    case "never-stored":
+      return "No copy of the forwarded message was stored for this email.";
+    case "unreadable":
+      return "The stored copy of this message could not be decrypted with the household's current encryption key.";
+  }
 }

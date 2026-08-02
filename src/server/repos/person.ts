@@ -2,6 +2,7 @@ import { TenantRepo, TenantScopeError, NotFoundError, ValidationError } from "./
 import type { HouseholdContext } from "./base.js";
 import { Keyring, mask, assertNotMasked } from "../crypto/envelope.js";
 import { newId } from "../ids.js";
+import { assertCalendarDate } from "./validation.js";
 
 export const DOCUMENT_FIELDS = [
   "passport_number",
@@ -102,6 +103,26 @@ function rejectMasked(field: string, value: string): void {
   }
 }
 
+/**
+ * The two calendar-date columns a person carries, validated identically on
+ * create and update.
+ *
+ * Neither is decorative. `passportExpiry` is what the trip Overview tab reads
+ * to warn that a passport lapses before (or within six months of) the trip's
+ * own dates, and it does that by comparing the stored string against the
+ * trip's `starts_on` — a comparison that is silently meaningless unless both
+ * sides are exact YYYY-MM-DD. `dob` is stored for the same class of downstream
+ * arithmetic (traveller age at the time of a booking). "2026-02-31" or
+ * "next year" would compare as an ordinary string and quietly answer wrong.
+ */
+function assertPersonDates(input: {
+  dob?: string | null;
+  passportExpiry?: string | null;
+}): void {
+  assertCalendarDate("dob", input.dob);
+  assertCalendarDate("passportExpiry", input.passportExpiry);
+}
+
 type PersonRow = {
   id: string;
   user_id: string | null;
@@ -131,6 +152,7 @@ export class PersonRepo extends TenantRepo {
     // kept as explicit, belt-and-braces intent at the top of every mutating
     // method, not as the sole enforcement.
     this.requireWrite();
+    assertPersonDates(input);
     const id = newId();
     await this.insert("person", {
       id,
@@ -203,6 +225,10 @@ export class PersonRepo extends TenantRepo {
 
   async update(id: string, input: UpdatePersonInput): Promise<Person> {
     this.requireWrite();
+    // The same call create() makes. Unlike a trip's date range there is
+    // nothing here that depends on the stored row — each date stands alone —
+    // so the check needs no effective-pair reconstruction, only the same rule.
+    assertPersonDates(input);
 
     // NotFoundError, not TenantScopeError: an id that isn't in this household
     // is an ordinary bad id, exactly as TripRepo.addTraveler treats it.

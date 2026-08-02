@@ -44,6 +44,10 @@ type TabId = (typeof TABS)[number]["id"];
 
 const DEFAULT_TAB: TabId = "overview";
 
+/** What the hash says this page should be showing. `date` is meaningful only
+ * for the day view; it is null everywhere else. */
+type HashView = { tab: TabId; date: string | null };
+
 /**
  * The banner's ⋯ menu. This was a native `<details>` with an absolutely
  * positioned panel, which failed three ways: the panel was clipped out of
@@ -135,11 +139,48 @@ function TripMenu({
  * The tab lives in the URL hash so a trip view is linkable ("open the
  * checklist for the wedding"), back-button-able, and survives a reload —
  * TripDetail is exactly the page someone sends a family member.
+ *
+ * The day view needs one more thing than a tab id: *which* day. It rides in
+ * the same hash as `#days:2026-10-08`, for the same three reasons — clicking
+ * a day on Overview must be reloadable, back-able, and sendable ("here's the
+ * wedding day"). Colon rather than a query string or a second `#`: a hash may
+ * legally hold one, it keeps `#days` a plain prefix of `#days:<date>`, and it
+ * leaves the bare form the dashboard's "Open day view" button has always
+ * linked to working unchanged.
+ *
+ * Parsing is total — this reads whatever a person or an old bookmark left in
+ * the address bar. An unknown tab, a missing date, a mistyped one and an
+ * impossible one all resolve to a view that renders, never to a throw.
  */
-function tabFromHash(hash: string): TabId {
-  const id = hash.replace(/^#/, "");
+function parseHash(hash: string): HashView {
+  const raw = hash.replace(/^#/, "");
+  const separator = raw.indexOf(":");
+  const id = separator === -1 ? raw : raw.slice(0, separator);
   const match = TABS.find((t) => t.id === id);
-  return match ? match.id : DEFAULT_TAB;
+  if (!match) return { tab: DEFAULT_TAB, date: null };
+  // A suffix on any other tab is meaningless rather than disqualifying: the
+  // tab is still the thing the reader asked for.
+  const suffix = separator === -1 ? "" : raw.slice(separator + 1);
+  return {
+    tab: match.id,
+    date: match.id === "days" ? calendarDate(suffix) : null,
+  };
+}
+
+/** `value` as a YYYY-MM-DD calendar date, or null if it isn't one. The shape
+ * check alone would pass 2026-02-30, which `Date` silently rolls forward to
+ * March 2nd — so the parse is round-tripped, and only a date that survives
+ * unchanged is a real day. */
+function calendarDate(value: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10) === value ? value : null;
+}
+
+/** The hash for a view, inverse of `parseHash`. */
+function hashFor({ tab, date }: HashView): string {
+  return tab === "days" && date ? `${tab}:${date}` : tab;
 }
 
 export function TripDetail({
@@ -159,7 +200,8 @@ export function TripDetail({
   const [rollupLoading, setRollupLoading] = useState(false);
   const [rollupFailed, setRollupFailed] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [tab, setTab] = useState<TabId>(() => tabFromHash(window.location.hash));
+  const [view, setView] = useState<HashView>(() => parseHash(window.location.hash));
+  const tab = view.tab;
   const [addingBooking, setAddingBooking] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [editing, setEditing] = useState(false);
@@ -235,17 +277,41 @@ export function TripDetail({
 
   // Back/forward and hand-edited URLs both arrive as `hashchange`.
   useEffect(() => {
-    const sync = () => setTab(tabFromHash(window.location.hash));
+    const sync = () => setView(parseHash(window.location.hash));
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
 
-  function selectTab(next: TabId) {
-    setTab(next);
+  function selectTab(next: TabId, date?: string) {
+    const target: HashView = { tab: next, date: next === "days" ? date ?? null : null };
+    setView(target);
     // Assigning to location.hash pushes a history entry, which is what makes
-    // the back button walk tabs. Guarded so re-selecting the current tab does
-    // not pile up duplicate entries.
-    if (tabFromHash(window.location.hash) !== next) window.location.hash = next;
+    // the back button walk tabs — and what makes Back out of a day opened
+    // from Overview return to Overview. Guarded so re-selecting the view
+    // already in the URL does not pile up duplicate entries.
+    const current = parseHash(window.location.hash);
+    if (current.tab !== target.tab || current.date !== target.date) {
+      window.location.hash = hashFor(target);
+    }
+  }
+
+  /**
+   * The day view moved itself (the pager). This *replaces* the current entry
+   * rather than pushing one: flipping Oct 9 → 10 → 11 would otherwise bury
+   * Overview under three entries and turn Back into "walk the days again"
+   * — while the point of Back from a day view is to get back to where the
+   * day was chosen. Replacing still leaves the URL copyable and reload-proof,
+   * which is the whole reason the date is in it.
+   *
+   * `view` is deliberately left alone. It records what the last *navigation*
+   * asked for, and re-rendering DayView with a new `requestedDate` on every
+   * page flip would be this component telling the day view what it just told
+   * us. The two only need to agree again on the next hashchange, which
+   * re-reads the URL from scratch.
+   */
+  function showDay(date: string) {
+    const target = `#${hashFor({ tab: "days", date })}`;
+    if (window.location.hash !== target) window.history.replaceState(null, "", target);
   }
 
   /**
@@ -435,6 +501,8 @@ export function TripDetail({
           people={travelers}
           api={api}
           onBookingClick={setSelectedBooking}
+          requestedDate={view.date}
+          onDateChange={showDay}
         />
       )}
       {tab === "costs" && rollup && (

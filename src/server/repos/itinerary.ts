@@ -185,8 +185,14 @@ function itineraryDates(booking: Booking): string[] {
  * Thursday belongs to Thursday even though it lands Friday in another zone.
  *
  * `en-CA` is used because it formats natively as YYYY-MM-DD.
+ *
+ * Exported for the notification digest (#61), which has to answer the exact
+ * same question — "which calendar day does this event belong to?" — when it
+ * decides what goes in tomorrow morning's summary. A second copy over there
+ * would be a second definition, and the two would eventually disagree about
+ * a red-eye.
  */
-function localDateOf(utcInstant: string, ianaZone: string): string {
+export function localDateOf(utcInstant: string, ianaZone: string): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: ianaZone,
     year: "numeric",

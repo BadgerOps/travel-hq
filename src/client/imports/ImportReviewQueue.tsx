@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowClockwise, Check, EnvelopeOpen, Plus, Trash } from "@phosphor-icons/react";
+import {
+  ArrowClockwise,
+  Check,
+  EnvelopeOpen,
+  PencilSimple,
+  Plus,
+  Trash,
+} from "@phosphor-icons/react";
 import { Link } from "wouter";
 import { api as defaultApi, ApiError } from "../api/client.js";
+import { useCanWrite } from "../api/identity.js";
 import type {
   ExtractedBooking,
   ImportReviewResult,
@@ -10,10 +18,19 @@ import type {
 } from "../api/types.js";
 import { DraftBookingCard } from "../components/DraftBookingCard.js";
 import { errorMessage } from "../lib/errors.js";
+import { BookingDialog } from "../trip/BookingDialog.js";
+import { combineRanges, rankTrips } from "../../shared/trip-match.js";
+import type { DateRange, ImportSelection } from "../../shared/trip-match.js";
 import { CreateImportedTripDialog } from "./CreateImportedTripDialog.js";
 import { DuplicateNotice } from "./DuplicateNotice.js";
 // Queue styles ship with the Import page sheet (2b anatomy).
 import "../pages/import.css";
+
+/**
+ * Stands in for "the current selection" in `confirmingDismiss`, which otherwise
+ * holds a draft id. Draft ids are UUIDs, so nothing can collide with it.
+ */
+const BULK_DISMISS = "selection";
 
 type SourceGroup = {
   inboundEmailId: string;
@@ -39,12 +56,36 @@ export function ImportReviewQueue({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<ImportReviewResult | null>(null);
   const [creating, setCreating] = useState(false);
+  /**
+   * The draft being corrected, if any. Extraction is a suggestion, not truth:
+   * a wrong time or confirmation number is fixed HERE, while it is still a
+   * draft, rather than by accepting it and repairing the booking afterwards —
+   * which would mean the wrong value really was the household's data for a
+   * while, on the day view and in the rollups and on everyone else's screen.
+   */
+  const [editing, setEditing] = useState<PendingImportDraft | null>(null);
   /** The accept a 409 refused, kept so "Import anyway" can repeat it. */
   const [conflict, setConflict] = useState<{ draftIds: string[]; tripId: string } | null>(null);
+  /**
+   * The dismiss waiting on its second click: a draft id for a row, or
+   * BULK_DISMISS for the toolbar. Null when nothing is being confirmed.
+   *
+   * Inline rather than `globalThis.confirm()`, which is what this used to be.
+   * The native dialog blocks the whole tab, cannot say WHICH import is about
+   * to go (only a count), and reads as a browser malfunction rather than as
+   * part of the page. Turning the button itself into the confirmation keeps
+   * the row you are acting on visible while you decide, which is the entire
+   * point of asking.
+   */
+  const [confirmingDismiss, setConfirmingDismiss] = useState<string | null>(null);
+  const canWrite = useCanWrite();
 
   async function load(signal?: AbortSignal) {
     setLoading(true);
     setError(null);
+    // A reload can retire the very draft a dismiss was armed against; the
+    // question it was asking no longer has a subject.
+    setConfirmingDismiss(null);
     try {
       const [pendingResult, tripsResult] = await Promise.allSettled([
         api.imports.pending(),
@@ -79,6 +120,23 @@ export function ImportReviewQueue({
 
   const groups = useMemo(() => groupBySource(drafts), [drafts]);
   const selectedDrafts = drafts.filter((draft) => selected.includes(draft.id));
+
+  /**
+   * The "Existing trip" options, best fit first, each carrying the reason it
+   * sits where it does. The ranking is scored against the CURRENT SELECTION —
+   * the union of its dates and the places it names — because that is the
+   * question the control answers: "which trip do these belong on?".
+   *
+   * With nothing selected there is nothing to score against, so every trip
+   * ties and the stable sort leaves the API's own order alone. The picker is
+   * unusable in that state anyway (Add to trip is disabled until something is
+   * selected), and a list that reshuffled itself as you ticked the first
+   * checkbox would be worse than one that simply waits.
+   */
+  const rankedTrips = useMemo(
+    () => rankTrips(trips, importSelection(drafts.filter((draft) => selected.includes(draft.id)))),
+    [trips, drafts, selected],
+  );
 
   function toggle(id: string) {
     setSelected((current) =>
@@ -115,17 +173,13 @@ export function ImportReviewQueue({
     }
   }
 
-  async function dismissSelected() {
-    if (
-      !globalThis.confirm(
-        `Dismiss ${selected.length} selected ${selected.length === 1 ? "import" : "imports"}?`,
-      )
-    ) return;
+  async function dismiss(draftIds: string[]) {
+    setConfirmingDismiss(null);
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const result = await api.imports.dismiss(selected);
+      const result = await api.imports.dismiss(draftIds);
       removeResolved(result.dismissedDraftIds);
     } catch (err) {
       setError(errorMessage(err));
@@ -193,81 +247,107 @@ export function ImportReviewQueue({
             <EnvelopeOpen size={18} aria-hidden="true" />
             <div>
               <strong>All caught up</strong>
-              <p>Forwarded emails and uploaded files will appear here.</p>
+              {/*
+                Says how mail gets here AND points at the one place it can be
+                set up. An empty state that only reports emptiness leaves a
+                household that has never configured forwarding waiting for
+                something that will never arrive.
+              */}
+              <p>
+                Forward a confirmation to your household address, or upload a PDF
+                or EML above, and it will appear here as a draft.{" "}
+                <Link href="/settings">Set up email forwarding in Settings</Link>.
+              </p>
             </div>
           </div>
         )
       ) : (
         <div className="import-queue-body">
-          <div className="import-bulkbar">
-            <label className="import-select-all">
-              <input
-                type="checkbox"
-                aria-label="Select all pending imports"
-                checked={selected.length === drafts.length}
-                ref={(node) => {
-                  if (node) {
-                    node.indeterminate =
-                      selected.length > 0 && selected.length < drafts.length;
+          {/*
+            Every control in here resolves a draft, and the checkboxes exist
+            only to feed them, so the whole bar is a write affordance. A viewer
+            never reaches this component today (pages/Import.tsx swaps the page
+            out, and GET /api/imports/pending is a 403 besides) — this is the
+            belt to that pair of braces, and it keeps "all actions are
+            useCanWrite()-gated" literally true of the queue rather than true
+            only because of where it happens to be mounted.
+          */}
+          {canWrite && (
+            <div className="import-bulkbar">
+              <label className="import-select-all">
+                <input
+                  type="checkbox"
+                  aria-label="Select all pending imports"
+                  checked={selected.length === drafts.length}
+                  ref={(node) => {
+                    if (node) {
+                      node.indeterminate =
+                        selected.length > 0 && selected.length < drafts.length;
+                    }
+                  }}
+                  onChange={() =>
+                    setSelected(
+                      selected.length === drafts.length
+                        ? []
+                        : drafts.map((draft) => draft.id),
+                    )
                   }
-                }}
-                onChange={() =>
-                  setSelected(
-                    selected.length === drafts.length
-                      ? []
-                      : drafts.map((draft) => draft.id),
-                  )
-                }
+                />
+                {selected.length === 0
+                  ? `${drafts.length} pending`
+                  : `${selected.length} selected`}
+              </label>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={selected.length === 0 || busy}
+                onClick={() => setCreating(true)}
+              >
+                <Plus size={14} />
+                Create new trip
+              </button>
+              <DismissControl
+                text="Dismiss selected"
+                label={`Dismiss selected ${selected.length === 1 ? "import" : "imports"}`}
+                confirmLabel={`Dismiss ${selected.length} ${
+                  selected.length === 1 ? "import" : "imports"
+                }?`}
+                disabled={selected.length === 0 || busy}
+                confirming={confirmingDismiss === BULK_DISMISS}
+                onArm={() => setConfirmingDismiss(BULK_DISMISS)}
+                onCancel={() => setConfirmingDismiss(null)}
+                onConfirm={() => void dismiss(selected)}
               />
-              {selected.length === 0
-                ? `${drafts.length} pending`
-                : `${selected.length} selected`}
-            </label>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={selected.length === 0 || busy}
-              onClick={() => setCreating(true)}
-            >
-              <Plus size={14} />
-              Create new trip
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              disabled={selected.length === 0 || busy}
-              onClick={() => void dismissSelected()}
-            >
-              <Trash size={14} />
-              Dismiss selected
-            </button>
-            {trips.length > 0 && (
-              <>
-                <label className="field">
-                  <span className="card-meta">Existing trip</span>
-                  <select
-                    className="input"
-                    aria-label="Existing trip for selected imports"
-                    value={tripId}
-                    onChange={(event) => setTripId(event.target.value)}
+              {trips.length > 0 && (
+                <>
+                  <label className="field">
+                    <span className="card-meta">Existing trip</span>
+                    <select
+                      className="input"
+                      aria-label="Existing trip for selected imports"
+                      value={tripId}
+                      onChange={(event) => setTripId(event.target.value)}
+                    >
+                      <option value="">Choose a trip</option>
+                      {rankedTrips.map(({ trip, match }) => (
+                        <option key={trip.id} value={trip.id}>
+                          {match.label === "" ? trip.title : `${trip.title} — ${match.label}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={selected.length === 0 || tripId === "" || busy}
+                    onClick={() => void accept(selected, tripId)}
                   >
-                    <option value="">Choose a trip</option>
-                    {trips.map((trip) => (
-                      <option key={trip.id} value={trip.id}>{trip.title}</option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  disabled={selected.length === 0 || tripId === "" || busy}
-                  onClick={() => void accept(selected, tripId)}
-                >
-                  Add to trip
-                </button>
-              </>
-            )}
-          </div>
+                    Add to trip
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           {groups.map((group) => {
             const suggested = oneGroupSuggestion(group);
@@ -295,42 +375,72 @@ export function ImportReviewQueue({
                     <span className="tag tag-accent">
                       Suggested trip: {suggested.title}
                     </span>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      disabled={busy}
-                      onClick={() =>
-                        void accept(
-                          group.drafts.map((draft) => draft.id),
-                          suggested.id,
-                        )
-                      }
-                    >
-                      <Check size={14} />
-                      Accept all into {suggested.title}
-                    </button>
+                    {canWrite && (
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        disabled={busy}
+                        onClick={() =>
+                          void accept(
+                            group.drafts.map((draft) => draft.id),
+                            suggested.id,
+                          )
+                        }
+                      >
+                        <Check size={14} />
+                        Accept all into {suggested.title}
+                      </button>
+                    )}
                   </div>
                 )}
 
                 <div className="import-draft-rows">
                   {group.drafts.map((draft) => (
                     <div key={draft.id} className="import-draft-row">
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${draft.title}`}
-                        checked={selected.includes(draft.id)}
-                        disabled={busy}
-                        onChange={() => toggle(draft.id)}
-                      />
+                      {canWrite && (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${draft.title}`}
+                          checked={selected.includes(draft.id)}
+                          disabled={busy}
+                          onChange={() => toggle(draft.id)}
+                        />
+                      )}
                       <div>
-                        <DraftBookingCard booking={asExtractedBooking(draft)} />
+                        <DraftBookingCard
+                          booking={asExtractedBooking(draft)}
+                          source={draft.extractionSource}
+                        />
                         <div className="import-draft-row-tags">
+                          {canWrite && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              aria-label={`Edit ${draft.title}`}
+                              disabled={busy}
+                              onClick={() => setEditing(draft)}
+                            >
+                              <PencilSimple size={14} />
+                              Edit
+                            </button>
+                          )}
+                          {canWrite && (
+                            <DismissControl
+                              label={`Dismiss ${draft.title}`}
+                              confirmLabel={`Dismiss ${draft.title}?`}
+                              disabled={busy}
+                              confirming={confirmingDismiss === draft.id}
+                              onArm={() => setConfirmingDismiss(draft.id)}
+                              onCancel={() => setConfirmingDismiss(null)}
+                              onConfirm={() => void dismiss([draft.id])}
+                            />
+                          )}
                           {draft.suggestedTrip ? (
                             <>
                               <span className="tag tag-accent">
                                 Matches {draft.suggestedTrip.title}
                               </span>
-                              {!suggested && (
+                              {canWrite && !suggested && (
                                 <button
                                   type="button"
                                   className="btn btn-ghost"
@@ -376,8 +486,119 @@ export function ImportReviewQueue({
           onClose={() => setCreating(false)}
         />
       )}
+
+      {/*
+        The SAME dialog as "Add booking" and "Edit booking", in its draft mode
+        — not a second form that could disagree with it about what a car
+        rental has. `people` is empty because a draft has no travellers of its
+        own yet; the dialog hides that section in this mode.
+
+        Reloading rather than patching the row in place: an edit can change
+        which trip the server suggests and what the draft looks like a
+        duplicate of, and both are computed across the whole queue.
+      */}
+      {editing && (
+        <BookingDialog
+          api={api}
+          draft={editing}
+          people={[]}
+          onSaved={() => {
+            setEditing(null);
+            void load();
+          }}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </section>
   );
+}
+
+/**
+ * A dismiss button that becomes its own confirmation.
+ *
+ * One click arms it, the second commits, and "Keep" backs out — so the
+ * destructive step always takes two deliberate clicks without a modal stealing
+ * the page. The armed button names what is about to go ("Dismiss DL 162?"),
+ * which the native dialog it replaced could not do, and it stays in the row so
+ * the reviewer can still read the booking they are deciding about.
+ *
+ * The accessible name changes with the state on purpose: a screen reader user
+ * who has armed the control hears the question, not the verb they just pressed.
+ */
+function DismissControl({
+  text = "Dismiss",
+  label,
+  confirmLabel,
+  disabled,
+  confirming,
+  onArm,
+  onCancel,
+  onConfirm,
+}: {
+  /** Visible wording. The toolbar says "Dismiss selected"; a row says "Dismiss". */
+  text?: string;
+  label: string;
+  confirmLabel: string;
+  disabled: boolean;
+  confirming: boolean;
+  onArm: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        className="btn btn-ghost"
+        aria-label={label}
+        disabled={disabled}
+        onClick={onArm}
+      >
+        <Trash size={14} />
+        {text}
+      </button>
+    );
+  }
+  return (
+    <span className="import-dismiss-confirm">
+      <button
+        type="button"
+        className="btn btn-secondary"
+        aria-label={confirmLabel}
+        disabled={disabled}
+        onClick={onConfirm}
+      >
+        <Trash size={14} />
+        Confirm dismiss
+      </button>
+      <button type="button" className="btn btn-ghost" onClick={onCancel}>
+        Keep
+      </button>
+    </span>
+  );
+}
+
+/** What the trip picker ranks against: the selection's dates and its places. */
+function importSelection(drafts: PendingImportDraft[]): ImportSelection {
+  return {
+    range: combineRanges(drafts.map(draftRange)),
+    locations: drafts.map((draft) => draft.location ?? ""),
+  };
+}
+
+/**
+ * A draft's LOCAL dates — the server already resolved each instant into the
+ * calendar day it falls on in its own zone, which is the only comparison a
+ * trip's `starts_on`/`ends_on` can honestly be made against. A draft dated at
+ * one end only (a hotel with a check-in and no check-out) counts as that one
+ * day rather than as undated.
+ */
+function draftRange(draft: PendingImportDraft): DateRange | null {
+  if (!draft.localStartsOn) return null;
+  return {
+    startsOn: draft.localStartsOn,
+    endsOn: draft.localEndsOn ?? draft.localStartsOn,
+  };
 }
 
 function groupBySource(drafts: PendingImportDraft[]): SourceGroup[] {

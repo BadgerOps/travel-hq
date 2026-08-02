@@ -39,8 +39,12 @@ export type {
   UpdateHouseholdSettingsInput,
 } from "../../server/repos/household-settings.js";
 export type { InboundEmailMetadata } from "../../server/repos/inbound-email.js";
+export type { AuditEntry, AuditEvent } from "../../server/repos/audit.js";
 export type { InboundEmailDetail } from "../../server/routes/inbound-emails.js";
-export type { DraftBooking } from "../../server/repos/draft-booking.js";
+export type {
+  DraftBooking,
+  UpdateDraftBookingInput,
+} from "../../server/repos/draft-booking.js";
 export type { ExtractedBooking } from "../../server/ingest/extracted.js";
 export type { CatalogModel } from "../../server/ingest/model-catalog.js";
 export type { FileImportResult } from "../../server/routes/imports.js";
@@ -51,3 +55,16 @@ export type {
   ImportReviewResult,
 } from "../../server/repos/import-review.js";
 export type { BookingSourceArtifact } from "../../server/routes/bookings.js";
+export type {
+  BookingSubscriptionState,
+  NotificationPreferences,
+  ReminderMode,
+  TimezoneSource,
+  UpdateNotificationPreferencesInput,
+  UserTimezone,
+} from "../../server/repos/notification.js";
+export type {
+  NotificationSettingsResponse,
+  PushDeviceView,
+  TestNotificationResult,
+} from "../../server/routes/notifications.js";

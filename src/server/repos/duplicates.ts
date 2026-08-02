@@ -1,9 +1,10 @@
 import { NotFoundError, ValidationError } from "./base.js";
 import { BookingAwareRepo, toBooking } from "./booking.js";
 import type { Booking, BookingRow, BookingStatus } from "./booking.js";
-import { openConfirmation } from "./confirmation.js";
+import { matchableConfirmation } from "./confirmation.js";
 import { findDuplicates, pairKey } from "../dedupe.js";
 import type { DuplicateCandidate, DuplicateGroup } from "../dedupe.js";
+import { log } from "../logging.js";
 import { parseDetails } from "../schemas/booking-kinds.js";
 
 /**
@@ -55,7 +56,9 @@ export class DuplicateRepo extends BookingAwareRepo {
         // Decrypted for the comparison only. It is never put on a response:
         // the Bookings below carry the same masked value every other endpoint
         // returns, and unmasking stays behind the audited reveal route.
-        confirmation: await openConfirmation(this.ring, row.confirmation_number),
+        // Unreadable rows degrade to no-signal instead of failing the request
+        // — see matchableConfirmation.
+        confirmation: await matchableConfirmation(this.ring, row.confirmation_number, row.id),
       })),
     );
 
@@ -67,12 +70,31 @@ export class DuplicateRepo extends BookingAwareRepo {
 
     const resolved: TripDuplicateGroup[] = [];
     for (const group of groups) {
-      const bookings = await Promise.all(
+      // Matching tolerates an unreadable confirmation (above); *rendering* a
+      // group cannot. A group is a claim that these specific bookings are the
+      // same event, and the UI's merge action needs every member on screen to
+      // be honest about it — so a member that will not convert drops its whole
+      // group rather than showing a partial one the reviewer would act on.
+      // allSettled, not all: when two members of a group are unreadable,
+      // Promise.all adopts the first rejection and leaves the second one
+      // unhandled, which workerd's rejection tracker reports as an error even
+      // though this code handled it. allSettled has no such window.
+      const settled = await Promise.allSettled(
         group.bookingIds.map((id) => {
           const row = byId.get(id)!;
           return toBooking(this.ring, row, peopleByBooking.get(id) ?? []);
         }),
       );
+      const failed = settled.find((result) => result.status === "rejected");
+      if (failed) {
+        log.warn("unrenderable_duplicate_group", {
+          tripId,
+          bookingIds: group.bookingIds,
+          reason: (failed as PromiseRejectedResult).reason?.constructor?.name ?? "unknown",
+        });
+        continue;
+      }
+      const bookings = settled.map((result) => (result as PromiseFulfilledResult<Booking>).value);
       resolved.push({
         reason: group.reason,
         confidence: group.confidence,

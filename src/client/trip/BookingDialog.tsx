@@ -4,7 +4,9 @@ import { api as defaultApi } from "../api/client.js";
 import type {
   Booking,
   BookingStatus,
+  PendingImportDraft,
   Person,
+  ReminderMode,
   Trip,
   UpdateBookingInput,
 } from "../api/types.js";
@@ -23,6 +25,19 @@ import { TravelerToggles } from "../components/TravelerToggles.js";
  * "edit booking" dialog is how the add form and the edit form end up
  * disagreeing about what a car rental has.
  *
+ * And it is the IMPORT-CORRECTION form (pass `draft`), for the same reason
+ * again: a reviewer fixing an extracted flight number before accepting it is
+ * filling in the same fields, validated by the same per-kind schemas, as
+ * someone typing that flight in by hand. A separate draft form would be a
+ * third opinion about what a flight has, and the one most likely to drift —
+ * it is edited least often and every extractor change lands on it first.
+ *
+ * The three modes stay legible because they differ in exactly three places,
+ * each marked below: what the form is SEEDED from (`seed`), which sections are
+ * drawn (a draft has no travellers of its own and no status yet), and which
+ * save runs. Everything between — the kind control, every per-kind fieldset,
+ * the schedule, the cost — is shared verbatim, which is the entire point.
+ *
  * The kind list matches BOOKING_KINDS on the server, "other" included: every
  * booking parsed out of a calendar attachment lands as `other`, and an edit
  * form that cannot show that kind would silently retype an imported excursion
@@ -37,6 +52,26 @@ const KINDS = [
 ] as const;
 
 type Kind = (typeof KINDS)[number]["id"];
+
+/**
+ * The per-booking reminder override (#61), as three named states rather than a
+ * number that sometimes means "none".
+ *
+ * The distinction the control exists to protect: `off` means no reminder at
+ * all, and a lead of `0` means "tell me the moment it starts" — a real choice
+ * for a dinner reservation you are already standing outside. A single nullable
+ * minutes field would make those two indistinguishable to anyone filling the
+ * form in, which is exactly how someone ends up hearing nothing about a flight
+ * they meant to be reminded of at departure.
+ */
+const REMINDER_CHOICES = [
+  { id: "inherit", label: "My default" },
+  { id: "custom", label: "Custom" },
+  { id: "off", label: "No reminder" },
+] as const;
+
+/** Kept in sync by hand with MAX_REMINDER_LEAD_MINUTES in repos/booking.ts. */
+const MAX_REMINDER_LEAD = 7 * 24 * 60;
 
 /** The kinds whose logistics are "be standing here at this time". */
 const EXCURSION_KINDS = new Set<Kind>(["activity", "other"]);
@@ -62,13 +97,32 @@ const COMMON_ZONES = [
 ];
 
 /**
+ * Everything this form seeds itself from, whether that is a stored booking or
+ * a pending import. Both shapes already carry these fields under these names —
+ * `Booking` because it is the row, `PendingImportDraft` because the queue was
+ * built to be pre-fillable — so the seeding code below reads ONE object and
+ * never asks which mode it is in.
+ */
+type BookingSeed = {
+  kind: string;
+  title: string;
+  location: string | null;
+  startsAt: string | null;
+  startsAtTz: string | null;
+  endsAt: string | null;
+  endsAtTz: string | null;
+  costCents: number | null;
+  details: unknown;
+};
+
+/**
  * The viewer's zone, then the curated list, then whatever zones this booking
  * is actually stored in — an imported booking can carry a zone that is on
  * neither list, and a <select> without its own value silently reassigns it.
  */
-function zoneOptions(booking?: Booking): string[] {
+function zoneOptions(seed?: BookingSeed): string[] {
   const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const stored = [booking?.startsAtTz, booking?.endsAtTz].filter(
+  const stored = [seed?.startsAtTz, seed?.endsAtTz].filter(
     (zone): zone is string => typeof zone === "string" && zone !== "",
   );
   return [...new Set([local, ...COMMON_ZONES, ...stored])];
@@ -106,8 +160,8 @@ function detailText(details: unknown, key: string): string {
   return "";
 }
 
-function seedKind(booking: Booking | undefined): Kind {
-  const match = KINDS.find((k) => k.id === booking?.kind);
+function seedKind(seed: BookingSeed | undefined): Kind {
+  const match = KINDS.find((k) => k.id === seed?.kind);
   return match?.id ?? "flight";
 }
 
@@ -119,6 +173,7 @@ function seedLocal(at: string | null | undefined, tz: string | null | undefined)
 export function BookingDialog({
   trip,
   booking,
+  draft,
   people,
   api = defaultApi,
   onSaved,
@@ -130,6 +185,12 @@ export function BookingDialog({
    *  here: the detail dialog that launches an edit has the booking, not the
    *  trip. */
   booking?: Booking;
+  /**
+   * Present to CORRECT A PENDING IMPORT, before it becomes a booking at all.
+   * It has no trip yet — which trip it lands on is the accept's decision, made
+   * separately in the review queue — so `trip` stays absent here too.
+   */
+  draft?: PendingImportDraft;
   /** The trip's travellers, so the toggles list who is actually on this trip. */
   people: Person[];
   api?: typeof defaultApi;
@@ -137,75 +198,95 @@ export function BookingDialog({
   onClose: () => void;
 }) {
   const editing = booking !== undefined;
+  const editingDraft = draft !== undefined;
+  /** MODE DIFFERENCE 1 of 3: what the fields below are pre-filled from. */
+  const seed: BookingSeed | undefined = booking ?? draft;
 
-  const [kind, setKind] = useState<Kind>(() => seedKind(booking));
-  const [title, setTitle] = useState(booking?.title ?? "");
-  const [confirmationNumber, setConfirmationNumber] = useState("");
-  const [location, setLocation] = useState(booking?.location ?? "");
+  const [kind, setKind] = useState<Kind>(() => seedKind(seed));
+  const [title, setTitle] = useState(seed?.title ?? "");
+  // A stored booking's number is masked (see the hint under the field), so the
+  // form starts blank and blank means "leave it". A draft's is held in the
+  // clear — nothing has encrypted it yet — so it is seeded like any other
+  // field, and clearing it means clearing it.
+  const [confirmationNumber, setConfirmationNumber] = useState(
+    draft?.confirmationNumber ?? "",
+  );
+  const [location, setLocation] = useState(seed?.location ?? "");
 
   // Per-kind detail fields. Held flat and assembled per kind at submit time,
   // so switching kinds does not discard what was typed.
-  const [carrier, setCarrier] = useState(() => detailText(booking?.details, "carrier"));
+  const [carrier, setCarrier] = useState(() => detailText(seed?.details, "carrier"));
   const [flightNumber, setFlightNumber] = useState(() =>
-    detailText(booking?.details, "flightNumber"),
+    detailText(seed?.details, "flightNumber"),
   );
-  const [originIata, setOriginIata] = useState(() => detailText(booking?.details, "originIata"));
+  const [originIata, setOriginIata] = useState(() => detailText(seed?.details, "originIata"));
   const [destinationIata, setDestinationIata] = useState(() =>
-    detailText(booking?.details, "destinationIata"),
+    detailText(seed?.details, "destinationIata"),
   );
   const [propertyName, setPropertyName] = useState(() =>
-    detailText(booking?.details, "propertyName"),
+    detailText(seed?.details, "propertyName"),
   );
-  const [vendor, setVendor] = useState(() => detailText(booking?.details, "vendor"));
-  const [venue, setVenue] = useState(() => detailText(booking?.details, "venue"));
+  const [vendor, setVendor] = useState(() => detailText(seed?.details, "vendor"));
+  const [venue, setVenue] = useState(() => detailText(seed?.details, "venue"));
 
   // Excursion (and car) logistics: the pickup and the return. Wall-clock text,
   // not timestamps — see the note on `activityDetails` in the server's
   // booking-kinds schema for why an operator's "Approximate return time: 5:00"
   // must not be promoted to an instant.
-  const [pickupTime, setPickupTime] = useState(() => detailText(booking?.details, "pickupTime"));
+  const [pickupTime, setPickupTime] = useState(() => detailText(seed?.details, "pickupTime"));
   const [pickupLocation, setPickupLocation] = useState(() =>
-    detailText(booking?.details, "pickupLocation"),
+    detailText(seed?.details, "pickupLocation"),
   );
   const [arriveEarly, setArriveEarly] = useState(() =>
-    detailText(booking?.details, "arriveMinutesBefore"),
+    detailText(seed?.details, "arriveMinutesBefore"),
   );
   const [returnTime, setReturnTime] = useState(() =>
-    detailText(booking?.details, "returnTime") || detailText(booking?.details, "dropoffTime"),
+    detailText(seed?.details, "returnTime") || detailText(seed?.details, "dropoffTime"),
   );
   const [dropoffLocation, setDropoffLocation] = useState(() =>
-    detailText(booking?.details, "dropoffLocation"),
+    detailText(seed?.details, "dropoffLocation"),
   );
   const [description, setDescription] = useState(() =>
-    detailText(booking?.details, "description"),
+    detailText(seed?.details, "description"),
   );
 
-  const seededStart = seedLocal(booking?.startsAt, booking?.startsAtTz);
-  const seededEnd = seedLocal(booking?.endsAt, booking?.endsAtTz);
+  const seededStart = seedLocal(seed?.startsAt, seed?.startsAtTz);
+  const seededEnd = seedLocal(seed?.endsAt, seed?.endsAtTz);
   const [startDate, setStartDate] = useState(
-    () => detailText(booking?.details, "checkInDate") || seededStart.slice(0, 10),
+    () => detailText(seed?.details, "checkInDate") || seededStart.slice(0, 10),
   );
   const [startTime, setStartTime] = useState(() => seededStart.slice(11, 16));
-  const [startsAtTz, setStartsAtTz] = useState(booking?.startsAtTz ?? "");
+  const [startsAtTz, setStartsAtTz] = useState(seed?.startsAtTz ?? "");
   const [endDate, setEndDate] = useState(
-    () => detailText(booking?.details, "checkOutDate") || seededEnd.slice(0, 10),
+    () => detailText(seed?.details, "checkOutDate") || seededEnd.slice(0, 10),
   );
   const [endTime, setEndTime] = useState(() => seededEnd.slice(11, 16));
-  const [endsAtTz, setEndsAtTz] = useState(booking?.endsAtTz ?? "");
+  const [endsAtTz, setEndsAtTz] = useState(seed?.endsAtTz ?? "");
   const startsAt = startDate && startTime ? `${startDate}T${startTime}` : "";
   const endsAt = endDate && endTime ? `${endDate}T${endTime}` : "";
 
   const [selected, setSelected] = useState<string[]>(booking?.personIds ?? []);
   const [cost, setCost] = useState(() =>
-    booking?.costCents === null || booking?.costCents === undefined
+    seed?.costCents === null || seed?.costCents === undefined
       ? ""
-      : (booking.costCents / 100).toFixed(2),
+      : (seed.costCents / 100).toFixed(2),
   );
   const [status, setStatus] = useState<BookingStatus>(booking?.status ?? "booked");
+  // Real COLUMNS (reminder_mode / reminder_lead_minutes), not `details` keys,
+  // so they have their own state and their own place in the patch rather than
+  // riding along in details().
+  const [reminderMode, setReminderMode] = useState<ReminderMode>(
+    booking?.reminderMode ?? "inherit",
+  );
+  const [reminderLead, setReminderLead] = useState(
+    booking?.reminderLeadMinutes === null || booking?.reminderLeadMinutes === undefined
+      ? ""
+      : String(booking.reminderLeadMinutes),
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const zones = zoneOptions(booking);
+  const zones = zoneOptions(seed);
   const showExcursion = EXCURSION_KINDS.has(kind);
   const showPickup = showExcursion || kind === "car";
 
@@ -238,7 +319,7 @@ export function BookingDialog({
    * draw still removes its key — that is the point of being able to edit.
    */
   function details(): Record<string, unknown> {
-    const next: Record<string, unknown> = { ...asRecord(booking?.details) };
+    const next: Record<string, unknown> = { ...asRecord(seed?.details) };
     const put = (key: string, value: string) => {
       const trimmed = value.trim();
       if (trimmed === "") delete next[key];
@@ -300,13 +381,39 @@ export function BookingDialog({
     return null;
   }
 
+  /**
+   * The minutes to store, or null to let `custom` fall back to the account
+   * default. Only meaningful when the mode IS custom — the other two modes
+   * store null, because a lead time attached to "off" is a number nothing
+   * reads and everything is confused by.
+   */
+  function reminderLeadValue(): number | null {
+    if (reminderMode !== "custom") return null;
+    const trimmed = reminderLead.trim();
+    if (trimmed === "") return null;
+    return Number(trimmed);
+  }
+
+  function reminderProblem(): string | null {
+    if (reminderMode !== "custom") return null;
+    const trimmed = reminderLead.trim();
+    if (trimmed === "") return null;
+    const value = Number(trimmed);
+    // `< 0`, not `<= 0`: zero minutes is "when it starts", which is the whole
+    // reason this is a mode plus a number instead of one nullable number.
+    if (!Number.isInteger(value) || value < 0 || value > MAX_REMINDER_LEAD) {
+      return `Reminder lead time must be a whole number of minutes from 0 to ${MAX_REMINDER_LEAD}.`;
+    }
+    return null;
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (title.trim() === "") {
       setError("A title is required.");
       return;
     }
-    const problem = detailsProblem();
+    const problem = detailsProblem() ?? reminderProblem();
     if (problem !== null) {
       setError(problem);
       return;
@@ -349,7 +456,10 @@ export function BookingDialog({
     setBusy(true);
     setError(null);
     try {
-      if (booking) {
+      // MODE DIFFERENCE 3 of 3: where the typed values go.
+      if (draft) {
+        await saveDraft(draft, startsUtc, endsUtc, cents);
+      } else if (booking) {
         await saveEdit(booking, startsUtc, endsUtc, cents);
       } else {
         await saveNew(startsUtc, endsUtc, cents);
@@ -386,6 +496,52 @@ export function BookingDialog({
     for (const personId of selected) {
       await api.bookings.assignPerson(created.id, personId);
     }
+    // A follow-up patch rather than a key on the create body: the create route
+    // is the one schema that does not accept the reminder columns, and a
+    // non-strict Zod object would SILENTLY DROP them — an override the operator
+    // watched themselves set and that never existed. A new booking defaults to
+    // 'inherit' server-side, so nothing is sent unless something was chosen.
+    if (reminderMode !== "inherit") {
+      await api.bookings.update(created.id, {
+        reminderMode,
+        reminderLeadMinutes: reminderLeadValue(),
+      });
+    }
+  }
+
+  /**
+   * The correction path: the draft row is patched in place and stays pending,
+   * so the reviewer can fix a wrong time now and decide which trip it belongs
+   * to later. Nothing here creates a booking — the accept still does that, and
+   * it will read exactly these values.
+   *
+   * `null` where a field was emptied, including the confirmation number: a
+   * draft's is shown in the clear, so blank is an instruction rather than the
+   * "leave the masked value alone" it means for a stored booking.
+   *
+   * Travellers are absent on purpose. A draft has no `booking_person` rows to
+   * move; the accept matches the extractor's traveller NAMES against the
+   * household's people, and those names are not this form's to rewrite.
+   */
+  async function saveDraft(
+    current: PendingImportDraft,
+    startsUtc: string | undefined,
+    endsUtc: string | undefined,
+    cents: number | undefined,
+  ) {
+    await api.imports.updateDraft(current.id, {
+      kind,
+      title: title.trim(),
+      details: details(),
+      location: location.trim() === "" ? null : location.trim(),
+      startsAt: startsUtc ?? null,
+      startsAtTz: startsUtc ? startsAtTz : null,
+      endsAt: endsUtc ?? null,
+      endsAtTz: endsUtc ? endsAtTz : null,
+      costCents: cents ?? null,
+      confirmationNumber:
+        confirmationNumber.trim() === "" ? null : confirmationNumber.trim(),
+    });
   }
 
   /**
@@ -412,6 +568,8 @@ export function BookingDialog({
       endsAt: endsUtc ?? null,
       endsAtTz: endsUtc ? endsAtTz : null,
       costCents: cents ?? null,
+      reminderMode,
+      reminderLeadMinutes: reminderLeadValue(),
       ...(confirmationNumber.trim() === ""
         ? {}
         : { confirmationNumber: confirmationNumber.trim() }),
@@ -434,8 +592,8 @@ export function BookingDialog({
 
   return (
     <Dialog
-      title={editing ? "Edit booking" : "Add booking"}
-      subtitle={booking?.title ?? trip?.title}
+      title={editingDraft ? "Edit import" : editing ? "Edit booking" : "Add booking"}
+      subtitle={seed?.title ?? trip?.title}
       onClose={onClose}
     >
       <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
@@ -779,12 +937,74 @@ export function BookingDialog({
           )}
         </fieldset>
 
-        <div className="field">
-          <label htmlFor="bd-who">Who's on it</label>
-          <div id="bd-who">
-            <TravelerToggles people={people} selected={selected} onToggle={toggle} />
+        {/*
+          The reminder override. Absent for a pending import, which has no
+          reminder columns at all — a draft is not schedulable until it becomes
+          a booking, so a control here would edit nothing.
+        */}
+        {!editingDraft && (
+          <fieldset className="card" style={{ display: "grid", gap: 12, padding: 12 }}>
+            <legend style={{ padding: "0 6px", fontWeight: 650 }}>Reminder</legend>
+            <div className="seg" role="radiogroup" aria-label="Reminder" style={{ width: "100%" }}>
+              {REMINDER_CHOICES.map(({ id, label }) => (
+                <label key={id} className="seg-opt" style={{ flex: 1, justifyContent: "center" }}>
+                  <input
+                    type="radio"
+                    name="booking-reminder"
+                    value={id}
+                    checked={reminderMode === id}
+                    onChange={() => setReminderMode(id)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            {reminderMode === "custom" && (
+              <div className="field">
+                <label htmlFor="bd-reminder-lead">Minutes before it starts</label>
+                <input
+                  id="bd-reminder-lead"
+                  className="input"
+                  inputMode="numeric"
+                  placeholder="60"
+                  value={reminderLead}
+                  onChange={(e) => setReminderLead(e.target.value)}
+                />
+                <p className="text-muted" style={{ margin: 0, fontSize: 12 }}>
+                  0 means right when it starts. Leave blank to use your default. To get no
+                  reminder at all, choose “No reminder” above.
+                </p>
+              </div>
+            )}
+            {reminderMode === "inherit" && (
+              <p className="text-muted" style={{ margin: 0, fontSize: 12 }}>
+                Uses the lead time from your notification settings.
+              </p>
+            )}
+            {reminderMode === "off" && (
+              <p className="text-muted" style={{ margin: 0, fontSize: 12 }}>
+                Nobody is reminded about this booking, whatever their own settings say.
+              </p>
+            )}
+          </fieldset>
+        )}
+
+        {/*
+          MODE DIFFERENCE 2 of 3: a pending import has neither of these yet.
+          Travellers are `booking_person` rows that do not exist until the
+          accept creates them (it matches the extractor's names against the
+          household's people), and a draft's status is pending/accepted/
+          dismissed — a queue, not Planned/Booked — resolved by accepting or
+          dismissing it rather than by a control in this form.
+        */}
+        {!editingDraft && (
+          <div className="field">
+            <label htmlFor="bd-who">Who's on it</label>
+            <div id="bd-who">
+              <TravelerToggles people={people} selected={selected} onToggle={toggle} />
+            </div>
           </div>
-        </div>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div className="field">
@@ -798,23 +1018,25 @@ export function BookingDialog({
               onChange={(e) => setCost(e.target.value)}
             />
           </div>
-          <div className="field">
-            <label htmlFor="bd-status">Status</label>
-            <div className="seg" role="radiogroup" aria-label="Status" style={{ width: "100%" }}>
-              {statuses.map((s) => (
-                <label key={s} className="seg-opt" style={{ flex: 1, justifyContent: "center" }}>
-                  <input
-                    type="radio"
-                    name="booking-status"
-                    value={s}
-                    checked={status === s}
-                    onChange={() => setStatus(s)}
-                  />
-                  {STATUS_LABELS[s]}
-                </label>
-              ))}
+          {!editingDraft && (
+            <div className="field">
+              <label htmlFor="bd-status">Status</label>
+              <div className="seg" role="radiogroup" aria-label="Status" style={{ width: "100%" }}>
+                {statuses.map((s) => (
+                  <label key={s} className="seg-opt" style={{ flex: 1, justifyContent: "center" }}>
+                    <input
+                      type="radio"
+                      name="booking-status"
+                      value={s}
+                      checked={status === s}
+                      onChange={() => setStatus(s)}
+                    />
+                    {STATUS_LABELS[s]}
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="dialog-actions">
@@ -822,7 +1044,7 @@ export function BookingDialog({
             Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={busy}>
-            {editing ? "Save changes" : "Save booking"}
+            {editingDraft ? "Save import" : editing ? "Save changes" : "Save booking"}
           </button>
         </div>
       </form>
