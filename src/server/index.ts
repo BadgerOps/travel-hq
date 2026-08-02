@@ -5,6 +5,7 @@ import type { Keyring } from "./crypto/envelope.js";
 import { resolveVerifier } from "./auth.js";
 import type { Identity, WorkerAuthEnv } from "./auth.js";
 import { people } from "./routes/people.js";
+import { household } from "./routes/household.js";
 import { trips } from "./routes/trips.js";
 import { itinerary } from "./routes/itinerary.js";
 import { bookings } from "./routes/bookings.js";
@@ -290,6 +291,10 @@ export function createApp(overrides: AppOverrides = {}) {
   // `viewer` globally and is the exact person #61 exists to serve.
 
   app.route("/api/people", people);
+  // NOT behind requireHouseholdWriter, unlike /api/settings which it sits
+  // beside in the UI: reading the roster is open to every member, and inviting
+  // is owner-only inside HouseholdMemberRepo. See routes/household.ts.
+  app.route("/api/household", household);
   app.route("/api/trips", trips);
   app.route("/api", itinerary);
   app.route("/api/bookings", bookings);
