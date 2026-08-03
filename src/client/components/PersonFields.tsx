@@ -1,9 +1,10 @@
 import { useState } from "react";
 import type { CreatePersonInput, DocumentField, Person, UpdatePersonInput } from "../api/types.js";
 import { MaskedValue } from "./MaskedValue.js";
+import { DocumentReader } from "./DocumentReader.js";
 
 /**
- * The three encrypted columns, in the order they appear on the form. Keyed by
+ * The encrypted document columns, in the order they appear on the form. Keyed by
  * the API's input-field name so a request body is assembled from this list
  * rather than from three near-identical hand-written branches.
  *
@@ -17,6 +18,12 @@ const DOCUMENTS = [
     label: "Passport number",
     masked: "passportNumberMasked",
     field: "passport_number",
+  },
+  {
+    key: "driverLicenseNumber",
+    label: "Driver's licence number",
+    masked: "driverLicenseNumberMasked",
+    field: "driver_license_number",
   },
   {
     key: "knownTravelerNumber",
@@ -73,16 +80,22 @@ export function usePersonFields(person?: Person) {
   const [phone, setPhone] = useState(person?.phone ?? "");
   const [passportExpiry, setPassportExpiry] = useState(person?.passportExpiry ?? "");
   const [passportCountry, setPassportCountry] = useState(person?.passportCountry ?? "");
+  const [driverLicenseExpiry, setDriverLicenseExpiry] = useState(person?.driverLicenseExpiry ?? "");
+  const [driverLicenseJurisdiction, setDriverLicenseJurisdiction] = useState(
+    person?.driverLicenseJurisdiction ?? "",
+  );
 
   // Typed replacements, keyed by document. Empty string means "untouched".
   const [documents, setDocuments] = useState<Record<DocumentKey, string>>({
     passportNumber: "",
+    driverLicenseNumber: "",
     knownTravelerNumber: "",
     redressNumber: "",
   });
   // Documents the operator explicitly asked to clear.
   const [cleared, setCleared] = useState<Record<DocumentKey, boolean>>({
     passportNumber: false,
+    driverLicenseNumber: false,
     knownTravelerNumber: false,
     redressNumber: false,
   });
@@ -134,6 +147,10 @@ export function usePersonFields(person?: Person) {
     setPassportExpiry,
     passportCountry,
     setPassportCountry,
+    driverLicenseExpiry,
+    setDriverLicenseExpiry,
+    driverLicenseJurisdiction,
+    setDriverLicenseJurisdiction,
     documents,
     setDocuments,
     cleared,
@@ -157,6 +174,10 @@ export function usePersonFields(person?: Person) {
         ...(phone.trim() === "" ? {} : { phone: phone.trim() }),
         ...(passportExpiry === "" ? {} : { passportExpiry }),
         ...(passportCountry === "" ? {} : { passportCountry }),
+        ...(driverLicenseExpiry === "" ? {} : { driverLicenseExpiry }),
+        ...(driverLicenseJurisdiction.trim() === ""
+          ? {}
+          : { driverLicenseJurisdiction: driverLicenseJurisdiction.trim() }),
         ...documentPatch("create"),
       };
     },
@@ -169,6 +190,9 @@ export function usePersonFields(person?: Person) {
         phone: phone.trim() === "" ? null : phone.trim(),
         passportExpiry: passportExpiry === "" ? null : passportExpiry,
         passportCountry: passportCountry === "" ? null : passportCountry,
+        driverLicenseExpiry: driverLicenseExpiry === "" ? null : driverLicenseExpiry,
+        driverLicenseJurisdiction:
+          driverLicenseJurisdiction.trim() === "" ? null : driverLicenseJurisdiction.trim(),
         ...documentPatch("edit"),
       };
     },
@@ -265,6 +289,7 @@ export function PersonDocumentFields({
 }) {
   return (
     <>
+      <DocumentReader fields={fields} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div className="field">
           <label htmlFor={`${idPrefix}-expiry`}>Passport expiry</label>
@@ -283,6 +308,28 @@ export function PersonDocumentFields({
             className="input"
             value={fields.passportCountry}
             onChange={(e) => fields.setPassportCountry(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="field">
+          <label htmlFor={`${idPrefix}-driver-license-expiry`}>Driver's licence expiry</label>
+          <input
+            id={`${idPrefix}-driver-license-expiry`}
+            className="input"
+            type="date"
+            value={fields.driverLicenseExpiry}
+            onChange={(e) => fields.setDriverLicenseExpiry(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor={`${idPrefix}-driver-license-jurisdiction`}>Issuing state or country</label>
+          <input
+            id={`${idPrefix}-driver-license-jurisdiction`}
+            className="input"
+            value={fields.driverLicenseJurisdiction}
+            onChange={(e) => fields.setDriverLicenseJurisdiction(e.target.value)}
           />
         </div>
       </div>
@@ -343,4 +390,3 @@ export function PersonDocumentFields({
     </>
   );
 }
-

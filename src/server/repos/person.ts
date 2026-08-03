@@ -7,6 +7,7 @@ import { assertCalendarDate } from "./validation.js";
 
 export const DOCUMENT_FIELDS = [
   "passport_number",
+  "driver_license_number",
   "known_traveler_number",
   "redress_number",
 ] as const;
@@ -23,6 +24,9 @@ export type Person = {
   passportExpiry: string | null;
   passportCountry: string | null;
   passportNumberMasked: string | null;
+  driverLicenseExpiry: string | null;
+  driverLicenseJurisdiction: string | null;
+  driverLicenseNumberMasked: string | null;
   knownTravelerNumberMasked: string | null;
   redressNumberMasked: string | null;
 };
@@ -50,6 +54,9 @@ export type CreatePersonInput = {
   passportNumber?: string;
   passportExpiry?: string;
   passportCountry?: string;
+  driverLicenseNumber?: string;
+  driverLicenseExpiry?: string;
+  driverLicenseJurisdiction?: string;
   knownTravelerNumber?: string;
   redressNumber?: string;
 };
@@ -76,6 +83,9 @@ export type UpdatePersonInput = {
   passportExpiry?: string | null;
   passportCountry?: string | null;
   passportNumber?: string | null;
+  driverLicenseNumber?: string | null;
+  driverLicenseExpiry?: string | null;
+  driverLicenseJurisdiction?: string | null;
   knownTravelerNumber?: string | null;
   redressNumber?: string | null;
 };
@@ -93,10 +103,13 @@ const PLAIN_COLUMNS = {
   notes: "notes",
   passportExpiry: "passport_expiry",
   passportCountry: "passport_country",
+  driverLicenseExpiry: "driver_license_expiry",
+  driverLicenseJurisdiction: "driver_license_jurisdiction",
 } as const;
 
 const ENCRYPTED_COLUMNS = {
   passportNumber: "passport_number",
+  driverLicenseNumber: "driver_license_number",
   knownTravelerNumber: "known_traveler_number",
   redressNumber: "redress_number",
 } as const;
@@ -119,7 +132,7 @@ function rejectMasked(field: string, value: string): void {
 }
 
 /**
- * The two calendar-date columns a person carries, validated identically on
+ * The calendar-date columns a person carries, validated identically on
  * create and update.
  *
  * Neither is decorative. `passportExpiry` is what the trip Overview tab reads
@@ -133,9 +146,11 @@ function rejectMasked(field: string, value: string): void {
 function assertPersonDates(input: {
   dob?: string | null;
   passportExpiry?: string | null;
+  driverLicenseExpiry?: string | null;
 }): void {
   assertCalendarDate("dob", input.dob);
   assertCalendarDate("passportExpiry", input.passportExpiry);
+  assertCalendarDate("driverLicenseExpiry", input.driverLicenseExpiry);
 }
 
 type PersonRow = {
@@ -149,6 +164,9 @@ type PersonRow = {
   passport_expiry: string | null;
   passport_country: string | null;
   passport_number: string | null;
+  driver_license_expiry: string | null;
+  driver_license_jurisdiction: string | null;
+  driver_license_number: string | null;
   known_traveler_number: string | null;
   redress_number: string | null;
 };
@@ -206,6 +224,9 @@ export class PersonRepo extends TenantRepo {
       passport_expiry: input.passportExpiry ?? null,
       passport_country: input.passportCountry ?? null,
       passport_number: await this.seal(input.passportNumber),
+      driver_license_expiry: input.driverLicenseExpiry ?? null,
+      driver_license_jurisdiction: input.driverLicenseJurisdiction ?? null,
+      driver_license_number: await this.seal(input.driverLicenseNumber),
       known_traveler_number: await this.seal(input.knownTravelerNumber),
       redress_number: await this.seal(input.redressNumber),
       created_at: new Date().toISOString(),
@@ -509,6 +530,9 @@ export class PersonRepo extends TenantRepo {
       passportExpiry: r.passport_expiry,
       passportCountry: r.passport_country,
       passportNumberMasked: await this.unsealAndMask(r.passport_number),
+      driverLicenseExpiry: r.driver_license_expiry,
+      driverLicenseJurisdiction: r.driver_license_jurisdiction,
+      driverLicenseNumberMasked: await this.unsealAndMask(r.driver_license_number),
       knownTravelerNumberMasked: await this.unsealAndMask(r.known_traveler_number),
       redressNumberMasked: await this.unsealAndMask(r.redress_number),
     };

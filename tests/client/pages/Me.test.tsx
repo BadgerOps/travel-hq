@@ -17,6 +17,9 @@ const AVA: Person = {
   passportExpiry: "2027-01-15",
   passportCountry: "US",
   passportNumberMasked: "••••2119",
+  driverLicenseExpiry: null,
+  driverLicenseJurisdiction: null,
+  driverLicenseNumberMasked: null,
   knownTravelerNumberMasked: null,
   redressNumberMasked: null,
 };
@@ -213,6 +216,32 @@ describe("Me — documents", () => {
     await userEvent.click(screen.getByRole("button", { name: /save your profile/i }));
     const body = api.people.update.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(body.passportNumber).toBe("X99Z00042");
+  });
+
+  it("keeps driver's licence suggestions in dedicated editable fields", async () => {
+    const api = makeApi();
+    renderMe(api);
+    await userEvent.type(await screen.findByLabelText(/^driver's licence number/i), "D1234567");
+    fireEvent.change(screen.getByLabelText(/driver's licence expiry/i), {
+      target: { value: "2031-04-15" },
+    });
+    await userEvent.type(screen.getByLabelText(/issuing state or country/i), "ID");
+    await userEvent.click(screen.getByRole("button", { name: /save your profile/i }));
+    expect(api.people.update).toHaveBeenCalledWith(
+      "p1",
+      expect.objectContaining({
+        driverLicenseNumber: "D1234567",
+        driverLicenseExpiry: "2031-04-15",
+        driverLicenseJurisdiction: "ID",
+      }),
+    );
+  });
+
+  it("degrades licence scanning to honest manual entry when PDF417 is unsupported", async () => {
+    renderMe();
+    expect(await screen.findByText(/cannot read the barcode on a US licence/i)).toBeInTheDocument();
+    expect(screen.queryByText(/photograph licence back/i)).toBeNull();
+    expect(screen.getByLabelText(/^driver's licence number/i)).toBeInTheDocument();
   });
 
   /**

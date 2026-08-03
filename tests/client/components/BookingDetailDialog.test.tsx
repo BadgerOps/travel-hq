@@ -101,6 +101,9 @@ describe("BookingDetailDialog", () => {
           passportExpiry: null,
           passportCountry: null,
           passportNumberMasked: null,
+          driverLicenseExpiry: null,
+          driverLicenseJurisdiction: null,
+          driverLicenseNumberMasked: null,
           knownTravelerNumberMasked: null,
           redressNumberMasked: null,
         }]}

@@ -21,11 +21,13 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.114.0",
     "@phosphor-icons/react": "^2.1.10",
+    "@tesseract.js-data/eng": "^1.0.0",
     "@vitejs/plugin-react": "^4.4.1",
     "hono": "^4.12.31",
     "jose": "^6.2.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "tesseract.js": "^7.0.0",
     "uuid": "^14.0.1",
     "vite": "^6.0.5",
     "wouter": "^3.10.0",

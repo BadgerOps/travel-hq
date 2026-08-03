@@ -18,6 +18,9 @@ const AVA: Person = {
   passportExpiry: "2027-01-15",
   passportCountry: "US",
   passportNumberMasked: "••••2119",
+  driverLicenseExpiry: null,
+  driverLicenseJurisdiction: null,
+  driverLicenseNumberMasked: null,
   knownTravelerNumberMasked: null,
   redressNumberMasked: null,
 };
