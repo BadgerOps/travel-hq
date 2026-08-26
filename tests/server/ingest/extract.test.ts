@@ -337,6 +337,19 @@ describe("buildExtractionPrompt", () => {
     );
   });
 
+  it("tells the model to infer timezones, charge costs once, and skip payment summaries", () => {
+    const prompt = buildExtractionPrompt({
+      from: "sender@example.com",
+      subject: "Confirmation",
+      textBody: "Body",
+      calendars: [],
+    });
+    expect(prompt.system).toContain("Infer the IANA timezone");
+    expect(prompt.system).toContain("exactly one booking");
+    expect(prompt.system).toContain("outbound flight only");
+    expect(prompt.system).toContain("payment summary");
+  });
+
   it("bounds large forwarded emails while preserving their tail", () => {
     const prompt = buildExtractionPrompt({
       from: "sender@example.com",

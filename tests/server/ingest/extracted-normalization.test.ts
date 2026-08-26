@@ -112,3 +112,46 @@ describe("normalizeExtractedBooking amounts", () => {
     expect(normalizeExtractedBooking(extracted({ costCents: 125.5 })).costCents).toBeNull();
   });
 });
+
+describe("normalizeExtractedBooking kind rescue", () => {
+  it("promotes an unmistakable flight the model labeled other", () => {
+    // Observed live: the same model run that names the carrier, flight
+    // number, and IATA pair still sometimes emits kind "other", and the trip
+    // view then loses the flight semantics.
+    const value = normalizeExtractedBooking({
+      kind: "other",
+      title: "Southwest Airlines WN 768",
+      location: "BOI",
+      details: {
+        carrier: "Southwest Airlines",
+        flightNumber: "WN 768",
+        originIata: "BOI",
+        destinationIata: "OAK",
+      },
+    });
+    expect(value.kind).toBe("flight");
+  });
+});
+
+describe("normalizeExtractedBooking lodging dates", () => {
+  it("keeps a stay whose check dates carry the stated time, truncated to dates", () => {
+    // Chase Travel states "Check-in: Fri, Oct 09, 2026, 04:00 pm"; the model
+    // faithfully emits a datetime, and the date-only details schema must not
+    // demote the whole stay to "other" for it (observed live: the demotion
+    // costs the booking its lodging semantics and its dates in the UI).
+    const value = normalizeExtractedBooking({
+      kind: "lodging",
+      title: "Highlands Resort - Adults Only",
+      details: {
+        propertyName: "Highlands Resort - Adults Only",
+        checkInDate: "2026-10-09T16:00:00",
+        checkOutDate: "2026-10-11T11:00:00",
+      },
+    });
+    expect(value.kind).toBe("lodging");
+    expect(value.details).toMatchObject({
+      checkInDate: "2026-10-09",
+      checkOutDate: "2026-10-11",
+    });
+  });
+});
