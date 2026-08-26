@@ -146,6 +146,56 @@ describe("extraction providers", () => {
     await expect(refused.extract(PROMPT)).rejects.toThrow(/refused/);
   });
 
+  it("reports the token limit when truncated output still contains a complete inner object", async () => {
+    // Real shape observed from @cf/qwen/qwen3-30b-a3b-fp8: reasoning burns the
+    // budget, content is cut mid-array, and the first booking object is the
+    // only balanced JSON in the string. That fragment must never be salvaged
+    // and validated as the response envelope.
+    const truncated = `{"bookings": [${JSON.stringify(BOOKING)}, {"confirmationNumber": "254`;
+    const run = vi.fn(async () => ({
+      choices: [{
+        finish_reason: "length",
+        message: { content: truncated, reasoning: "long deliberation" },
+      }],
+      usage: { completion_tokens: 2_048, total_tokens: 7_837 },
+    }));
+    const provider = new WorkersAiProvider({ run }, "@cf/qwen/qwen3-30b-a3b-fp8", 2_048);
+    await expect(provider.extract(PROMPT)).rejects.toThrow(
+      /ran out of output tokens.*model=@cf\/qwen\/qwen3-30b-a3b-fp8.*max_tokens=2048/,
+    );
+    await expect(provider.extract(PROMPT)).rejects.not.toThrow(/bookings.*\[\.\.\.\]/);
+  });
+
+  it("reports the token limit when the truncated payload arrives in the legacy response field", async () => {
+    // qwen3 (observed live) populates BOTH the legacy top-level `response`
+    // and the OpenAI `choices` envelope; the payload path must not decide
+    // whether the finish_reason diagnosis applies.
+    const truncated = `{"bookings": [${JSON.stringify(BOOKING)}, {"confirmationNumber": "254`;
+    const run = vi.fn(async () => ({
+      response: truncated,
+      choices: [{
+        finish_reason: "length",
+        message: { content: truncated, reasoning: "long deliberation" },
+      }],
+      usage: { completion_tokens: 4_096, total_tokens: 7_837 },
+    }));
+    const provider = new WorkersAiProvider({ run }, "@cf/qwen/qwen3-30b-a3b-fp8", 4_096);
+    await expect(provider.extract(PROMPT)).rejects.toThrow(
+      /ran out of output tokens.*max_tokens=4096/,
+    );
+  });
+
+  it("never salvages a balanced fragment that is not the bookings envelope", async () => {
+    // Legacy `response` path has no finish_reason to blame; a truncated body
+    // whose only balanced object is an inner booking must read as invalid
+    // JSON, not as a wrong-shaped response.
+    const truncated = `Result: {"bookings": [${JSON.stringify(BOOKING)}, {"title": "cut off`;
+    const provider = new WorkersAiProvider({
+      run: vi.fn(async () => ({ response: truncated })),
+    }, "@cf/test");
+    await expect(provider.extract(PROMPT)).rejects.toThrow(/not valid JSON/);
+  });
+
   it("uses Anthropic structured output without a live model call", async () => {
     const create = vi.fn(async () => ({
       content: [{ type: "text", text: JSON.stringify({ bookings: [BOOKING] }) }],
