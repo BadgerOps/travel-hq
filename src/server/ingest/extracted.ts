@@ -251,6 +251,12 @@ function inferredKind(value: z.infer<typeof extractedBookingSchema>): ExtractedB
   ) {
     return "activity";
   }
+  // The details keys land in the haystack via JSON.stringify, so a booking
+  // that names its carrier or IATA pair is identifiable even when the title
+  // is bare. "airline(s)" also catches carrier names in the title itself.
+  if (/\b(?:flight|airlines?|airways|flightnumber|originiata|destinationiata)\b/.test(haystack)) {
+    return "flight";
+  }
   return value.kind;
 }
 
@@ -282,6 +288,15 @@ function detailsForKind(
     }
   }
   if (kind === "lodging") {
+    // A stay stated with times ("Check-in: Fri, Oct 09, 2026, 04:00 pm")
+    // reaches us as a datetime, and the date-only details schema would demote
+    // the whole stay to "other" over the suffix — costing the booking its
+    // lodging semantics and its dates. Keep the date, drop the time.
+    for (const key of ["checkInDate", "checkOutDate"] as const) {
+      const date = details[key];
+      const match = typeof date === "string" ? date.match(/^(\d{4}-\d{2}-\d{2})[T ]/) : null;
+      if (match) details[key] = match[1]!;
+    }
     return {
       propertyName:
         typeof details.propertyName === "string" && details.propertyName.trim() !== ""
