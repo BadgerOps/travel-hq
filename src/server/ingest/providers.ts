@@ -82,7 +82,7 @@ export class WorkersAiProvider implements ExtractionProvider {
         throw providerError("Workers AI JSON fallback", fallbackErr);
       }
     }
-    return validateExtracted(workersPayload(result, this.model));
+    return validateExtracted(workersPayload(result, this.model, this.maxTokens));
   }
 }
 
@@ -199,34 +199,57 @@ export async function resolveExtractionProvider({
   return ai ? new WorkersAiProvider(ai, settings.aiModel, settings.aiMaxTokens) : undefined;
 }
 
-function workersPayload(result: unknown, model: string): unknown {
+function workersPayload(result: unknown, model: string, maxTokens?: number): unknown {
   if (result === null || typeof result !== "object") {
     throw noWorkersResponse(model, result);
   }
 
-  if ("response" in result) {
-    const response = (result as { response: unknown }).response;
-    if (response !== null && response !== undefined && response !== "") {
-      return parseWorkersJson(response);
-    }
-  }
-
-  // Newer Workers AI models use the OpenAI-compatible chat-completions
-  // envelope instead of the legacy top-level `response` field.
+  // Some models (qwen3, observed live) populate BOTH the legacy top-level
+  // `response` field and the OpenAI-compatible chat-completions envelope, so
+  // the choices metadata (refusal, finish_reason) applies to whichever field
+  // carried the payload.
   const choices = (result as {
     choices?: Array<{
       finish_reason?: unknown;
       message?: { content?: unknown; reasoning?: unknown; refusal?: unknown };
     }>;
   }).choices;
-  const message = choices?.[0]?.message;
-  if (message?.refusal) {
-    throw new ExtractionError("The model refused the extraction request");
+
+  let payload: unknown;
+  if ("response" in result) {
+    const response = (result as { response: unknown }).response;
+    if (response !== null && response !== undefined && response !== "") {
+      payload = response;
+    }
   }
-  if (message?.content !== null && message?.content !== undefined && message.content !== "") {
-    return parseWorkersJson(message.content);
+  if (payload === undefined) {
+    const message = choices?.[0]?.message;
+    if (message?.refusal) {
+      throw new ExtractionError("The model refused the extraction request");
+    }
+    if (message?.content !== null && message?.content !== undefined && message?.content !== "") {
+      payload = message?.content;
+    }
   }
-  throw noWorkersResponse(model, result);
+  if (payload === undefined) throw noWorkersResponse(model, result);
+
+  try {
+    return parseWorkersJson(payload);
+  } catch (err) {
+    // Reasoning models burn output tokens on thinking and get cut off
+    // mid-JSON. Blame the budget, not the JSON: "not valid JSON" invites
+    // retrying the same doomed request, and before the envelope guard in
+    // parseWorkersJson the truncated array's first complete booking could
+    // even be salvaged and reported as a wrong-shaped response.
+    if (choices?.[0]?.finish_reason === "length") {
+      throw new ExtractionError(
+        `The model ran out of output tokens before finishing the response ` +
+          `(model=${model}, max_tokens=${maxTokens}). Raise the AI max output ` +
+          `tokens or choose a model that spends fewer tokens on reasoning.`,
+      );
+    }
+    throw err;
+  }
 }
 
 function parseWorkersJson(payload: unknown): unknown {
@@ -249,14 +272,21 @@ function parseWorkersJson(payload: unknown): unknown {
   // the answer. Find a balanced JSON object without treating braces inside
   // JSON strings as structure. Each candidate is still parsed strictly:
   // comments, single quotes, trailing commas, and truncated output fail.
+  // Only the response envelope may be pulled out of surrounding text — a
+  // truncated array's first complete booking is also a balanced object, and
+  // salvaging it would misreport a cut-off response as a wrong-shaped one.
   for (let start = trimmed.indexOf("{"); start >= 0; start = trimmed.indexOf("{", start + 1)) {
     const candidate = balancedObjectAt(trimmed, start);
     if (!candidate) continue;
     const parsed = tryParseJson(candidate);
-    if (parsed.ok) return parsed.value;
+    if (parsed.ok && isResponseEnvelope(parsed.value)) return parsed.value;
   }
 
   throw new ExtractionError("The model response was not valid JSON");
+}
+
+function isResponseEnvelope(value: unknown): boolean {
+  return value !== null && typeof value === "object" && !Array.isArray(value) && "bookings" in value;
 }
 
 type JsonAttempt =
