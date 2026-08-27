@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BookingDetailDialog } from "../../../src/client/components/BookingDetailDialog.js";
+import { TripRoleBoundary } from "../../../src/client/api/identity.js";
 
 const booking = {
   id: "booking-1",
@@ -321,6 +322,62 @@ describe("BookingDetailDialog — notifications", () => {
     renderWith(null);
     expect(await screen.findByText(/entered manually|no source email/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /notify me/i })).toBeNull();
+  });
+});
+
+/**
+ * Deleting from the detail dialog. Two-step arm/confirm like the import
+ * queue's dismiss — the server's DELETE is permanent and has no undo.
+ */
+describe("BookingDetailDialog — delete", () => {
+  it("deletes only after an explicit confirm, and reports it to the parent", async () => {
+    const remove = vi.fn(async () => undefined);
+    const onDeleted = vi.fn();
+    render(
+      <BookingDetailDialog
+        booking={booking}
+        api={{ bookings: { ...noArtifact.bookings, remove } } as never}
+        onDeleted={onDeleted}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: /^Delete / }));
+    // Arming alone must not delete anything.
+    expect(remove).not.toHaveBeenCalled();
+    expect(onDeleted).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: /confirm delete/i }));
+    expect(remove).toHaveBeenCalledWith(booking.id);
+    expect(onDeleted).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the booking when the armed delete is declined", async () => {
+    const remove = vi.fn(async () => undefined);
+    render(
+      <BookingDetailDialog
+        booking={booking}
+        api={{ bookings: { ...noArtifact.bookings, remove } } as never}
+        onDeleted={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: /^Delete / }));
+    await userEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(remove).not.toHaveBeenCalled();
+    // Back to the un-armed state, ready to offer again.
+    expect(screen.getByRole("button", { name: /^Delete / })).toBeInTheDocument();
+  });
+
+  it("offers no delete to a viewer", async () => {
+    render(
+      <TripRoleBoundary role="viewer">
+        <BookingDetailDialog booking={booking} api={noArtifact as never} onClose={vi.fn()} />
+      </TripRoleBoundary>,
+    );
+    await screen.findByText(/entered manually|no source email/i);
+    expect(screen.queryByRole("button", { name: /^Delete / })).toBeNull();
   });
 });
 

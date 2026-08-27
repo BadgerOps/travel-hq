@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BellRinging, BellSlash, Clock, MapPin, PencilSimple } from "@phosphor-icons/react";
+import { BellRinging, BellSlash, Clock, MapPin, PencilSimple, Trash } from "@phosphor-icons/react";
 import { api as defaultApi } from "../api/client.js";
 import type {
   Booking,
@@ -44,6 +44,7 @@ export function BookingDetailDialog({
   api = defaultApi,
   onPeopleChanged,
   onSaved,
+  onDeleted,
   onClose,
 }: {
   booking: Booking;
@@ -56,6 +57,8 @@ export function BookingDetailDialog({
    * how to refresh it (TripDetail reloads the trip and closes the dialog).
    */
   onSaved?: () => void;
+  /** Called after the booking is deleted; the parent closes and reloads. */
+  onDeleted?: () => void;
   onClose: () => void;
 }) {
   const [artifact, setArtifact] = useState<BookingSourceArtifact | null | undefined>(
@@ -66,10 +69,29 @@ export function BookingDetailDialog({
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [peopleBusy, setPeopleBusy] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<BookingSubscriptionState | null>(null);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
   const [subscriptionBusy, setSubscriptionBusy] = useState(false);
   const canWrite = useCanWrite();
+
+  /**
+   * Permanent server-side delete; the dialog's snapshot then describes a row
+   * that no longer exists, so the parent closes and reloads (like onSaved).
+   */
+  async function deleteBooking() {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await api.bookings.remove(booking.id);
+      onDeleted?.();
+    } catch (err) {
+      setDeleteError(errorMessage(err));
+      setDeleteBusy(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -219,7 +241,41 @@ export function BookingDetailDialog({
               <PencilSimple size={14} /> Edit
             </button>
           )}
+          {canWrite && !confirmingDelete && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              aria-label={`Delete ${booking.title}`}
+              onClick={() => setConfirmingDelete(true)}
+            >
+              <Trash size={14} /> Delete
+            </button>
+          )}
+          {canWrite && confirmingDelete && (
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                aria-label={`Confirm delete ${booking.title}`}
+                disabled={deleteBusy}
+                onClick={() => void deleteBooking()}
+              >
+                <Trash size={14} /> Confirm delete
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={deleteBusy}
+                onClick={() => setConfirmingDelete(false)}
+              >
+                Keep
+              </button>
+            </>
+          )}
         </div>
+        {deleteError && (
+          <p className="warning" role="alert" style={{ margin: 0 }}>{deleteError}</p>
+        )}
         <div className="card-meta">{formatBookingWhen(booking, "No date yet")}</div>
         {booking.location && <div className="card-body">{booking.location}</div>}
         <ExcursionLogistics details={booking.details} />
