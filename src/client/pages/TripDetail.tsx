@@ -695,6 +695,12 @@ export function TripDetail({
             setSelectedBooking(null);
             setReloadKey((n) => n + 1);
           }}
+          onDeleted={() => {
+            // Same shape as onSaved, for the same reason — except here the
+            // snapshot describes a row that no longer exists at all.
+            setSelectedBooking(null);
+            setReloadKey((n) => n + 1);
+          }}
           onClose={() => setSelectedBooking(null)}
         />
       )}
